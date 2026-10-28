@@ -98,7 +98,7 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
       <div className="page-title-row">
         <div>
           <h1>模型连接</h1>
-          <p>选择你信任的模型，让算力按你的方式工作。</p>
+          <p>配置服务地址、模型和访问凭据。</p>
         </div>
         <span className={`badge ${snapshot.settings.provider.hasKey ? 'green' : ''}`}>
           <KeyRound size={13} />
@@ -309,7 +309,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
       <div className="page-title-row">
         <div>
           <h1>设备管理</h1>
-          <p>一根 USB 数据线，连接桌面与端侧智能。</p>
+          <p>通过 USB 网络连接开发板，查看状态与端侧能力。</p>
         </div>
         <button
           className="button secondary"

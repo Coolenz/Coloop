@@ -237,11 +237,11 @@ export function App() {
         <div className="sidebar-bottom">
           <div className="local-workspace">
             <span className="workspace-avatar">
-              <span className="owner-initial">c</span>
+              <span className="owner-initial">C</span>
             </span>
             <div>
-              <strong>coolen 的工作区</strong>
-              <small>本地存储 · Windows</small>
+              <strong>本地工作区</strong>
+              <small>Windows 桌面端</small>
             </div>
             <ShieldCheck size={14} />
           </div>
@@ -278,31 +278,20 @@ export function App() {
             {page === 'workspace' && (
               <div className="workspace-content">
                 <div className="page-heading">
-                  <div className="greeting">
-                    <span className="welcome-signal" />
-                    你的 AI 协作空间
+                  <div>
+                    <h1>工作台</h1>
+                    <p>理解屏幕内容，连接模型与设备。</p>
                   </div>
-                  <h1>
-                    你好，coolen<span className="welcome-period">。</span>
-                  </h1>
-                  <p>你的下一步，从屏幕上的一个想法开始。</p>
-                  <div className="workspace-emblem" aria-hidden="true">
-                    <svg viewBox="0 0 180 100" fill="none">
-                      <path
-                        d="M60 17a33 33 0 1 0 0 66M88 50h66a33 33 0 1 0-10 23"
-                        stroke="currentColor"
-                        strokeWidth="10"
-                        strokeLinecap="round"
-                      />
-                      <circle cx="161" cy="84" r="6" fill="#f5b17b" />
-                    </svg>
-                  </div>
+                  <span className="page-context">
+                    <ShieldCheck size={14} />
+                    本地工作区
+                  </span>
                 </div>
                 <section className="composer" aria-label="任务输入">
                   <div className="composer-head">
                     <span>
-                      <BrandMark />
-                      新任务
+                      <Sparkles size={16} />
+                      新建任务
                     </span>
                     <span className="quiet-tag">
                       {target === 'rk' ? '端侧推理' : snapshot.settings.provider.name}
@@ -311,7 +300,7 @@ export function App() {
                   <textarea
                     ref={textarea}
                     aria-label="任务内容"
-                    placeholder="告诉 Coloop，你想完成什么？"
+                    placeholder="输入任务，或附加当前屏幕作为上下文…"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     maxLength={24000}
@@ -377,9 +366,7 @@ export function App() {
                 </div>
                 {selectedTask && <TaskResult task={selectedTask} notify={notify} />}
                 <div className="section-bar section-space">
-                  <h2>
-                    常用工作流<small> 让重复的事，简单一点</small>
-                  </h2>
+                  <h2>快捷操作</h2>
                   <button className="text-button" onClick={() => setPage('workflows')}>
                     全部工作流
                     <ArrowRight size={14} />
@@ -426,8 +413,8 @@ export function App() {
                       <Clock3 size={20} />
                     </span>
                     <div>
-                      <strong>每个好结果，都始于一个想法</strong>
-                      <p>运行一个任务，你的过程与结果就会留在这里。</p>
+                      <strong>还没有任务记录</strong>
+                      <p>运行后的任务和结果会保存在这里。</p>
                     </div>
                     <button className="text-button empty-create" onClick={newTask}>
                       创建第一个任务
@@ -457,10 +444,6 @@ export function App() {
                     ))}
                   </div>
                 )}
-                <div className="workspace-footnote">
-                  <BrandMark /> Made for your next move.{' '}
-                  <span className="footnote-owner">by coolen</span>
-                </div>
               </div>
             )}
 

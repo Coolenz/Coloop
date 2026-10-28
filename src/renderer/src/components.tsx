@@ -28,13 +28,10 @@ export const time = (value: string) =>
   })
 export function Logo({ small = false }: { small?: boolean }) {
   return (
-    <div className={`brand ${small ? 'small' : ''}`} aria-label="Coloop by coolen">
+    <div className={`brand ${small ? 'small' : ''}`} aria-label="Coloop">
       <img className="brand-mark" src={brandMark} alt="" />
       <span className="brand-lockup">
-        <span className="brand-wordmark">
-          coloop<span className="brand-dot">.</span>
-        </span>
-        <small>by coolen</small>
+        <span className="brand-wordmark">Coloop</span>
       </span>
     </div>
   )
@@ -144,102 +141,92 @@ export function DeviceRail({
   const connected = device.status === 'connected'
   return (
     <aside className="inspector">
-      <div className="section-bar">
-        <h3>我的设备</h3>
-        <span className={`connection-pill ${connected ? 'online' : ''}`}>
-          <i />
-          {connected ? '已连接' : device.status === 'connecting' ? '连接中' : '未连接'}
-        </span>
-      </div>
-      <div className="device-showcase">
-        <BoardIllustration />
-        <div className="hardware-caption">
-          <span>端侧计算单元</span>
-          <span>USB / RK3588</span>
-        </div>
-      </div>
-      <h3 className="device-name">
-        LubanCat 4 <span>RK3588</span>
-      </h3>
-      <p className="muted center">与桌面协同的独立算力</p>
-      <div className="device-detail">
-        <div>
-          <span>连接方式</span>
-          <strong>
-            <Cable size={13} /> USB 网络
-          </strong>
-        </div>
-        <div>
-          <span>设备名称</span>
-          <strong>{device.hostname || '等待连接'}</strong>
-        </div>
-        <div>
-          <span>设备内存</span>
-          <strong>
-            {connected ? `${((device.memoryTotalMb || 0) / 1024).toFixed(1)} GB` : '—'}
-          </strong>
-        </div>
-        {connected && (
-          <>
-            <div>
-              <span>可用内存</span>
-              <strong>{((device.memoryAvailableMb || 0) / 1024).toFixed(1)} GB</strong>
-            </div>
-            <div>
-              <span>设备温度</span>
-              <strong>{device.temperatureC?.toFixed(1) ?? '—'} °C</strong>
-            </div>
-          </>
-        )}
-      </div>
-      <button className="button secondary full" onClick={onDevice}>
-        {connected ? '管理设备' : '连接设备'}
-        <ArrowUpRight size={14} />
-      </button>
-      <div className="rail-divider" />
-      <h3>连接的能力</h3>
-      <div className="capability">
-        <span className="capability-icon blue">
-          <ScanText size={17} />
-        </span>
-        <div>
-          <strong>本地文字识别</strong>
-          <p>RapidOCR · 中英文与坐标</p>
-        </div>
-        <Check size={14} className="green" />
-      </div>
-      <button className="capability capability-button" onClick={onModels}>
-        <span className="capability-icon violet">
-          <Cloud size={17} />
-        </span>
-        <div>
-          <strong>云端模型</strong>
-          <p>{hasKey ? '已保存模型凭据' : '添加你的 API Key'}</p>
-        </div>
-        <span className={hasKey ? 'green' : 'muted'}>
-          {hasKey ? <Check size={14} /> : <ArrowUpRight size={14} />}
-        </span>
-      </button>
-      <div className="capability">
-        <span className="capability-icon teal">
-          <Cpu size={17} />
-        </span>
-        <div>
-          <strong>端侧推理</strong>
-          <p>
+      <section className="inspector-section">
+        <div className="section-bar">
+          <h3>设备连接</h3>
+          <span className={`connection-pill ${connected ? 'online' : ''}`}>
+            <i />
             {connected
-              ? device.qwenReady
-                ? 'Qwen3.5-9B · 已部署'
-                : '等待板端模型部署'
-              : '连接设备后检查'}
-          </p>
+              ? '已连接'
+              : device.status === 'connecting'
+                ? '连接中'
+                : device.status === 'error'
+                  ? '连接失败'
+                  : '未连接'}
+          </span>
         </div>
-      </div>
+        <div className="device-identity">
+          <span className="device-glyph">
+            <Cpu size={24} />
+          </span>
+          <div>
+            <h3>LubanCat 4</h3>
+            <p>RK3588 · USB 网络</p>
+          </div>
+        </div>
+        <div className="device-detail">
+          <div>
+            <span>设备名称</span>
+            <strong>{device.hostname || '等待连接'}</strong>
+          </div>
+          <div>
+            <span>可用内存</span>
+            <strong>
+              {connected ? `${((device.memoryAvailableMb || 0) / 1024).toFixed(1)} GB` : '—'}
+            </strong>
+          </div>
+          <div>
+            <span>设备温度</span>
+            <strong>{connected ? `${device.temperatureC?.toFixed(1) ?? '—'} °C` : '—'}</strong>
+          </div>
+        </div>
+        <button className="button secondary full" onClick={onDevice}>
+          <Cable size={15} />
+          {connected ? '管理设备' : '连接设备'}
+        </button>
+      </section>
+      <section className="inspector-section">
+        <h3>能力状态</h3>
+        <div className="capability">
+          <span className="capability-icon">
+            <ScanText size={18} />
+          </span>
+          <div>
+            <strong>本地 OCR</strong>
+            <p>中英文文字与坐标</p>
+          </div>
+          <span className="capability-state green">已接入</span>
+        </div>
+        <button className="capability capability-button" onClick={onModels}>
+          <span className="capability-icon">
+            <Cloud size={18} />
+          </span>
+          <div>
+            <strong>云端模型</strong>
+            <p>{hasKey ? '已保存访问凭据' : '配置模型访问凭据'}</p>
+          </div>
+          <span className={`capability-state ${hasKey ? 'green' : ''}`}>
+            {hasKey ? '已配置' : '待配置'}
+          </span>
+        </button>
+        <div className="capability">
+          <span className="capability-icon">
+            <Cpu size={18} />
+          </span>
+          <div>
+            <strong>端侧模型</strong>
+            <p>Qwen3.5-9B</p>
+          </div>
+          <span className={`capability-state ${connected && device.qwenReady ? 'green' : ''}`}>
+            {connected ? (device.qwenReady ? '已部署' : '未部署') : '待连接'}
+          </span>
+        </div>
+      </section>
       <div className="local-note">
-        <ShieldCheck size={18} />
+        <ShieldCheck size={16} />
         <div>
-          <strong>数据留在你的桌面</strong>
-          <p>图片在本机识别。只有主动运行云端任务时，相关文字才发送到所选模型。</p>
+          <strong>本地优先</strong>
+          <p>图像在本机识别。仅当你运行云端任务时，相关文本才会发送至所选模型。</p>
         </div>
       </div>
     </aside>

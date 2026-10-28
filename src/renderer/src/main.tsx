@@ -1,7 +1,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
-import './design.css'
+import './system.css'
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: string }> {
   state = { error: '' }
