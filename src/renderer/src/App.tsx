@@ -35,7 +35,7 @@ import {
 } from 'lucide-react'
 import type { AppSnapshot, Capture, OcrResult, Task } from '../../shared/contracts'
 import { api, unwrap } from './api'
-import { DeviceRail, Logo, Status, TaskResult, time } from './components'
+import { BrandMark, DeviceRail, Logo, Status, TaskResult, time } from './components'
 import { DevicePage, ModelsPage } from './Settings'
 import { OcrPreview, OcrCoordinates } from './OcrPreview'
 
@@ -218,6 +218,7 @@ export function App() {
           <Plus size={16} />
           新建任务<span>Ctrl N</span>
         </button>
+        <div className="nav-group-label">工作空间</div>
         <nav aria-label="主导航">
           {navigation.map(({ id, name, icon: Icon }) => (
             <button
@@ -236,11 +237,11 @@ export function App() {
         <div className="sidebar-bottom">
           <div className="local-workspace">
             <span className="workspace-avatar">
-              <Command size={17} />
+              <span className="owner-initial">c</span>
             </span>
             <div>
-              <strong>本地工作区</strong>
-              <small>Windows 桌面端</small>
+              <strong>coolen 的工作区</strong>
+              <small>本地存储 · Windows</small>
             </div>
             <ShieldCheck size={14} />
           </div>
@@ -278,16 +279,30 @@ export function App() {
               <div className="workspace-content">
                 <div className="page-heading">
                   <div className="greeting">
-                    <span className="sun-mark">✳</span>你的工作，从这里开始
+                    <span className="welcome-signal" />
+                    你的 AI 协作空间
                   </div>
-                  <h1>让想法，进入工作。</h1>
-                  <p>连接你的设备，让 AI 看懂屏幕、理解任务，协助完成下一步。</p>
+                  <h1>
+                    你好，coolen<span className="welcome-period">。</span>
+                  </h1>
+                  <p>你的下一步，从屏幕上的一个想法开始。</p>
+                  <div className="workspace-emblem" aria-hidden="true">
+                    <svg viewBox="0 0 180 100" fill="none">
+                      <path
+                        d="M60 17a33 33 0 1 0 0 66M88 50h66a33 33 0 1 0-10 23"
+                        stroke="currentColor"
+                        strokeWidth="10"
+                        strokeLinecap="round"
+                      />
+                      <circle cx="161" cy="84" r="6" fill="#f5b17b" />
+                    </svg>
+                  </div>
                 </div>
                 <section className="composer" aria-label="任务输入">
                   <div className="composer-head">
                     <span>
-                      <Sparkles size={15} />
-                      交给 Coloop
+                      <BrandMark />
+                      新任务
                     </span>
                     <span className="quiet-tag">
                       {target === 'rk' ? '端侧推理' : snapshot.settings.provider.name}
@@ -296,7 +311,7 @@ export function App() {
                   <textarea
                     ref={textarea}
                     aria-label="任务内容"
-                    placeholder="描述你想完成的事，或从当前屏幕开始…"
+                    placeholder="告诉 Coloop，你想完成什么？"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     maxLength={24000}
@@ -344,8 +359,9 @@ export function App() {
                         {submitting ? (
                           <LoaderCircle className="spin" size={16} />
                         ) : (
-                          <ArrowUp size={18} />
+                          <ArrowUpRight size={17} />
                         )}
+                        <span>开始运行</span>
                       </button>
                     </div>
                   </div>
@@ -361,7 +377,9 @@ export function App() {
                 </div>
                 {selectedTask && <TaskResult task={selectedTask} notify={notify} />}
                 <div className="section-bar section-space">
-                  <h2>从一个小任务开始</h2>
+                  <h2>
+                    常用工作流<small> 让重复的事，简单一点</small>
+                  </h2>
                   <button className="text-button" onClick={() => setPage('workflows')}>
                     全部工作流
                     <ArrowRight size={14} />
@@ -408,9 +426,13 @@ export function App() {
                       <Clock3 size={20} />
                     </span>
                     <div>
-                      <strong>第一个任务，值得开始</strong>
-                      <p>在上方描述任务，完成的结果会出现在这里。</p>
+                      <strong>每个好结果，都始于一个想法</strong>
+                      <p>运行一个任务，你的过程与结果就会留在这里。</p>
                     </div>
+                    <button className="text-button empty-create" onClick={newTask}>
+                      创建第一个任务
+                      <ArrowRight size={14} />
+                    </button>
                   </div>
                 ) : (
                   <div className="task-list">
@@ -436,7 +458,8 @@ export function App() {
                   </div>
                 )}
                 <div className="workspace-footnote">
-                  <span className="tiny-loop">∞</span> 一个工作台，连接屏幕、模型与设备。
+                  <BrandMark /> Made for your next move.{' '}
+                  <span className="footnote-owner">by coolen</span>
                 </div>
               </div>
             )}

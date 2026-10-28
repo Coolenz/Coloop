@@ -61,10 +61,21 @@ try {
     }
   })
   assert.deepEqual(security, { sandbox: true, contextIsolation: true, nodeIntegration: false })
-  await page.screenshot({ path: resolve(qaDirectory, 'workspace.png') })
-  for (const name of ['屏幕理解', '工作流', '模型连接', '设备管理', '运行历史']) {
+  await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'workspace.png') })
+  const pageNames = {
+    屏幕理解: 'screen',
+    工作流: 'workflows',
+    模型连接: 'models',
+    设备管理: 'device',
+    运行历史: 'history',
+  }
+  for (const name of Object.keys(pageNames)) {
     await page.getByRole('button', { name, exact: true }).first().click()
     await page.getByRole('heading', { name, exact: true }).waitFor()
+    await page.screenshot({
+      animations: 'disabled',
+      path: resolve(qaDirectory, `page-${pageNames[name]}.png`),
+    })
   }
   results.push({ check: 'all six navigation pages render', passed: true })
   await page.getByRole('button', { name: '模型连接', exact: true }).first().click()
@@ -123,7 +134,7 @@ try {
   )
   const closeMessage = page.getByRole('button', { name: '关闭消息', exact: true })
   if (await closeMessage.isVisible()) await closeMessage.click()
-  await page.screenshot({ path: resolve(qaDirectory, 'ocr.png') })
+  await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'ocr.png') })
   await page.getByRole('button', { name: '用于任务', exact: true }).click()
   await page.locator('.context-chip').waitFor()
   results.push({ check: 'OCR text attaches to a task', passed: true })
@@ -151,7 +162,7 @@ try {
     if (boardResult.ok) {
       await page.getByRole('button', { name: '设备管理', exact: true }).first().click()
       await page.getByText('设备已连接', { exact: true }).waitFor()
-      await page.screenshot({ path: resolve(qaDirectory, 'device.png') })
+      await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'device.png') })
       await page.evaluate(() => window.coloop.disconnect())
     }
   }

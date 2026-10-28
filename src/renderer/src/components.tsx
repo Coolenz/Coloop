@@ -15,6 +15,8 @@ import {
 } from 'lucide-react'
 import type { DeviceState, Task } from '../../shared/contracts'
 import { api, unwrap } from './api'
+import brandMark from '../../../resources/brand.svg'
+import { HardwareArt } from './HardwareArt'
 
 export const time = (value: string) =>
   new Date(value).toLocaleString('zh-CN', {
@@ -26,21 +28,19 @@ export const time = (value: string) =>
   })
 export function Logo({ small = false }: { small?: boolean }) {
   return (
-    <div className={`brand ${small ? 'small' : ''}`}>
-      <svg viewBox="0 0 40 40" fill="none" aria-hidden="true">
-        <path
-          d="M27 10H17a10 10 0 0 0 0 20h6a7 7 0 0 0 0-14h-6a3 3 0 0 0 0 6h10a10 10 0 0 0 0-20"
-          stroke="currentColor"
-          strokeWidth="4.5"
-          strokeLinecap="round"
-          transform="translate(0 5) scale(.9)"
-        />
-      </svg>
-      <span>
-        coloop<span className="brand-dot">.</span>
+    <div className={`brand ${small ? 'small' : ''}`} aria-label="Coloop by coolen">
+      <img className="brand-mark" src={brandMark} alt="" />
+      <span className="brand-lockup">
+        <span className="brand-wordmark">
+          coloop<span className="brand-dot">.</span>
+        </span>
+        <small>by coolen</small>
       </span>
     </div>
   )
+}
+export function BrandMark() {
+  return <img className="inline-brand-mark" src={brandMark} alt="" />
 }
 export function Status({ task }: { task: Task }) {
   const Icon =
@@ -69,7 +69,9 @@ export function TaskResult({
     <section className="result-panel">
       <div className="section-bar">
         <div className="result-title">
-          <span className="assistant-symbol">c</span>
+          <span className="assistant-symbol">
+            <BrandMark />
+          </span>
           <strong>Coloop</strong>
           <span className="muted">{task.model}</span>
         </div>
@@ -126,43 +128,7 @@ export function TaskResult({
   )
 }
 export function BoardIllustration() {
-  return (
-    <svg
-      className="board-illustration"
-      viewBox="0 0 250 153"
-      fill="none"
-      aria-label="RK 设备示意图"
-    >
-      <ellipse cx="126" cy="132" rx="80" ry="9" fill="#dce2ee" opacity=".5" />
-      <path d="m49 64 103-33 60 35-106 39Z" fill="#58847a" />
-      <path d="m49 64 57 41v13L49 78Z" fill="#41685f" />
-      <path d="m106 105 106-39v13l-106 39Z" fill="#31584e" />
-      <path d="m100 64 42-14 31 19-44 16Z" fill="#343f4c" />
-      <path d="m100 64 29 21v7l-29-20Z" fill="#232c37" />
-      <path d="m129 85 44-16v7l-44 16Z" fill="#1a2430" />
-      <text x="124" y="70" fill="#c6d8dd" fontSize="8" transform="rotate(-18 124 70)">
-        RK3588
-      </text>
-      <path d="m50 76 21 14v12L50 88Z" fill="#c9d0d7" />
-      <path d="m72 90 20 14v12l-20-14Z" fill="#c9d0d7" />
-      <path d="m72 94 15 10v6l-15-10Z" fill="#647484" />
-      <path d="m166 46 20-6 15 9-19 7Z" fill="#d0d6df" />
-      <path d="m182 56 19-7v14l-19 7Z" fill="#9ba7b6" />
-      <path d="m166 46 16 10v14l-16-11Z" fill="#bcc7d2" />
-      <path d="m191 89 13-5" stroke="#dae6dd" strokeWidth="3" />
-      <circle cx="91" cy="65" r="2" fill="#9ee4c3" />
-      <circle cx="185" cy="76" r="2" fill="#9ee4c3" />
-      <path d="m76 55 15-5m-9 10 15-5m62 30 15-5m-9 10 15-5" stroke="#adc7ad" strokeWidth="2" />
-      <path
-        d="M60 96c-25 4-26 19-7 30 10 6 22 7 36 7"
-        stroke="#8e99ab"
-        strokeWidth="5"
-        strokeLinecap="round"
-      />
-      <rect x="83" y="127" width="20" height="11" rx="3" fill="#c5cdd9" />
-      <rect x="99" y="130" width="7" height="5" rx="1" fill="#8e99ab" />
-    </svg>
-  )
+  return <HardwareArt />
 }
 export function DeviceRail({
   device,
@@ -185,11 +151,17 @@ export function DeviceRail({
           {connected ? '已连接' : device.status === 'connecting' ? '连接中' : '未连接'}
         </span>
       </div>
-      <BoardIllustration />
+      <div className="device-showcase">
+        <BoardIllustration />
+        <div className="hardware-caption">
+          <span>端侧计算单元</span>
+          <span>USB / RK3588</span>
+        </div>
+      </div>
       <h3 className="device-name">
         LubanCat 4 <span>RK3588</span>
       </h3>
-      <p className="muted center">你的桌面 AI 计算伙伴</p>
+      <p className="muted center">与桌面协同的独立算力</p>
       <div className="device-detail">
         <div>
           <span>连接方式</span>
@@ -225,7 +197,7 @@ export function DeviceRail({
         <ArrowUpRight size={14} />
       </button>
       <div className="rail-divider" />
-      <h3>工作区能力</h3>
+      <h3>连接的能力</h3>
       <div className="capability">
         <span className="capability-icon blue">
           <ScanText size={17} />

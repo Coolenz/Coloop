@@ -2,6 +2,12 @@
 
 日期：2026-10-28，Windows 11 x64，本机 `D:\Coloop`。
 
+## 0.2.0 界面与品牌更新
+
+使用 frontend-design skill 调整整体视觉、导航、任务画布、表单与设备示意图；基于 coolen 的字母结构设计 Coloop 标志，导出 SVG、PNG、ICO 与品牌预览。数据模型、设备与云端协议保持兼容。
+
+TypeScript 与生产构建通过；真实 Electron 的 10 项通用联调通过，覆盖六页导航、凭据加密、模型调用、任务取消、离线 OCR、结果附加、截图和历史导出。此次界面更新没有额外运行板端推理。六个页面均生成截图做视觉复核，位于 `.qa/page-*.png` 和 `.qa/workspace.png`；最终 Windows 程序为 `release/Coloop-0.2.0-Windows-x64.exe`。
+
 ## 自动检查
 
 - TypeScript：renderer、preload、主进程与测试均通过。
