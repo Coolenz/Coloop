@@ -1,5 +1,9 @@
 @echo off
 cd /d "%~dp0"
+if exist "release\Coloop-0.4.0-Windows-x64.exe" (
+  start "" "release\Coloop-0.4.0-Windows-x64.exe"
+  exit /b 0
+)
 if exist "release\Coloop-0.3.0-Windows-x64.exe" (
   start "" "release\Coloop-0.3.0-Windows-x64.exe"
   exit /b 0

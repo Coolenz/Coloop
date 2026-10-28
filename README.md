@@ -2,7 +2,7 @@
 
 Windows 上的 RK 智能设备工作台。连接 USB 设备，在本机识别屏幕，再交给云端或端侧模型分析。
 
-0.3.0 统一了产品名称 **Coloop** 与组件设计规范：采用 8px 主要间距、四档字级、统一控件高度和 12/8px 两级圆角；导航、任务、状态与表单使用同一套样式。Logo 使用等半径双环，移除个人署名与装饰字母。品牌源文件位于 `resources/brand.svg`，预览为 `resources/logo-preview.png`，Windows 图标同步更新。
+0.4.0 按照类似 macOS 的极简桌面风格更新：浅灰侧栏、白色主工作区、更多留白、轻边界与柔和任务层级。六个页面共享组件规范；名称保持 **Coloop**，不含个人署名。品牌源文件位于 `resources/brand.svg`，预览为 `resources/logo-preview.png`。
 
 仓库位于 `D:\Coloop`。开发前已初始化 Git，首个提交为 `c1102c8`；没有上传到远端。
 
@@ -60,7 +60,7 @@ npm run package:win
 
 `test:e2e` 使用真实 Electron、真实 RapidOCR 和本机 HTTP 测试服务，不消耗云端额度；需上述已安装 OCR 环境。设置 `COLOOP_TEST_BOARD_PASSWORD` 可额外验证真实 USB 设备健康读取；测试配置与历史写入独立的 `.qa` 目录。测试不执行桌面点击、键盘输入或板端模型推理。
 
-打包入口使用本机安装的 Electron 精确版本，生成 `release/Coloop-0.3.0-Windows-x64.exe` 和 `release/win-unpacked/Coloop.exe`。换电脑时，需要另行准备 RK OCR 环境并设置路径；当前发布物没有复制整个 Python 环境。可执行程序未做代码签名。
+打包入口使用本机安装的 Electron 精确版本，生成 `release/Coloop-0.4.0-Windows-x64.exe` 和 `release/win-unpacked/Coloop.exe`。换电脑时，需要另行准备 RK OCR 环境并设置路径；当前发布物没有复制整个 Python 环境。可执行程序未做代码签名。
 
 ## 当前边界
 
