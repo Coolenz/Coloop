@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-electron/
+out/
+.qa/
 release/
 coverage/
 test-results/
@@ -12,3 +14,5 @@ playwright-report/
 .cache/
 runtime-data/
 *.tsbuildinfo
+__pycache__/
+*.pyc
