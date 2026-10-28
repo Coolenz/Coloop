@@ -4,18 +4,6 @@ if exist "release\Coloop-0.4.0-Windows-x64.exe" (
   start "" "release\Coloop-0.4.0-Windows-x64.exe"
   exit /b 0
 )
-if exist "release\Coloop-0.3.0-Windows-x64.exe" (
-  start "" "release\Coloop-0.3.0-Windows-x64.exe"
-  exit /b 0
-)
-if exist "release\Coloop-0.2.0-Windows-x64.exe" (
-  start "" "release\Coloop-0.2.0-Windows-x64.exe"
-  exit /b 0
-)
-if exist "release\Coloop-0.1.0-Windows-x64.exe" (
-  start "" "release\Coloop-0.1.0-Windows-x64.exe"
-  exit /b 0
-)
 if exist "release\win-unpacked\Coloop.exe" (
   start "" "release\win-unpacked\Coloop.exe"
   exit /b 0
