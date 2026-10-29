@@ -1,0 +1,45 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "autoupdate": false,
+  "share": "disabled",
+  "enabled_providers": ["rkllm"],
+  "model": "rkllm/deepseek-rkllm",
+  "small_model": "rkllm/deepseek-rkllm",
+  "default_agent": "rk-local",
+  "provider": {
+    "rkllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Local RKLLM NPU",
+      "options": {"baseURL": "http://127.0.0.1:8088/v1", "apiKey": "{env:RK_AGENT_API_KEY}", "timeout": 240000},
+      "models": {
+        "deepseek-rkllm": {
+          "name": "DeepSeek 1.5B on RK3588 (experimental)",
+          "tool_call": true,
+          "reasoning": false,
+          "limit": {"context": 4096, "output": 512},
+          "options": {"maxTokens": 512}
+        }
+      }
+    }
+  },
+  "agent": {
+    "rk-chat": {
+      "description": "Text-only local chat, no tool execution.",
+      "mode": "primary",
+      "prompt": "You are a helpful assistant. Answer briefly in the user's language.",
+      "permission": {"*": "deny"}
+    },
+    "rk-local": {
+      "description": "Local RK3588 agent, initially limited to reading files.",
+      "mode": "primary",
+      "prompt": "You are a local assistant on a Linux board. Be concise. Use the read tool to inspect files when needed. Report only actual tool results. Do not claim to have executed actions without a tool result.",
+      "steps": 3,
+      "permission": {"*": "deny", "read": "allow"}
+    },
+    "title": {"disable": true},
+    "summary": {"disable": true}
+  },
+  "compaction": {"auto": false, "prune": false},
+  "mcp": {},
+  "plugin": []
+}

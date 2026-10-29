@@ -1,0 +1,8 @@
+numpy==1.26.4
+onnx==1.16.1
+onnxruntime==1.20.1
+opencv-python==4.10.0.84
+Pillow>=10,<12
+pyserial==3.5
+ruff==0.14.2
+paramiko==5.1.0

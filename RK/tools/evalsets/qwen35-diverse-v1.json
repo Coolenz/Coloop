@@ -1,0 +1,31 @@
+{
+  "name": "qwen35-diverse-v1",
+  "source": "Project-authored diagnostic questions; not a public standardized benchmark.",
+  "scope": "20 non-math questions and 4 math controls. Prompts and expected answers fixed before inference; every case uses a fresh model process.",
+  "cases": [
+    {"id":"knowledge-capital","category":"knowledge","prompt":"法国的首都是哪里？只回答城市名。","expected":"巴黎","accepted":["巴黎","Paris"]},
+    {"id":"knowledge-water","category":"knowledge","prompt":"水的化学式是什么？只回答化学式。","expected":"H2O","accepted":["H2O","H₂O"]},
+    {"id":"knowledge-moon","category":"knowledge","prompt":"地球的天然卫星是什么？只回答名称。","expected":"月球","accepted":["月球","月亮"]},
+    {"id":"reading-location","category":"reading","prompt":"阅读材料：小林把红钥匙放在书包里，把蓝钥匙放在抽屉里。后来，他只把红钥匙移到了桌上。问题：红钥匙最后在哪里？只回答地点。","expected":"桌上","accepted":["桌上","桌子上","桌子上面"]},
+    {"id":"reading-schedule","category":"reading","prompt":"阅读公告：图书馆周三闭馆，周四正常开放，周五只在上午开放。问题：哪一天全天闭馆？只回答星期。","expected":"周三","accepted":["周三","星期三"]},
+    {"id":"reading-reference","category":"reading","prompt":"阅读材料：小雨借给小林一本小说。第二天，小林把这本书还给了小雨。问题：最后这本小说在谁手里？只回答人名。","expected":"小雨","accepted":["小雨"]},
+    {"id":"extract-email","category":"extraction","prompt":"从下面文本提取邮箱地址，只输出邮箱：联系人李明，电话暂缺，邮箱 li.ming@example.com，所在城市杭州。","expected":"li.ming@example.com","accepted":["li.ming@example.com"]},
+    {"id":"extract-json","category":"extraction","prompt":"根据材料输出一个JSON对象，只包含name和city两个字段，不要代码块和解释。材料：姓名：林晓；城市：杭州；职业：教师。","expected":"{\"name\":\"林晓\",\"city\":\"杭州\"}","json_expected":{"name":"林晓","city":"杭州"}},
+    {"id":"extract-unknown","category":"extraction","prompt":"材料：王老师今天乘地铁来学校，穿了一件蓝色外套。问题：王老师的手机号码是多少？材料没有提到就只回答“未提供”。","expected":"未提供","accepted":["未提供"]},
+    {"id":"translate-umbrella","category":"translation","prompt":"把下面英文翻译成中文，只输出译文：I forgot to bring my umbrella.","expected":"我忘记带伞了。","accepted":["我忘记带伞了","我忘了带伞","我忘带伞了","我忘记带我的雨伞了","我忘了带雨伞"]},
+    {"id":"translate-window","category":"translation","prompt":"把下面中文翻译成英文，只输出译文：请关上窗户。","expected":"Please close the window.","accepted":["Please close the window","Please shut the window"]},
+    {"id":"translate-negation","category":"translation","prompt":"把下面英文翻译成中文，只输出译文：The package has not arrived yet.","expected":"包裹还没有到。","accepted":["包裹还没有到","包裹还没到","包裹尚未到达","包裹还没有到达","包裹还未到达"]},
+    {"id":"classify-sentiment","category":"classification","prompt":"判断评论情感，只回答“正面”或“负面”：等了很久才收到，包装破了，体验令人失望。","expected":"负面","accepted":["负面"]},
+    {"id":"classify-topic","category":"classification","prompt":"将文本分为“交通”“饮食”“体育”中的一类，只输出类别：这趟列车晚点了，我需要办理退票。","expected":"交通","accepted":["交通"]},
+    {"id":"classify-contradiction","category":"classification","prompt":"材料：有些鸟不会飞。判断说法“所有鸟都会飞”与材料的关系。只回答“支持”“矛盾”或“无法判断”。","expected":"矛盾","accepted":["矛盾"]},
+    {"id":"instruction-condition","category":"instruction","prompt":"规则：句子含“雨”就输出“带伞”，否则输出“不用带伞”。句子：明天有雨。只输出规则要求的结果。","expected":"带伞","accepted":["带伞"]},
+    {"id":"instruction-format","category":"instruction","prompt":"按给定顺序输出这两个词：蓝色、绿色。用一个英文逗号分隔，不要空格，不要其他内容。","expected":"蓝色,绿色","accepted":["蓝色,绿色"]},
+    {"id":"instruction-ready","category":"instruction","prompt":"只输出大写英文单词READY，不要解释，不要其他内容。","expected":"READY","accepted":["READY"]},
+    {"id":"reasoning-order","category":"reasoning","prompt":"红色方块在蓝色方块左边，蓝色方块在绿色方块左边。最左边的方块是什么颜色？只回答颜色。","expected":"红色","accepted":["红色","红"]},
+    {"id":"reasoning-category","category":"reasoning","prompt":"所有猫都是哺乳动物，小白是一只猫。根据这两句话，小白属于哪一类动物？只回答“哺乳动物”或“爬行动物”。","expected":"哺乳动物","accepted":["哺乳动物"]},
+    {"id":"math-expression","category":"math","prompt":"计算20-3*4，只回答最终数字。","expected":"8","accepted":["8"]},
+    {"id":"math-original","category":"math","prompt":"请用中文简短回答：20元买3支笔，每支4元，还剩多少钱？","expected":"8元","accepted":["8元","还剩8元","还剩8元钱","8"]},
+    {"id":"math-total-price","category":"math","prompt":"三支笔总价12元，我付了20元，应找回多少元？只回答数字。","expected":"8","accepted":["8"]},
+    {"id":"math-multiply","category":"math","prompt":"6乘7等于多少？只回答数字。","expected":"42","accepted":["42"]}
+  ]
+}

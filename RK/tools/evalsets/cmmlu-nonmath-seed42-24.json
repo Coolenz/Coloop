@@ -1,0 +1,498 @@
+{
+  "name": "cmmlu-nonmath-seed42-24",
+  "log_label": "cmmlu",
+  "source": "Public CMMLU data/test; original questions, options and answer keys.",
+  "scope": "24 zero-shot questions, 4 per selected non-math subject. Small diagnostic subset; not a full CMMLU benchmark or comparable leaderboard score.",
+  "provenance": {
+    "repository": "https://github.com/haonan-li/CMMLU",
+    "revision": "d6e7b716d8ac694f38969a6c0407437d1fded799",
+    "seed": 42,
+    "sampling": "Python random.Random(42), 4 random rows per subject, in fixed subject order; selected before inference.",
+    "subjects": [
+      "elementary_chinese",
+      "elementary_commonsense",
+      "chinese_history",
+      "world_history",
+      "chinese_literature",
+      "business_ethics"
+    ],
+    "files": {
+      "elementary_chinese": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/elementary_chinese.csv",
+        "sha256": "6b01b98f8e5d9423095adfef329974e3b1f48a02bd7e92d202d7c46912bbb798",
+        "total_rows": 252,
+        "selected_zero_based_row_indices": [
+          6,
+          28,
+          163,
+          189
+        ]
+      },
+      "elementary_commonsense": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/elementary_commonsense.csv",
+        "sha256": "ebe564f23db3bb74b7a52bcf06f5eabc4a5ba649c7c50261385c431999af6e11",
+        "total_rows": 198,
+        "selected_zero_based_row_indices": [
+          35,
+          57,
+          62,
+          70
+        ]
+      },
+      "chinese_history": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/chinese_history.csv",
+        "sha256": "1f7b977f5e3ff67eb5a910c3adce74c725fccb7ab286ef97e266eeffbbc51644",
+        "total_rows": 323,
+        "selected_zero_based_row_indices": [
+          44,
+          52,
+          279,
+          302
+        ]
+      },
+      "world_history": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/world_history.csv",
+        "sha256": "c90510266dde54e3878b6fa7b00d8c85285f75daed398e0c19353eb66e9e23f0",
+        "total_rows": 161,
+        "selected_zero_based_row_indices": [
+          7,
+          8,
+          23,
+          108
+        ]
+      },
+      "chinese_literature": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/chinese_literature.csv",
+        "sha256": "6214c6e48a22c8e9960cd1653e3720125d68d3035ef7d1c390c9e6d1eaa8c34c",
+        "total_rows": 204,
+        "selected_zero_based_row_indices": [
+          55,
+          59,
+          129,
+          154
+        ]
+      },
+      "business_ethics": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/business_ethics.csv",
+        "sha256": "86cf9918c75f73b084faebea7dd0866bd6e95950a27ca874501303703f986953",
+        "total_rows": 209,
+        "selected_zero_based_row_indices": [
+          6,
+          50,
+          143,
+          183
+        ]
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "elementary_chinese-6",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“塞”在字典中有如下解释：①塞子；②边关，塞外；③重要的地方；④把窟窿堵住。在“军事要塞”这个词中它应选\nA. ①\nB. ②\nC. ④\nD. ③",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 6,
+      "question": "“塞”在字典中有如下解释：①塞子；②边关，塞外；③重要的地方；④把窟窿堵住。在“军事要塞”这个词中它应选",
+      "options": {
+        "A": "①",
+        "B": "②",
+        "C": "④",
+        "D": "③"
+      }
+    },
+    {
+      "id": "elementary_chinese-28",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下列植物中，不应当出现在《岁寒三友图》中的是\nA. 梅\nB. 兰\nC. 菊\nD. 竹",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 28,
+      "question": "下列植物中，不应当出现在《岁寒三友图》中的是",
+      "options": {
+        "A": "梅",
+        "B": "兰",
+        "C": "菊",
+        "D": "竹"
+      }
+    },
+    {
+      "id": "elementary_chinese-163",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“已是悬崖百丈冰，犹有花枝俏”这两句词描写的是\nA. 秋天景色\nB. 冬天景色\nC. 夏天景色\nD. 春天景色",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 163,
+      "question": "“已是悬崖百丈冰，犹有花枝俏”这两句词描写的是",
+      "options": {
+        "A": "秋天景色",
+        "B": "冬天景色",
+        "C": "夏天景色",
+        "D": "春天景色"
+      }
+    },
+    {
+      "id": "elementary_chinese-189",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下列民间爱情故事起源年代最早的是\nA. 《白蛇传》\nB. 《梁山仙与祝英台》\nC. 《西厢记》\nD. 《唐伯虎点秋香》",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 189,
+      "question": "下列民间爱情故事起源年代最早的是",
+      "options": {
+        "A": "《白蛇传》",
+        "B": "《梁山仙与祝英台》",
+        "C": "《西厢记》",
+        "D": "《唐伯虎点秋香》"
+      }
+    },
+    {
+      "id": "elementary_commonsense-35",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n防弹衣是由什么材料制成的\nA. 软不透钢\nB. 钨合金钢\nC. 镍合金钢\nD. 陶瓷玻璃钢",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 35,
+      "question": "防弹衣是由什么材料制成的",
+      "options": {
+        "A": "软不透钢",
+        "B": "钨合金钢",
+        "C": "镍合金钢",
+        "D": "陶瓷玻璃钢"
+      }
+    },
+    {
+      "id": "elementary_commonsense-57",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n重一点的烫伤应立即用冷水冲洗()分钟以上\nA. 30\nB. 40\nC. 20\nD. 50",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 57,
+      "question": "重一点的烫伤应立即用冷水冲洗()分钟以上",
+      "options": {
+        "A": "30",
+        "B": "40",
+        "C": "20",
+        "D": "50"
+      }
+    },
+    {
+      "id": "elementary_commonsense-62",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n公共聚集场所发生突发事件被踩倒不能站立时，应采取___姿势\nA. 身体蜷缩成球状，双手抱头\nB. 仰面朝上\nC. 平爬地上\nD. 其他选项均可",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 62,
+      "question": "公共聚集场所发生突发事件被踩倒不能站立时，应采取___姿势",
+      "options": {
+        "A": "身体蜷缩成球状，双手抱头",
+        "B": "仰面朝上",
+        "C": "平爬地上",
+        "D": "其他选项均可"
+      }
+    },
+    {
+      "id": "elementary_commonsense-70",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n火警电话是\nA. 110\nB. 119\nC. 911\nD. 114",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 70,
+      "question": "火警电话是",
+      "options": {
+        "A": "110",
+        "B": "119",
+        "C": "911",
+        "D": "114"
+      }
+    },
+    {
+      "id": "chinese_history-44",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n某学者评唐朝三省制时指出:“凡未加盖‘中书门下之印，未经政事堂议决副署，而由皇帝直接发出的命令，在当时是被认为违制的，不能为下属机关所承认。冶这里所谓“违制”的论断，主要指皇帝背离了\nA. 尚书省负责执行诏令的定制\nB. 门下省执掌诏令草拟的职能\nC. 诏令须由政事堂议决的制度\nD. 中书省监察地方政务的惯例",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 44,
+      "question": "某学者评唐朝三省制时指出:“凡未加盖‘中书门下之印，未经政事堂议决副署，而由皇帝直接发出的命令，在当时是被认为违制的，不能为下属机关所承认。冶这里所谓“违制”的论断，主要指皇帝背离了",
+      "options": {
+        "A": "尚书省负责执行诏令的定制",
+        "B": "门下省执掌诏令草拟的职能",
+        "C": "诏令须由政事堂议决的制度",
+        "D": "中书省监察地方政务的惯例"
+      }
+    },
+    {
+      "id": "chinese_history-52",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n直到1917年初，《新青年》在答读者问时还这样写道：“社会主义，理想甚高，学派亦甚复杂。惟是说之兴，中国似可缓于欧洲，因产业未兴、兼并未盛行也。”《新青年》之所以这样回答，主要是因为\nA. 社会主义理论学派复杂学.科网\nB. 尚未看到社会主义实践成果\nC. 对社会主义持怀疑态度\nD. 中国经济落后于欧洲",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 52,
+      "question": "直到1917年初，《新青年》在答读者问时还这样写道：“社会主义，理想甚高，学派亦甚复杂。惟是说之兴，中国似可缓于欧洲，因产业未兴、兼并未盛行也。”《新青年》之所以这样回答，主要是因为",
+      "options": {
+        "A": "社会主义理论学派复杂学.科网",
+        "B": "尚未看到社会主义实践成果",
+        "C": "对社会主义持怀疑态度",
+        "D": "中国经济落后于欧洲"
+      }
+    },
+    {
+      "id": "chinese_history-279",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n唐太宗对南朝后期竞相模仿萧子云书法的风气表示不屑，认为其“仅得成书，无丈夫之气”，只有王羲之的书法才“尽善尽美”，于是连西州（今吐鲁番）幼童习字的范本都是王羲之书帖。王羲之在中国书法史地位的确立，是因为\nA. 皇帝好恶决定社会对艺术的评判\nB. 王羲之的艺术成就不可超越\nC. 朝代更替影响艺术评判标准\nD. 艺术水平与时代选择的共同作用",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 279,
+      "question": "唐太宗对南朝后期竞相模仿萧子云书法的风气表示不屑，认为其“仅得成书，无丈夫之气”，只有王羲之的书法才“尽善尽美”，于是连西州（今吐鲁番）幼童习字的范本都是王羲之书帖。王羲之在中国书法史地位的确立，是因为",
+      "options": {
+        "A": "皇帝好恶决定社会对艺术的评判",
+        "B": "王羲之的艺术成就不可超越",
+        "C": "朝代更替影响艺术评判标准",
+        "D": "艺术水平与时代选择的共同作用"
+      }
+    },
+    {
+      "id": "chinese_history-302",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“从宋代起，棉花开始成为一种重要纺织原料……到了元代，丝、麻、棉鼎足而三，明代以后，棉花的重要性超过麻。”出现这些变化的前提条件是\nA. 棉花成为经济作物\nB. 政府的大力推广\nC. 棉纺织技术的改进\nD. 商品经济的发展",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 302,
+      "question": "“从宋代起，棉花开始成为一种重要纺织原料……到了元代，丝、麻、棉鼎足而三，明代以后，棉花的重要性超过麻。”出现这些变化的前提条件是",
+      "options": {
+        "A": "棉花成为经济作物",
+        "B": "政府的大力推广",
+        "C": "棉纺织技术的改进",
+        "D": "商品经济的发展"
+      }
+    },
+    {
+      "id": "world_history-7",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“佛罗伦萨人文主义派甚至采取更惊人的步骤，他们反对对财富的谴责，并且创立这样一种学说：在上帝眼中，贫穷并不是显示品德的惟一方法。”由此可见，人文主义者\nA. 揶揄上帝\nB. 反对安于清贫的说教\nC. 鄙视贫穷\nD. 认为财富即道德",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 7,
+      "question": "“佛罗伦萨人文主义派甚至采取更惊人的步骤，他们反对对财富的谴责，并且创立这样一种学说：在上帝眼中，贫穷并不是显示品德的惟一方法。”由此可见，人文主义者",
+      "options": {
+        "A": "揶揄上帝",
+        "B": "反对安于清贫的说教",
+        "C": "鄙视贫穷",
+        "D": "认为财富即道德"
+      }
+    },
+    {
+      "id": "world_history-8",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n工业革命前，英国矿井里使用蒸汽唧筒抽水。1765年，修理过唧筒的瓦特发明了一种单动式蒸汽机，后在工厂主的合作和资助下，终于改进制成“万能蒸汽机”，并广泛使用到工业领域。该过程表明，第一次工业革命期间生产领域的主要发明创造\nA. 取决于资金保障\nB. 依赖于科学理论的突破\nC. 源自于劳动实践\nD. 得益于各阶层广泛参与",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 8,
+      "question": "工业革命前，英国矿井里使用蒸汽唧筒抽水。1765年，修理过唧筒的瓦特发明了一种单动式蒸汽机，后在工厂主的合作和资助下，终于改进制成“万能蒸汽机”，并广泛使用到工业领域。该过程表明，第一次工业革命期间生产领域的主要发明创造",
+      "options": {
+        "A": "取决于资金保障",
+        "B": "依赖于科学理论的突破",
+        "C": "源自于劳动实践",
+        "D": "得益于各阶层广泛参与"
+      }
+    },
+    {
+      "id": "world_history-23",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n共和党人艾森豪威尔成为美国总统后说：“如果任何政党试图要废除社会保障、劳工法和农场项目，那你就不会在美国历史上再听说这个政党了。”这反映出艾森豪威尔的主张\nA. 与民主党政策逐渐趋于一致\nB. 受到罗斯福新政的影响\nC. 强调国家对经济的干预\nD. 延续了共和党传统经济政策",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 23,
+      "question": "共和党人艾森豪威尔成为美国总统后说：“如果任何政党试图要废除社会保障、劳工法和农场项目，那你就不会在美国历史上再听说这个政党了。”这反映出艾森豪威尔的主张",
+      "options": {
+        "A": "与民主党政策逐渐趋于一致",
+        "B": "受到罗斯福新政的影响",
+        "C": "强调国家对经济的干预",
+        "D": "延续了共和党传统经济政策"
+      }
+    },
+    {
+      "id": "world_history-108",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n美国前国务卿杜勒斯说，如果亚非国家养成一种在西方缺席的情况下经常开会的习惯，由于有众多的人口，印度和中国无疑将控制局面，这可能最终形成一个反对西方的集团。他希望这次会议开不起来。杜勒斯针对的是\nA. 恢复中国在联合国合法席位的“联大”会议\nB. 以“求同存异”促进会议成功的万隆会议\nC. 倡导和平共处五项原则的中印会谈\nD. 和平解决印度支那问题的日内瓦会议",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 108,
+      "question": "美国前国务卿杜勒斯说，如果亚非国家养成一种在西方缺席的情况下经常开会的习惯，由于有众多的人口，印度和中国无疑将控制局面，这可能最终形成一个反对西方的集团。他希望这次会议开不起来。杜勒斯针对的是",
+      "options": {
+        "A": "恢复中国在联合国合法席位的“联大”会议",
+        "B": "以“求同存异”促进会议成功的万隆会议",
+        "C": "倡导和平共处五项原则的中印会谈",
+        "D": "和平解决印度支那问题的日内瓦会议"
+      }
+    },
+    {
+      "id": "chinese_literature-55",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n散文《雅舍》中，“雅舍”是指作者梁实秋的\nA. 乡间别墅\nB. 简陋宿舍\nC. 书房\nD. 友人的乡间别墅",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 55,
+      "question": "散文《雅舍》中，“雅舍”是指作者梁实秋的",
+      "options": {
+        "A": "乡间别墅",
+        "B": "简陋宿舍",
+        "C": "书房",
+        "D": "友人的乡间别墅"
+      }
+    },
+    {
+      "id": "chinese_literature-59",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n散文《童年二题》的作者是\nA. 牛汉\nB. 周涛\nC. 琦君\nD. 杨绛",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 59,
+      "question": "散文《童年二题》的作者是",
+      "options": {
+        "A": "牛汉",
+        "B": "周涛",
+        "C": "琦君",
+        "D": "杨绛"
+      }
+    },
+    {
+      "id": "chinese_literature-129",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n《少女小渔》中，不属于“小渔”性格的特点是\nA. 有同情心\nB. 纯真\nC. 善良\nD. 为自己而活",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 129,
+      "question": "《少女小渔》中，不属于“小渔”性格的特点是",
+      "options": {
+        "A": "有同情心",
+        "B": "纯真",
+        "C": "善良",
+        "D": "为自己而活"
+      }
+    },
+    {
+      "id": "chinese_literature-154",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n冰心属于下列哪一个文学社团\nA. 新月社\nB. 语丝社\nC. 文学研究会\nD. 创造社",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 154,
+      "question": "冰心属于下列哪一个文学社团",
+      "options": {
+        "A": "新月社",
+        "B": "语丝社",
+        "C": "文学研究会",
+        "D": "创造社"
+      }
+    },
+    {
+      "id": "business_ethics-6",
+      "category": "business_ethics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n有理性、会算计、追求自利最大化的人，被亚当·斯密称为\nA. 社会人\nB. 经济人\nC. 道德人\nD. 自然人",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 6,
+      "question": "有理性、会算计、追求自利最大化的人，被亚当·斯密称为",
+      "options": {
+        "A": "社会人",
+        "B": "经济人",
+        "C": "道德人",
+        "D": "自然人"
+      }
+    },
+    {
+      "id": "business_ethics-50",
+      "category": "business_ethics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n企业立业之根本要求是\nA. 诚实守信\nB. 社会利益\nC. 盈利\nD. 增大竞争力",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 50,
+      "question": "企业立业之根本要求是",
+      "options": {
+        "A": "诚实守信",
+        "B": "社会利益",
+        "C": "盈利",
+        "D": "增大竞争力"
+      }
+    },
+    {
+      "id": "business_ethics-143",
+      "category": "business_ethics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下面不属于世界贸易组织的基本原则的是\nA. 相互协调原则\nB. 贸易自由化原则\nC. 非歧视性原则\nD. 公平贸易原则",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 143,
+      "question": "下面不属于世界贸易组织的基本原则的是",
+      "options": {
+        "A": "相互协调原则",
+        "B": "贸易自由化原则",
+        "C": "非歧视性原则",
+        "D": "公平贸易原则"
+      }
+    },
+    {
+      "id": "business_ethics-183",
+      "category": "business_ethics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n公平交易的实质是\nA. 互惠互利\nB. 等价交换\nC. 自愿\nD. 诚实无欺",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 183,
+      "question": "公平交易的实质是",
+      "options": {
+        "A": "互惠互利",
+        "B": "等价交换",
+        "C": "自愿",
+        "D": "诚实无欺"
+      }
+    }
+  ]
+}

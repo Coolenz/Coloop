@@ -1,0 +1,17 @@
+{
+  "repository": "Qengineering/Qwen3.5-9B-rk3588",
+  "revision": "8e14580be5ac58feadd2f463efd4200963ec7b9e",
+  "source_script": "RK/tools/prepare_qwen35.py",
+  "files": {
+    "qwen3.5-9b_w8a8_rk3588.rkllm": {
+      "bytes": 10083149164,
+      "sha256": "4180199f3cef72a8fa30328475f4c83fcc88508fa167e0407d28321030508281",
+      "url": "https://huggingface.co/Qengineering/Qwen3.5-9B-rk3588/resolve/8e14580be5ac58feadd2f463efd4200963ec7b9e/qwen3.5-9b_w8a8_rk3588.rkllm"
+    },
+    "qwen3.5-9b_vision_rk3588.rknn": {
+      "bytes": 955398641,
+      "sha256": "6f16af0ba5bd86c951acb26b443480dcfc7ca50400d3100f1d0f576eace0d59f",
+      "url": "https://huggingface.co/Qengineering/Qwen3.5-9B-rk3588/resolve/8e14580be5ac58feadd2f463efd4200963ec7b9e/qwen3.5-9b_vision_rk3588.rknn"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+.cache/
+.runtime/
+logs/
+build/
+__pycache__/
+.venv/
+.venv-memory/
+.env
+config.local.json
+*.rkllm
+*.rknn
+*.so
+*.tar.gz
+vendor/
+workspace/
+bin/
+*.part

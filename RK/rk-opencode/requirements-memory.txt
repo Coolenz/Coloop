@@ -1,0 +1,4 @@
+# Mem0 upstream policy; isolated from OCR and existing host environments.
+mem0ai==2.2.1
+fastembed==0.9.1
+onnxruntime==1.23.2

@@ -1,0 +1,2 @@
+# Only needed to rebuild the pinned C-Eval sample, not for inference.
+pyarrow==23.0.1

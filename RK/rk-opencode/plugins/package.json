@@ -1,0 +1,9 @@
+{
+  "name": "rk-opencode-local-plugins",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/plugin": "1.19.5"
+  }
+}

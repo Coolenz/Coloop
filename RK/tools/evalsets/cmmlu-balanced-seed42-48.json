@@ -1,0 +1,946 @@
+{
+  "name": "cmmlu-balanced-seed42-48",
+  "log_label": "cmmlu-balanced48",
+  "source": "Public CMMLU data/test; original questions, options and answer keys.",
+  "scope": "48 zero-shot questions, 6 per selected subject. Fixed diagnostic subset; not a full CMMLU benchmark or comparable leaderboard score.",
+  "provenance": {
+    "repository": "https://github.com/haonan-li/CMMLU",
+    "revision": "d6e7b716d8ac694f38969a6c0407437d1fded799",
+    "seed": 42,
+    "sampling": "Python random.Random(42), 6 random rows per subject, in fixed subject order; selected before inference.",
+    "subjects": [
+      "elementary_chinese",
+      "elementary_commonsense",
+      "chinese_history",
+      "world_history",
+      "chinese_literature",
+      "computer_science",
+      "elementary_mathematics",
+      "high_school_mathematics"
+    ],
+    "files": {
+      "elementary_chinese": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/elementary_chinese.csv",
+        "sha256": "6b01b98f8e5d9423095adfef329974e3b1f48a02bd7e92d202d7c46912bbb798",
+        "total_rows": 252,
+        "selected_zero_based_row_indices": [
+          6,
+          28,
+          62,
+          70,
+          163,
+          189
+        ]
+      },
+      "elementary_commonsense": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/elementary_commonsense.csv",
+        "sha256": "ebe564f23db3bb74b7a52bcf06f5eabc4a5ba649c7c50261385c431999af6e11",
+        "total_rows": 198,
+        "selected_zero_based_row_indices": [
+          26,
+          35,
+          57,
+          173,
+          188,
+          189
+        ]
+      },
+      "chinese_history": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/chinese_history.csv",
+        "sha256": "1f7b977f5e3ff67eb5a910c3adce74c725fccb7ab286ef97e266eeffbbc51644",
+        "total_rows": 323,
+        "selected_zero_based_row_indices": [
+          15,
+          16,
+          44,
+          216,
+          279,
+          302
+        ]
+      },
+      "world_history": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/world_history.csv",
+        "sha256": "c90510266dde54e3878b6fa7b00d8c85285f75daed398e0c19353eb66e9e23f0",
+        "total_rows": 161,
+        "selected_zero_based_row_indices": [
+          6,
+          23,
+          55,
+          59,
+          129,
+          154
+        ]
+      },
+      "chinese_literature": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/chinese_literature.csv",
+        "sha256": "6214c6e48a22c8e9960cd1653e3720125d68d3035ef7d1c390c9e6d1eaa8c34c",
+        "total_rows": 204,
+        "selected_zero_based_row_indices": [
+          50,
+          139,
+          143,
+          166,
+          179,
+          183
+        ]
+      },
+      "computer_science": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/computer_science.csv",
+        "sha256": "5a0ba2cf68147a330ac37a34cf4c68bd4590d9f5dd7e5ea5eee7b49fbe9ded6b",
+        "total_rows": 204,
+        "selected_zero_based_row_indices": [
+          1,
+          56,
+          71,
+          107,
+          114,
+          150
+        ]
+      },
+      "elementary_mathematics": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/elementary_mathematics.csv",
+        "sha256": "53ec0f72b779347388a515f15a8f6bf77da0954574664c4b866dd78e4fdd06bc",
+        "total_rows": 230,
+        "selected_zero_based_row_indices": [
+          40,
+          87,
+          108,
+          178,
+          194,
+          206
+        ]
+      },
+      "high_school_mathematics": {
+        "source": "https://raw.githubusercontent.com/haonan-li/CMMLU/d6e7b716d8ac694f38969a6c0407437d1fded799/data/test/high_school_mathematics.csv",
+        "sha256": "8fa2fd48768defe7473e1b13f3d3864f792ae99a153f1eb6fea8b4d2842f021d",
+        "total_rows": 164,
+        "selected_zero_based_row_indices": [
+          23,
+          26,
+          39,
+          55,
+          71,
+          86
+        ]
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "elementary_chinese-6",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“塞”在字典中有如下解释：①塞子；②边关，塞外；③重要的地方；④把窟窿堵住。在“军事要塞”这个词中它应选\nA. ①\nB. ②\nC. ④\nD. ③",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 6,
+      "question": "“塞”在字典中有如下解释：①塞子；②边关，塞外；③重要的地方；④把窟窿堵住。在“军事要塞”这个词中它应选",
+      "options": {
+        "A": "①",
+        "B": "②",
+        "C": "④",
+        "D": "③"
+      }
+    },
+    {
+      "id": "elementary_chinese-28",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下列植物中，不应当出现在《岁寒三友图》中的是\nA. 梅\nB. 兰\nC. 菊\nD. 竹",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 28,
+      "question": "下列植物中，不应当出现在《岁寒三友图》中的是",
+      "options": {
+        "A": "梅",
+        "B": "兰",
+        "C": "菊",
+        "D": "竹"
+      }
+    },
+    {
+      "id": "elementary_chinese-62",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n《百家姓》中没有下面哪个姓\nA. 巫\nB. 肖\nC. 乌\nD. 萧",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 62,
+      "question": "《百家姓》中没有下面哪个姓",
+      "options": {
+        "A": "巫",
+        "B": "肖",
+        "C": "乌",
+        "D": "萧"
+      }
+    },
+    {
+      "id": "elementary_chinese-70",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下面哪个成语和曹操有关\nA. 破釜沉舟\nB. 望梅止渴\nC. 画饼充饥\nD. 守株待兔",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 70,
+      "question": "下面哪个成语和曹操有关",
+      "options": {
+        "A": "破釜沉舟",
+        "B": "望梅止渴",
+        "C": "画饼充饥",
+        "D": "守株待兔"
+      }
+    },
+    {
+      "id": "elementary_chinese-163",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“已是悬崖百丈冰，犹有花枝俏”这两句词描写的是\nA. 秋天景色\nB. 冬天景色\nC. 夏天景色\nD. 春天景色",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 163,
+      "question": "“已是悬崖百丈冰，犹有花枝俏”这两句词描写的是",
+      "options": {
+        "A": "秋天景色",
+        "B": "冬天景色",
+        "C": "夏天景色",
+        "D": "春天景色"
+      }
+    },
+    {
+      "id": "elementary_chinese-189",
+      "category": "elementary_chinese",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下列民间爱情故事起源年代最早的是\nA. 《白蛇传》\nB. 《梁山仙与祝英台》\nC. 《西厢记》\nD. 《唐伯虎点秋香》",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 189,
+      "question": "下列民间爱情故事起源年代最早的是",
+      "options": {
+        "A": "《白蛇传》",
+        "B": "《梁山仙与祝英台》",
+        "C": "《西厢记》",
+        "D": "《唐伯虎点秋香》"
+      }
+    },
+    {
+      "id": "elementary_commonsense-26",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n上下学路上遭雷雨时\nA. 躲到树下\nB. 以上都是\nC. 躲到高楼墙边\nD. 尽量避开大树与高楼墙边",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 26,
+      "question": "上下学路上遭雷雨时",
+      "options": {
+        "A": "躲到树下",
+        "B": "以上都是",
+        "C": "躲到高楼墙边",
+        "D": "尽量避开大树与高楼墙边"
+      }
+    },
+    {
+      "id": "elementary_commonsense-35",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n防弹衣是由什么材料制成的\nA. 软不透钢\nB. 钨合金钢\nC. 镍合金钢\nD. 陶瓷玻璃钢",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 35,
+      "question": "防弹衣是由什么材料制成的",
+      "options": {
+        "A": "软不透钢",
+        "B": "钨合金钢",
+        "C": "镍合金钢",
+        "D": "陶瓷玻璃钢"
+      }
+    },
+    {
+      "id": "elementary_commonsense-57",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n重一点的烫伤应立即用冷水冲洗()分钟以上\nA. 30\nB. 40\nC. 20\nD. 50",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 57,
+      "question": "重一点的烫伤应立即用冷水冲洗()分钟以上",
+      "options": {
+        "A": "30",
+        "B": "40",
+        "C": "20",
+        "D": "50"
+      }
+    },
+    {
+      "id": "elementary_commonsense-173",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n在对抗性或者具有风险性的体育竞赛活动中发生意外伤害的，学校已履行了相应职责，行为并无不当的，学校（）法律责任\nA. 有\nB. 无\nC. 有一部分\nD. 无，但要赔偿经济损失",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 173,
+      "question": "在对抗性或者具有风险性的体育竞赛活动中发生意外伤害的，学校已履行了相应职责，行为并无不当的，学校（）法律责任",
+      "options": {
+        "A": "有",
+        "B": "无",
+        "C": "有一部分",
+        "D": "无，但要赔偿经济损失"
+      }
+    },
+    {
+      "id": "elementary_commonsense-188",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n在野外遇到龙卷风，应迅速向龙卷风前进的()方向或者向()移动躲避\nA. 顺、正\nB. 逆、侧\nC. 西、东\nD. 东、西",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 188,
+      "question": "在野外遇到龙卷风，应迅速向龙卷风前进的()方向或者向()移动躲避",
+      "options": {
+        "A": "顺、正",
+        "B": "逆、侧",
+        "C": "西、东",
+        "D": "东、西"
+      }
+    },
+    {
+      "id": "elementary_commonsense-189",
+      "category": "elementary_commonsense",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n黄酒名品加饭酒的产地是\nA. 山东\nB. 浙江\nC. 河北\nD. 广东",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 189,
+      "question": "黄酒名品加饭酒的产地是",
+      "options": {
+        "A": "山东",
+        "B": "浙江",
+        "C": "河北",
+        "D": "广东"
+      }
+    },
+    {
+      "id": "chinese_history-15",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n1919年11月，全国各界联合会在上海成立，发表宣言：“数月以来，国内之群众运动，风起云涌，虽受种种压迫，而前仆后继，不少顾却；大义当前，绝不退让……全国各地，知合群自救为万不可缓之图。”这说明，当时参加联合会的各界团体\nA. 对社会改造道路认识趋于一致\nB. 反思资产阶级个人主义的弊端\nC. 接受了马克思主义\nD. 爱国觉悟得到提高",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 15,
+      "question": "1919年11月，全国各界联合会在上海成立，发表宣言：“数月以来，国内之群众运动，风起云涌，虽受种种压迫，而前仆后继，不少顾却；大义当前，绝不退让……全国各地，知合群自救为万不可缓之图。”这说明，当时参加联合会的各界团体",
+      "options": {
+        "A": "对社会改造道路认识趋于一致",
+        "B": "反思资产阶级个人主义的弊端",
+        "C": "接受了马克思主义",
+        "D": "爱国觉悟得到提高"
+      }
+    },
+    {
+      "id": "chinese_history-16",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n晚清时期清政府实行专利制度，允许企业享有长时间生产经营垄断权。1912年北京政府规定专利保护期限最高为5年。后财政总长周学熙等为其所设公司申请30年的专利权时，未获批准。这反映了民国初期\nA. 中央政府限制官营商业的发展\nB. 建立了系统完善的经济法制体系\nC. 经济法规得以完全遵照执行\nD. 经济立法鼓励工商业自由竞争",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 16,
+      "question": "晚清时期清政府实行专利制度，允许企业享有长时间生产经营垄断权。1912年北京政府规定专利保护期限最高为5年。后财政总长周学熙等为其所设公司申请30年的专利权时，未获批准。这反映了民国初期",
+      "options": {
+        "A": "中央政府限制官营商业的发展",
+        "B": "建立了系统完善的经济法制体系",
+        "C": "经济法规得以完全遵照执行",
+        "D": "经济立法鼓励工商业自由竞争"
+      }
+    },
+    {
+      "id": "chinese_history-44",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n某学者评唐朝三省制时指出:“凡未加盖‘中书门下之印，未经政事堂议决副署，而由皇帝直接发出的命令，在当时是被认为违制的，不能为下属机关所承认。冶这里所谓“违制”的论断，主要指皇帝背离了\nA. 尚书省负责执行诏令的定制\nB. 门下省执掌诏令草拟的职能\nC. 诏令须由政事堂议决的制度\nD. 中书省监察地方政务的惯例",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 44,
+      "question": "某学者评唐朝三省制时指出:“凡未加盖‘中书门下之印，未经政事堂议决副署，而由皇帝直接发出的命令，在当时是被认为违制的，不能为下属机关所承认。冶这里所谓“违制”的论断，主要指皇帝背离了",
+      "options": {
+        "A": "尚书省负责执行诏令的定制",
+        "B": "门下省执掌诏令草拟的职能",
+        "C": "诏令须由政事堂议决的制度",
+        "D": "中书省监察地方政务的惯例"
+      }
+    },
+    {
+      "id": "chinese_history-216",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n现代考古在秦、魏等国故地出土了许多生铁铸造的农具。 1950 ~ 1951 年河南辉县发掘了5座大型魏墓，1号墓出土铁器 65 件，其中农具占 58 件，包括䦆、锄、铲、镰、犁铧等一整套铁农具。材料说明战国时期\nA. 铁制农具最早出现于河南辉县\nB. 生铁铸造由魏国独断经\nC. 成套铁农具有利农业精耕细作\nD. 铁制农具成为随葬必备品",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 216,
+      "question": "现代考古在秦、魏等国故地出土了许多生铁铸造的农具。 1950 ~ 1951 年河南辉县发掘了5座大型魏墓，1号墓出土铁器 65 件，其中农具占 58 件，包括䦆、锄、铲、镰、犁铧等一整套铁农具。材料说明战国时期",
+      "options": {
+        "A": "铁制农具最早出现于河南辉县",
+        "B": "生铁铸造由魏国独断经",
+        "C": "成套铁农具有利农业精耕细作",
+        "D": "铁制农具成为随葬必备品"
+      }
+    },
+    {
+      "id": "chinese_history-279",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n唐太宗对南朝后期竞相模仿萧子云书法的风气表示不屑，认为其“仅得成书，无丈夫之气”，只有王羲之的书法才“尽善尽美”，于是连西州（今吐鲁番）幼童习字的范本都是王羲之书帖。王羲之在中国书法史地位的确立，是因为\nA. 皇帝好恶决定社会对艺术的评判\nB. 王羲之的艺术成就不可超越\nC. 朝代更替影响艺术评判标准\nD. 艺术水平与时代选择的共同作用",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 279,
+      "question": "唐太宗对南朝后期竞相模仿萧子云书法的风气表示不屑，认为其“仅得成书，无丈夫之气”，只有王羲之的书法才“尽善尽美”，于是连西州（今吐鲁番）幼童习字的范本都是王羲之书帖。王羲之在中国书法史地位的确立，是因为",
+      "options": {
+        "A": "皇帝好恶决定社会对艺术的评判",
+        "B": "王羲之的艺术成就不可超越",
+        "C": "朝代更替影响艺术评判标准",
+        "D": "艺术水平与时代选择的共同作用"
+      }
+    },
+    {
+      "id": "chinese_history-302",
+      "category": "chinese_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“从宋代起，棉花开始成为一种重要纺织原料……到了元代，丝、麻、棉鼎足而三，明代以后，棉花的重要性超过麻。”出现这些变化的前提条件是\nA. 棉花成为经济作物\nB. 政府的大力推广\nC. 棉纺织技术的改进\nD. 商品经济的发展",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 302,
+      "question": "“从宋代起，棉花开始成为一种重要纺织原料……到了元代，丝、麻、棉鼎足而三，明代以后，棉花的重要性超过麻。”出现这些变化的前提条件是",
+      "options": {
+        "A": "棉花成为经济作物",
+        "B": "政府的大力推广",
+        "C": "棉纺织技术的改进",
+        "D": "商品经济的发展"
+      }
+    },
+    {
+      "id": "world_history-6",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“戴维营协议”是阿、以关系发展史上的里程碑，成为“以土地换和平”的成功范例。下列各项中，属于“戴维营协议”重要文件的是\nA. 《关于在被占领土上巴勒斯坦临时自治政府安排的原则宣言\nB. 《关于签订一项埃及与以色列之间和平条约的纲要》\nC. 埃叙共同防御协定\nD. 巴以临时和平协议",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 6,
+      "question": "“戴维营协议”是阿、以关系发展史上的里程碑，成为“以土地换和平”的成功范例。下列各项中，属于“戴维营协议”重要文件的是",
+      "options": {
+        "A": "《关于在被占领土上巴勒斯坦临时自治政府安排的原则宣言",
+        "B": "《关于签订一项埃及与以色列之间和平条约的纲要》",
+        "C": "埃叙共同防御协定",
+        "D": "巴以临时和平协议"
+      }
+    },
+    {
+      "id": "world_history-23",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n共和党人艾森豪威尔成为美国总统后说：“如果任何政党试图要废除社会保障、劳工法和农场项目，那你就不会在美国历史上再听说这个政党了。”这反映出艾森豪威尔的主张\nA. 与民主党政策逐渐趋于一致\nB. 受到罗斯福新政的影响\nC. 强调国家对经济的干预\nD. 延续了共和党传统经济政策",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 23,
+      "question": "共和党人艾森豪威尔成为美国总统后说：“如果任何政党试图要废除社会保障、劳工法和农场项目，那你就不会在美国历史上再听说这个政党了。”这反映出艾森豪威尔的主张",
+      "options": {
+        "A": "与民主党政策逐渐趋于一致",
+        "B": "受到罗斯福新政的影响",
+        "C": "强调国家对经济的干预",
+        "D": "延续了共和党传统经济政策"
+      }
+    },
+    {
+      "id": "world_history-55",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n1990年5月5日开始，民主德国、联邦德国以及苏美英法四国的代表在莫斯科签署了《关于最终解决德国问题的条约》，条约规定：四个占领国放弃占领德国的权利和责任，解散与此规定相关的一切机构。这一现象\nA. 改变了欧洲政治版图\nB. 是美苏争霸结束的表现\nC. 说明德国再次正式实现统一\nD. 标志着东欧剧变的开始",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 55,
+      "question": "1990年5月5日开始，民主德国、联邦德国以及苏美英法四国的代表在莫斯科签署了《关于最终解决德国问题的条约》，条约规定：四个占领国放弃占领德国的权利和责任，解散与此规定相关的一切机构。这一现象",
+      "options": {
+        "A": "改变了欧洲政治版图",
+        "B": "是美苏争霸结束的表现",
+        "C": "说明德国再次正式实现统一",
+        "D": "标志着东欧剧变的开始"
+      }
+    },
+    {
+      "id": "world_history-59",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n从1951年欧洲煤钢共同体的组成到1957年六国建立欧共体，到1993年拥有12个成员国的欧洲联盟，到2002年欧元的启动，成员国扩大到15个。这一过程反映了\nA. 欧洲各国的经济实力增强\nB. 经济合作仍然是欧盟主流\nC. 欧洲一体化程度逐步加深\nD. 欧盟推动了世界格局变迁",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 59,
+      "question": "从1951年欧洲煤钢共同体的组成到1957年六国建立欧共体，到1993年拥有12个成员国的欧洲联盟，到2002年欧元的启动，成员国扩大到15个。这一过程反映了",
+      "options": {
+        "A": "欧洲各国的经济实力增强",
+        "B": "经济合作仍然是欧盟主流",
+        "C": "欧洲一体化程度逐步加深",
+        "D": "欧盟推动了世界格局变迁"
+      }
+    },
+    {
+      "id": "world_history-129",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“当西方被定性为侵略者和剥削者（魔鬼般的西方）时，义和团对西方的反抗使中国的爱国者深感满足，并被冠以赞美之词。然而，当西方被看成是现代生活的源泉（天使般的西方）时，义和团那种毁坏西方电报电话设施、铁路和汽船的行为，则往往成为造成严重困境的缘由而遭到严厉的遣责。”上述材料体现的史观有\nA. 全球史观、近代化史观\nB. 全球史观、文明史观\nC. 革命史观、全球史观\nD. 革命史观、近代化史观",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 129,
+      "question": "“当西方被定性为侵略者和剥削者（魔鬼般的西方）时，义和团对西方的反抗使中国的爱国者深感满足，并被冠以赞美之词。然而，当西方被看成是现代生活的源泉（天使般的西方）时，义和团那种毁坏西方电报电话设施、铁路和汽船的行为，则往往成为造成严重困境的缘由而遭到严厉的遣责。”上述材料体现的史观有",
+      "options": {
+        "A": "全球史观、近代化史观",
+        "B": "全球史观、文明史观",
+        "C": "革命史观、全球史观",
+        "D": "革命史观、近代化史观"
+      }
+    },
+    {
+      "id": "world_history-154",
+      "category": "world_history",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n1960年，日、美修改1951年签订的军事条约，删除了原条约中驻日美军可以用于镇压日本内乱的条款，保留了原条约中美军驻扎日本、双方共同应对对日本领土上的任何一方的武力进攻等内容，签订了新的日美安全条约。这一条约的签订\nA. 反映出日本已经成为经济大国\nB. 标志着亚太地区的力量对比改变\nC. 意味着美国在亚洲维持冷战政策\nD. 表明日美军事同盟受到削弱",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 154,
+      "question": "1960年，日、美修改1951年签订的军事条约，删除了原条约中驻日美军可以用于镇压日本内乱的条款，保留了原条约中美军驻扎日本、双方共同应对对日本领土上的任何一方的武力进攻等内容，签订了新的日美安全条约。这一条约的签订",
+      "options": {
+        "A": "反映出日本已经成为经济大国",
+        "B": "标志着亚太地区的力量对比改变",
+        "C": "意味着美国在亚洲维持冷战政策",
+        "D": "表明日美军事同盟受到削弱"
+      }
+    },
+    {
+      "id": "chinese_literature-50",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n歌剧《白毛女》塑造的压迫阶级的人物形象有\nA. 黄世仁和杨白劳\nB. 黄世仁和穆仁智\nC. 穆仁智和大春\nD. 杨白劳和大春",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 50,
+      "question": "歌剧《白毛女》塑造的压迫阶级的人物形象有",
+      "options": {
+        "A": "黄世仁和杨白劳",
+        "B": "黄世仁和穆仁智",
+        "C": "穆仁智和大春",
+        "D": "杨白劳和大春"
+      }
+    },
+    {
+      "id": "chinese_literature-139",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n“如果不是有人发明了火车，如果不是有人把铁轨铺进深山，你怎么也不会发现台儿沟这个小村。”以这样的句子开头的作品是\nA. 《北方的河》\nB. 《在山区收购站》\nC. 《大淖记事》\nD. 《哦，香雪》",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 139,
+      "question": "“如果不是有人发明了火车，如果不是有人把铁轨铺进深山，你怎么也不会发现台儿沟这个小村。”以这样的句子开头的作品是",
+      "options": {
+        "A": "《北方的河》",
+        "B": "《在山区收购站》",
+        "C": "《大淖记事》",
+        "D": "《哦，香雪》"
+      }
+    },
+    {
+      "id": "chinese_literature-143",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n《祝福》中劝说祥林嫂去土地庙捐门槛的是。\nA. 卫老婆子\nB. 四婶\nC. 柳妈\nD. 四叔",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 143,
+      "question": "《祝福》中劝说祥林嫂去土地庙捐门槛的是。",
+      "options": {
+        "A": "卫老婆子",
+        "B": "四婶",
+        "C": "柳妈",
+        "D": "四叔"
+      }
+    },
+    {
+      "id": "chinese_literature-166",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n小说《沉沦》中的主人公“他”是一个\nA. 小学教师\nB. 青年演员\nC. 留学生\nD. 报社记者",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 166,
+      "question": "小说《沉沦》中的主人公“他”是一个",
+      "options": {
+        "A": "小学教师",
+        "B": "青年演员",
+        "C": "留学生",
+        "D": "报社记者"
+      }
+    },
+    {
+      "id": "chinese_literature-179",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n《菉竹山房》、《潘先生在难中》、《山峡中》、《小城三月》的作者依次是\nA. 吴组缃 叶圣陶 艾芜 萧红\nB. 叶圣陶 吴组缃 萧红 艾芜\nC. 叶圣陶 吴组缃 艾芜 萧红\nD. 萧红 叶圣陶 吴组缃 艾芜",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 179,
+      "question": "《菉竹山房》、《潘先生在难中》、《山峡中》、《小城三月》的作者依次是",
+      "options": {
+        "A": "吴组缃 叶圣陶 艾芜 萧红",
+        "B": "叶圣陶 吴组缃 萧红 艾芜",
+        "C": "叶圣陶 吴组缃 艾芜 萧红",
+        "D": "萧红 叶圣陶 吴组缃 艾芜"
+      }
+    },
+    {
+      "id": "chinese_literature-183",
+      "category": "chinese_literature",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n小说《“锻炼锻炼”》在艺术上的特点是\nA. 叙事写人多用白描手法，注意刻画人物形象\nB. 语言典雅洗练，幽默风趣\nC. 积极探索心理描写的新方法\nD. 线索较多，但情节完整，结构精当",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 183,
+      "question": "小说《“锻炼锻炼”》在艺术上的特点是",
+      "options": {
+        "A": "叙事写人多用白描手法，注意刻画人物形象",
+        "B": "语言典雅洗练，幽默风趣",
+        "C": "积极探索心理描写的新方法",
+        "D": "线索较多，但情节完整，结构精当"
+      }
+    },
+    {
+      "id": "computer_science-1",
+      "category": "computer_science",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n通常以太⽹采⽤了（ ）协议以⽀持总线型的结构\nA. 环型\nB. 载波侦听与冲突检测CSMA/CD\nC. 令牌环\nD. 总线型",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 1,
+      "question": "通常以太⽹采⽤了（ ）协议以⽀持总线型的结构",
+      "options": {
+        "A": "环型",
+        "B": "载波侦听与冲突检测CSMA/CD",
+        "C": "令牌环",
+        "D": "总线型"
+      }
+    },
+    {
+      "id": "computer_science-56",
+      "category": "computer_science",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n设a=1，b=2，c=8，d=7，x=10，y=10，执⾏(x=a>b)&&(y=c >d)后y的值是\nA. 1\nB. 4\nC. 2\nD. 10",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 56,
+      "question": "设a=1，b=2，c=8，d=7，x=10，y=10，执⾏(x=a>b)&&(y=c >d)后y的值是",
+      "options": {
+        "A": "1",
+        "B": "4",
+        "C": "2",
+        "D": "10"
+      }
+    },
+    {
+      "id": "computer_science-71",
+      "category": "computer_science",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n浮点加减中的对阶的⽅法是\nA. 将加数的阶码调整到与被加数的阶码相同\nB. 将较⼩的⼀个阶码调整到与较⼤的⼀个阶码相同\nC. 将被加数的阶码调整到与加数的阶码相同\nD. 将较⼤的⼀个阶码调整到与较⼩的⼀个阶码相同",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 71,
+      "question": "浮点加减中的对阶的⽅法是",
+      "options": {
+        "A": "将加数的阶码调整到与被加数的阶码相同",
+        "B": "将较⼩的⼀个阶码调整到与较⼤的⼀个阶码相同",
+        "C": "将被加数的阶码调整到与加数的阶码相同",
+        "D": "将较⼤的⼀个阶码调整到与较⼩的⼀个阶码相同"
+      }
+    },
+    {
+      "id": "computer_science-107",
+      "category": "computer_science",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n⽤以太⽹形式构成的局域⽹，其拓扑结构为\nA. 环型\nB. 树型\nC. 总线型\nD. 星型",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 107,
+      "question": "⽤以太⽹形式构成的局域⽹，其拓扑结构为",
+      "options": {
+        "A": "环型",
+        "B": "树型",
+        "C": "总线型",
+        "D": "星型"
+      }
+    },
+    {
+      "id": "computer_science-114",
+      "category": "computer_science",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n⼀般将计算机的发展分为四个阶段，其中⼤规模集成电路计算机阶段出现了\nA. ⾼级程序设计语⾔\nB. 操作系统\nC. 汇编语⾔\nD. 数据库系统",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 114,
+      "question": "⼀般将计算机的发展分为四个阶段，其中⼤规模集成电路计算机阶段出现了",
+      "options": {
+        "A": "⾼级程序设计语⾔",
+        "B": "操作系统",
+        "C": "汇编语⾔",
+        "D": "数据库系统"
+      }
+    },
+    {
+      "id": "computer_science-150",
+      "category": "computer_science",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n在路由器上配置默认⽹关正确的地址为\nA. 0.0.0.0 255.255.255.255\nB. 255.255.255.255 0.0.0.0\nC. 0.0.0.0 255.255.255.0\nD. 0.0.0.0 0.0.0.0",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 150,
+      "question": "在路由器上配置默认⽹关正确的地址为",
+      "options": {
+        "A": "0.0.0.0 255.255.255.255",
+        "B": "255.255.255.255 0.0.0.0",
+        "C": "0.0.0.0 255.255.255.0",
+        "D": "0.0.0.0 0.0.0.0"
+      }
+    },
+    {
+      "id": "elementary_mathematics-40",
+      "category": "elementary_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n⼀根绳⼦剪成两段，第⼀段⻓4/9⽶，第⼆段占全⻓的4/9。，那么\nA. ⽆法确定 \nB. 两段⼀样⻓ \nC. 第⼆段⻓ \nD. 第⼀段⻓",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 40,
+      "question": "⼀根绳⼦剪成两段，第⼀段⻓4/9⽶，第⼆段占全⻓的4/9。，那么",
+      "options": {
+        "A": "⽆法确定 ",
+        "B": "两段⼀样⻓ ",
+        "C": "第⼆段⻓ ",
+        "D": "第⼀段⻓"
+      }
+    },
+    {
+      "id": "elementary_mathematics-87",
+      "category": "elementary_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n骰⼦是⼀个质量均匀的⼩正⽅体，它的六个⾯上分别刻有1~6个点，⼩明仔细观察骰⼦，发现任意相对两⾯的点数和都相等。这枚骰⼦向上的⼀⾯的点数是5，它的对⾯ 的点数是\nA. 1\nB. 3\nC. 6\nD. 2",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 87,
+      "question": "骰⼦是⼀个质量均匀的⼩正⽅体，它的六个⾯上分别刻有1~6个点，⼩明仔细观察骰⼦，发现任意相对两⾯的点数和都相等。这枚骰⼦向上的⼀⾯的点数是5，它的对⾯ 的点数是",
+      "options": {
+        "A": "1",
+        "B": "3",
+        "C": "6",
+        "D": "2"
+      }
+    },
+    {
+      "id": "elementary_mathematics-108",
+      "category": "elementary_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n抛物线$y=(x-2)^{2}+3$的顶点坐标为\nA. (-2,3)\nB. (-2,-3)\nC. (2,-3)\nD. (2,3)",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 108,
+      "question": "抛物线$y=(x-2)^{2}+3$的顶点坐标为",
+      "options": {
+        "A": "(-2,3)",
+        "B": "(-2,-3)",
+        "C": "(2,-3)",
+        "D": "(2,3)"
+      }
+    },
+    {
+      "id": "elementary_mathematics-178",
+      "category": "elementary_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n商店运来一批水果，第一天卖出总量的1/6是240千克，第二天卖出总量的2/5，商店里还有()千克水水果\nA. 624\nB. 720\nC. 864\nD. 780",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 178,
+      "question": "商店运来一批水果，第一天卖出总量的1/6是240千克，第二天卖出总量的2/5，商店里还有()千克水水果",
+      "options": {
+        "A": "624",
+        "B": "720",
+        "C": "864",
+        "D": "780"
+      }
+    },
+    {
+      "id": "elementary_mathematics-194",
+      "category": "elementary_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n下列算式()的积与5.555*6.666的结果最接近\nA. 5*7\nB. 6*6\nC. 6*7\nD. 5*6",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 194,
+      "question": "下列算式()的积与5.555*6.666的结果最接近",
+      "options": {
+        "A": "5*7",
+        "B": "6*6",
+        "C": "6*7",
+        "D": "5*6"
+      }
+    },
+    {
+      "id": "elementary_mathematics-206",
+      "category": "elementary_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n一种商品先涨价20%，又降价20%，这种商品现在的价格是原价的\nA. 80%\nB. 88%\nC. 不变\nD. 96%",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 206,
+      "question": "一种商品先涨价20%，又降价20%，这种商品现在的价格是原价的",
+      "options": {
+        "A": "80%",
+        "B": "88%",
+        "C": "不变",
+        "D": "96%"
+      }
+    },
+    {
+      "id": "high_school_mathematics-23",
+      "category": "high_school_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n在三角形ABC中，sinA:sinB:sinC=3:2:4，则cosC的值为\nA. -2/3\nB. -1/4\nC. 2/3\nD. 1/4",
+      "expected": "B",
+      "accepted": [
+        "B"
+      ],
+      "source_row_index": 23,
+      "question": "在三角形ABC中，sinA:sinB:sinC=3:2:4，则cosC的值为",
+      "options": {
+        "A": "-2/3",
+        "B": "-1/4",
+        "C": "2/3",
+        "D": "1/4"
+      }
+    },
+    {
+      "id": "high_school_mathematics-26",
+      "category": "high_school_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n设$\\bigtriangleup ABC$的内角A，B，C所对边的长分别是a，b，c，且$f(A)=\\sqrt{3}sinA-cosA+2$，若$f(A)=3,a=\\sqrt{6}, S_{\\bigtriangleup ABC}=\\sqrt{3}$，则$\\bigtriangleup ABC$的周长是\nA. $3\\sqrt{3}+\\sqrt{6}$\nB. $2\\sqrt{2}+\\sqrt{6}$\nC. $3\\sqrt{2}+\\sqrt{6}$\nD. $2\\sqrt{3}+\\sqrt{6}$",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 26,
+      "question": "设$\\bigtriangleup ABC$的内角A，B，C所对边的长分别是a，b，c，且$f(A)=\\sqrt{3}sinA-cosA+2$，若$f(A)=3,a=\\sqrt{6}, S_{\\bigtriangleup ABC}=\\sqrt{3}$，则$\\bigtriangleup ABC$的周长是",
+      "options": {
+        "A": "$3\\sqrt{3}+\\sqrt{6}$",
+        "B": "$2\\sqrt{2}+\\sqrt{6}$",
+        "C": "$3\\sqrt{2}+\\sqrt{6}$",
+        "D": "$2\\sqrt{3}+\\sqrt{6}$"
+      }
+    },
+    {
+      "id": "high_school_mathematics-39",
+      "category": "high_school_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n我国数学家陈景润在哥德巴赫猜想的研究中取得了世界领先的成果。哥德巴赫猜想是“每个大于2的偶数可以表示为两个素数的和”，如30=7+23.在不超过30的素数中，随机选取两个不同的数，其和等于30的概率是\nA. $\\frac{1}{15}$\nB. $\\frac{1}{12}$\nC. $\\frac{1}{14}$\nD. $\\frac{1}{18}$",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 39,
+      "question": "我国数学家陈景润在哥德巴赫猜想的研究中取得了世界领先的成果。哥德巴赫猜想是“每个大于2的偶数可以表示为两个素数的和”，如30=7+23.在不超过30的素数中，随机选取两个不同的数，其和等于30的概率是",
+      "options": {
+        "A": "$\\frac{1}{15}$",
+        "B": "$\\frac{1}{12}$",
+        "C": "$\\frac{1}{14}$",
+        "D": "$\\frac{1}{18}$"
+      }
+    },
+    {
+      "id": "high_school_mathematics-55",
+      "category": "high_school_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n已知向量a，b满足$|a|=1,a\\cdot b=-1$，则$a\\cdot(2a-b)$ 等于\nA. 3\nB. 4\nC. 2\nD. 0",
+      "expected": "A",
+      "accepted": [
+        "A"
+      ],
+      "source_row_index": 55,
+      "question": "已知向量a，b满足$|a|=1,a\\cdot b=-1$，则$a\\cdot(2a-b)$ 等于",
+      "options": {
+        "A": "3",
+        "B": "4",
+        "C": "2",
+        "D": "0"
+      }
+    },
+    {
+      "id": "high_school_mathematics-71",
+      "category": "high_school_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n已知四棱锥S-ABCD的底面是中心为O的正方形，且SO$\\prep$底面ABCD，$SA=2\\sqrt{3}$，那么当该棱锥的体积最大时，它的高为\nA. $\\sqrt{3}$\nB. 1\nC. 2\nD. 3",
+      "expected": "C",
+      "accepted": [
+        "C"
+      ],
+      "source_row_index": 71,
+      "question": "已知四棱锥S-ABCD的底面是中心为O的正方形，且SO$\\prep$底面ABCD，$SA=2\\sqrt{3}$，那么当该棱锥的体积最大时，它的高为",
+      "options": {
+        "A": "$\\sqrt{3}$",
+        "B": "1",
+        "C": "2",
+        "D": "3"
+      }
+    },
+    {
+      "id": "high_school_mathematics-86",
+      "category": "high_school_mathematics",
+      "prompt": "请回答下面的单项选择题，只输出正确选项的大写字母A、B、C或D，不要解释。\n若椭圆$x^2/m+y^2/8=1$的焦距为2，则m的值为\nA. 7\nB. 9\nC. 9或16\nD. 9或7",
+      "expected": "D",
+      "accepted": [
+        "D"
+      ],
+      "source_row_index": 86,
+      "question": "若椭圆$x^2/m+y^2/8=1$的焦距为2，则m的值为",
+      "options": {
+        "A": "7",
+        "B": "9",
+        "C": "9或16",
+        "D": "9或7"
+      }
+    }
+  ]
+}

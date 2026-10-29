@@ -1,0 +1,76 @@
+import { describe, it, expect, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { AppStore } from '../src/main/infrastructure/store'
+
+const directories: string[] = []
+function create() {
+  const directory = mkdtempSync(join(tmpdir(), 'coloop-store-'))
+  directories.push(directory)
+  const codec = {
+    encrypt: (value: string) => Buffer.from(value).toString('base64'),
+    decrypt: (value: string) => Buffer.from(value, 'base64').toString(),
+  }
+  return { directory, codec, store: new AppStore(directory, codec) }
+}
+afterEach(() => {
+  for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
+describe('local persistence and credential boundary', () => {
+  it('never exposes the API key in public settings or stores its plaintext', () => {
+    const { store, directory } = create()
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, apiKey: 'secret-api-value' },
+    })
+    expect(store.publicSettings().provider.hasKey).toBe(true)
+    expect(JSON.stringify(store.publicSettings())).not.toContain('secret-api-value')
+    expect(readFileSync(join(directory, 'state.json'), 'utf8')).not.toContain('secret-api-value')
+    expect(store.apiKey).toBe('secret-api-value')
+  })
+  it('does not reuse one provider credential when the endpoint changes', () => {
+    const { store } = create()
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, apiKey: 'secret-api-value' },
+    })
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, baseUrl: 'https://different.example/v1' },
+    })
+    expect(store.apiKey).toBe('')
+  })
+  it('preserves the key on ordinary edits and supports explicit deletion', () => {
+    const { store } = create()
+    store.saveSettings({ ...store.config, provider: { ...store.config.provider, apiKey: 'key' } })
+    store.saveSettings({ ...store.config, provider: { ...store.config.provider, model: 'new' } })
+    expect(store.apiKey).toBe('key')
+    store.saveSettings({ ...store.config, provider: { ...store.config.provider, clearKey: true } })
+    expect(store.publicSettings().provider.hasKey).toBe(false)
+  })
+  it('recovers interrupted runs on startup', () => {
+    const { store, directory, codec } = create()
+    store.tasks.push({
+      id: 't',
+      prompt: 'test',
+      target: 'cloud',
+      source: 'text',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      model: 'test',
+      answer: '',
+      stage: 'running',
+    })
+    store.persist()
+    const reopened = new AppStore(directory, codec)
+    expect(reopened.tasks[0].status).toBe('failed')
+    expect(reopened.tasks[0].error).toContain('中断')
+  })
+  it('preserves corrupted storage for recovery', () => {
+    const { directory, codec } = create()
+    writeFileSync(join(directory, 'state.json'), 'corrupted')
+    expect(new AppStore(directory, codec).tasks).toEqual([])
+    expect(readdirSync(directory).some((file) => file.startsWith('state.recovery-'))).toBe(true)
+  })
+})

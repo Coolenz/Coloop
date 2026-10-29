@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1160" viewBox="0 0 1480 1160" role="img" aria-label="底层原理：沿模型、编译与系统逐层理解">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#2563eb" stroke-width="2"/></marker></defs>
+<style>text {font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', 'SimHei', sans-serif;}</style>
+<rect width="1480" height="1160" fill="#f5f8fc"/>
+<rect width="1480" height="10" fill="#2563eb"/>
+
+<text x="48" y="78" font-size="38" fill="#172b45" font-weight="700" text-anchor="start">底层原理：沿模型、编译与系统逐层理解</text>
+<text x="48" y="120" font-size="20" fill="#52667e" font-weight="400" text-anchor="start">学习时区分通用原理、公开接口与实际观测；不把通用结构当作 RKLLM 内部实现。</text>
+<text x="72" y="177" font-size="19" fill="#52667e" font-weight="700" text-anchor="start">执行分层与需要理解的对象</text>
+<text x="1018" y="177" font-size="19" fill="#52667e" font-weight="700" text-anchor="start">能获得什么证据</text>
+<rect x="48" y="200" width="904" height="103" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="980" y="200" width="451" height="103" rx="20" fill="#edf3ff" stroke="#dce4ee"/>
+<text x="72" y="237" font-size="24" fill="#2563eb" font-weight="700" text-anchor="start">模型算法</text>
+<text x="72" y="276" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">Embedding / Attention / Norm / MLP / logits</text>
+<text x="1000" y="260" font-size="21" fill="#2563eb" font-weight="400" text-anchor="start">公式、手写实验、对应模型源码</text>
+<path d="M500 309 L500 325" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="48" y="332" width="904" height="103" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="980" y="332" width="451" height="103" rx="20" fill="#edf3ff" stroke="#dce4ee"/>
+<text x="72" y="369" font-size="24" fill="#2563eb" font-weight="700" text-anchor="start">数值与数据</text>
+<text x="72" y="408" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">shape / dtype / stride / scale / 整数累加</text>
+<text x="1000" y="392" font-size="21" fill="#2563eb" font-weight="400" text-anchor="start">地址偏移、误差、张量对照结果</text>
+<path d="M500 441 L500 457" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="48" y="464" width="904" height="103" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="980" y="464" width="451" height="103" rx="20" fill="#edf3ff" stroke="#dce4ee"/>
+<text x="72" y="501" font-size="24" fill="#2563eb" font-weight="700" text-anchor="start">模型编译</text>
+<text x="72" y="540" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">计算图 / IR / 融合 / lowering / 内存规划</text>
+<text x="1000" y="524" font-size="21" fill="#2563eb" font-weight="400" text-anchor="start">公开文档与日志；私有策略需核实</text>
+<path d="M500 573 L500 589" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="48" y="596" width="904" height="103" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="980" y="596" width="451" height="103" rx="20" fill="#e4f5ef" stroke="#dce4ee"/>
+<text x="72" y="633" font-size="24" fill="#087f70" font-weight="700" text-anchor="start">用户态 Runtime</text>
+<text x="72" y="672" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">C API / ABI / 生命周期 / 缓存 / 任务管理</text>
+<text x="1000" y="656" font-size="21" fill="#087f70" font-weight="400" text-anchor="start">头文件、示例、加载与调用日志</text>
+<path d="M500 705 L500 721" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="666" y="721" font-size="16" fill="#b45309" font-weight="700" text-anchor="start">用户态 / 内核态边界</text>
+<rect x="48" y="728" width="904" height="103" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="980" y="728" width="451" height="103" rx="20" fill="#e4f5ef" stroke="#dce4ee"/>
+<text x="72" y="765" font-size="24" fill="#087f70" font-weight="700" text-anchor="start">内核态驱动</text>
+<text x="72" y="804" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">设备接口 / 内存映射 / 任务提交 / 等待完成</text>
+<text x="1000" y="788" font-size="21" fill="#087f70" font-weight="400" text-anchor="start">匹配内核源码、系统调用与错误</text>
+<path d="M500 837 L500 853" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="48" y="860" width="904" height="103" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="980" y="860" width="451" height="103" rx="20" fill="#e4f5ef" stroke="#dce4ee"/>
+<text x="72" y="897" font-size="24" fill="#087f70" font-weight="700" text-anchor="start">NPU 与内存系统</text>
+<text x="72" y="936" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">矩阵运算 / 数据搬运 / 带宽 / 同步</text>
+<text x="1000" y="920" font-size="21" fill="#087f70" font-weight="400" text-anchor="start">公开硬件资料与实测性能趋势</text>
+<rect x="48" y="1022" width="1383" height="80" rx="20" fill="#eaf1ff" stroke="#d7e4ff"/>
+<text x="72" y="1057" font-size="24" fill="#2563eb" font-weight="700" text-anchor="start">每一层都问：输入是什么？输出是什么？谁拥有内存？如何证明结果正确？</text>
+<text x="72" y="1087" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">第一轮先手算、手写与验证，再把原理接回完整模型部署。</text>
+<text x="48" y="1138" font-size="16" fill="#52667e" font-weight="400" text-anchor="start">学习路线 · 具体驱动路径、数据精度与硬件策略以当前版本资料和观测为准。</text>
+</svg>

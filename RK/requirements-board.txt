@@ -1,0 +1,5 @@
+# Linux aarch64 only. Match the board runtime to Toolkit2 2.3.2.
+setuptools==75.8.2
+numpy==1.26.4
+opencv-python==4.10.0.84
+rknn-toolkit-lite2==2.3.2

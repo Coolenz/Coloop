@@ -1,0 +1,7 @@
+{
+  "host": "REPLACE_WITH_BOARD_IP",
+  "user": "cat",
+  "ssh_port": 22,
+  "project_dir": "/home/cat/rk-edge-ai",
+  "host_key_sha256": "REPLACE_WITH_VERIFIED_SSH_HOST_KEY_SHA256"
+}

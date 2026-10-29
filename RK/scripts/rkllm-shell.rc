@@ -1,0 +1,11 @@
+[[ -f ~/.bashrc ]] && source ~/.bashrc
+RKLLM_ENV="$HOME/.venvs/lubancat4-rkllm-1.3.1"
+if [[ -f "$RKLLM_ENV/bin/activate" ]]; then
+  source "$RKLLM_ENV/bin/activate"
+  export CUDA_VISIBLE_DEVICES=""
+  export TOKENIZERS_PARALLELISM=false
+  echo 'RKLLM-Toolkit 1.3.1 | Python 3.10 | CPU conversion | target: RK3588'
+  echo 'Guide: docs/08-rkllm-toolkit.md'
+else
+  echo 'Run bash scripts/setup-rkllm.sh first.'
+fi

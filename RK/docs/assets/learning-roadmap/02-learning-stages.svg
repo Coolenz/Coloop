@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1180" viewBox="0 0 1480 1180" role="img" aria-label="学习顺序：每一阶段都交付可检查的结果">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#2563eb" stroke-width="2"/></marker></defs>
+<style>text {font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', 'SimHei', sans-serif;}</style>
+<rect width="1480" height="1180" fill="#f5f8fc"/>
+<rect width="1480" height="10" fill="#2563eb"/>
+
+<text x="48" y="78" font-size="38" fill="#172b45" font-weight="700" text-anchor="start">学习顺序：每一阶段都交付可检查的结果</text>
+<text x="48" y="120" font-size="20" fill="#52667e" font-weight="400" text-anchor="start">从阶段 0 开始，达到验收标准后再前进；无需一开始就学习训练或驱动开发。</text>
+<text x="174" y="174" font-size="18" fill="#52667e" font-weight="700" text-anchor="start">阶段与学习主题</text>
+<text x="536" y="174" font-size="18" fill="#52667e" font-weight="700" text-anchor="start">动手任务</text>
+<text x="1112" y="174" font-size="18" fill="#52667e" font-weight="700" text-anchor="start">验收产物</text>
+<path d="M102 269 L102 341" fill="none" stroke="#c3d3e7" stroke-width="4"/>
+<rect x="146" y="198" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="248" r="26" fill="#2563eb"/>
+<text x="102" y="256" font-size="23" fill="white" font-weight="700" text-anchor="middle">0</text>
+<text x="174" y="257" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">环境与组件</text>
+<text x="536" y="237" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">分清 Windows / WSL / 板端</text>
+<text x="536" y="269" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">运行一次现有 DeepSeek，找到版本与日志</text>
+<text x="1112" y="237" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">环境位置图</text>
+<text x="1112" y="269" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">一次成功运行日志</text>
+<path d="M102 389 L102 461" fill="none" stroke="#c3d3e7" stroke-width="4"/>
+<rect x="146" y="318" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="368" r="26" fill="#2563eb"/>
+<text x="102" y="376" font-size="23" fill="white" font-weight="700" text-anchor="middle">1</text>
+<text x="174" y="377" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">模型选择与资源</text>
+<text x="536" y="357" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">检查架构支持、模型资料与内存预算</text>
+<text x="536" y="389" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">为同一个 DeepSeek 1.5B 写模型卡</text>
+<text x="1112" y="357" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">模型卡</text>
+<text x="1112" y="389" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">兼容性与资源依据</text>
+<path d="M102 509 L102 581" fill="none" stroke="#c3d3e7" stroke-width="4"/>
+<rect x="146" y="438" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="488" r="26" fill="#2563eb"/>
+<text x="102" y="496" font-size="23" fill="white" font-weight="700" text-anchor="middle">2</text>
+<text x="174" y="497" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">浮点基准</text>
+<text x="536" y="477" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">对齐 Tokenizer、模板、EOS 和生成参数</text>
+<text x="536" y="509" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">保存固定测试题与原模型输出</text>
+<text x="1112" y="477" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">基准结果</text>
+<text x="1112" y="509" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">独立测试集</text>
+<path d="M102 629 L102 701" fill="none" stroke="#c3d3e7" stroke-width="4"/>
+<rect x="146" y="558" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="608" r="26" fill="#2563eb"/>
+<text x="102" y="616" font-size="23" fill="white" font-weight="700" text-anchor="middle">3</text>
+<text x="174" y="617" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">校准与首次转换</text>
+<text x="536" y="597" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">学习 W8A8 / W4A16 与校准数据</text>
+<text x="536" y="629" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">先用 W8A8 完成加载、构建与导出</text>
+<text x="1112" y="597" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">自己的 .rkllm</text>
+<text x="1112" y="629" font-size="19" fill="#2563eb" font-weight="700" text-anchor="start">转换日志与参数</text>
+<path d="M102 749 L102 821" fill="none" stroke="#c3d3e7" stroke-width="4"/>
+<rect x="146" y="678" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="728" r="26" fill="#087f70"/>
+<text x="102" y="736" font-size="23" fill="white" font-weight="700" text-anchor="middle">4</text>
+<text x="174" y="737" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">板端程序与部署</text>
+<text x="536" y="717" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">阅读初始化、输入、回调和释放流程</text>
+<text x="536" y="749" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">上传校验，运行自己转换的模型</text>
+<text x="1112" y="717" font-size="19" fill="#087f70" font-weight="700" text-anchor="start">板端推理结果</text>
+<text x="1112" y="749" font-size="19" fill="#087f70" font-weight="700" text-anchor="start">模型摘要与版本记录</text>
+<path d="M102 869 L102 941" fill="none" stroke="#c3d3e7" stroke-width="4"/>
+<rect x="146" y="798" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="848" r="26" fill="#087f70"/>
+<text x="102" y="856" font-size="23" fill="white" font-weight="700" text-anchor="middle">5</text>
+<text x="174" y="857" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">效果与性能验证</text>
+<text x="536" y="837" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">比较任务效果、首字、速度和峰值内存</text>
+<text x="536" y="869" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">验证长输入、多轮与连续请求</text>
+<text x="1112" y="837" font-size="19" fill="#087f70" font-weight="700" text-anchor="start">对比报告</text>
+<text x="1112" y="869" font-size="19" fill="#087f70" font-weight="700" text-anchor="start">失败案例与瓶颈</text>
+<rect x="146" y="918" width="1285" height="100" rx="20" fill="white" stroke="#dce4ee"/>
+<circle cx="102" cy="968" r="26" fill="#087f70"/>
+<text x="102" y="976" font-size="23" fill="white" font-weight="700" text-anchor="middle">6</text>
+<text x="174" y="977" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">应用集成与优化</text>
+<text x="536" y="957" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">接接口、流式输出、队列与会话管理</text>
+<text x="536" y="989" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">按测量结果逐项优化并验证恢复能力</text>
+<text x="1112" y="957" font-size="19" fill="#087f70" font-weight="700" text-anchor="start">可使用的应用</text>
+<text x="1112" y="989" font-size="19" fill="#087f70" font-weight="700" text-anchor="start">稳定性与验收记录</text>
+<rect x="48" y="1060" width="1383" height="66" rx="20" fill="#eaf1ff" stroke="#d7e4ff"/>
+<text x="72" y="1102" font-size="22" fill="#2563eb" font-weight="700" text-anchor="start">第一个目标：自己转换 DeepSeek 1.5B，并完成「原模型 ↔ 板端模型」效果、速度与内存对比。</text>
+<text x="48" y="1158" font-size="16" fill="#52667e" font-weight="400" text-anchor="start">学习路线 · 以验收结果推进，不按安装次数或文件数量判断进度。</text>
+</svg>

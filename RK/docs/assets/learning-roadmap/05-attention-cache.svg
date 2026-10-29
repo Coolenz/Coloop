@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1170" viewBox="0 0 1480 1170" role="img" aria-label="Attention 与 KV Cache：两种阶段在算什么">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#2563eb" stroke-width="2"/></marker></defs>
+<style>text {font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', 'SimHei', sans-serif;}</style>
+<rect width="1480" height="1170" fill="#f5f8fc"/>
+<rect width="1480" height="10" fill="#2563eb"/>
+
+<text x="48" y="78" font-size="38" fill="#172b45" font-weight="700" text-anchor="start">Attention 与 KV Cache：两种阶段在算什么</text>
+<text x="48" y="120" font-size="20" fill="#52667e" font-weight="400" text-anchor="start">单头因果注意力示意，省略 batch、RoPE、输出投影和其他模型层；d 为 Q/K 维度，dv 为 V 维度。</text>
+<rect x="48" y="173" width="650" height="772" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="66" y="191" width="614" height="82" rx="14" fill="#edf3ff" stroke="#edf3ff"/>
+<text x="84" y="225" font-size="26" fill="#2563eb" font-weight="700" text-anchor="start">Prefill：一次处理 T 个输入 token</text>
+<text x="84" y="255" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">旧 K/V 可以留给后续生成步使用</text>
+<rect x="782" y="173" width="650" height="772" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="800" y="191" width="614" height="82" rx="14" fill="#e4f5ef" stroke="#e4f5ef"/>
+<text x="818" y="225" font-size="26" fill="#087f70" font-weight="700" text-anchor="start">Decode：处理 1 个新 token</text>
+<text x="818" y="255" font-size="19" fill="#52667e" font-weight="400" text-anchor="start">追加新 K/V，并读取历史缓存</text>
+<rect x="83" y="300" width="580" height="106" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="101" y="335" font-size="23" fill="#2563eb" font-weight="700" text-anchor="start">输入与投影</text>
+<text x="101" y="367" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">X [T, D] → Q/K [T, d]，V [T, dv]</text>
+<rect x="83" y="446" width="580" height="106" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="101" y="481" font-size="23" fill="#2563eb" font-weight="700" text-anchor="start">计算注意力分数</text>
+<text x="101" y="513" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">QKᵀ / sqrt(d) → scores [T, T]</text>
+<rect x="83" y="592" width="580" height="120" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="101" y="627" font-size="23" fill="#2563eb" font-weight="700" text-anchor="start">遮住未来，再归一化</text>
+<text x="101" y="659" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">加 causal mask → softmax</text>
+<text x="101" y="686" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">第 i 行只允许访问位置 ≤ i 的键</text>
+<rect x="83" y="752" width="580" height="120" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="101" y="787" font-size="23" fill="#2563eb" font-weight="700" text-anchor="start">加权求和，留下缓存</text>
+<text x="101" y="819" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">P @ V → O [T, dv]</text>
+<text x="101" y="846" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">保存 K [T, d] 和 V [T, dv]</text>
+<path d="M373 414 L373 436" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M373 560 L373 582" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M373 720 L373 742" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="817" y="300" width="580" height="106" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="835" y="335" font-size="23" fill="#087f70" font-weight="700" text-anchor="start">只投影新 token</text>
+<text x="835" y="367" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">x [1, D] → q/k [1, d]，v [1, dv]</text>
+<rect x="817" y="446" width="580" height="106" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="835" y="481" font-size="23" fill="#087f70" font-weight="700" text-anchor="start">追加到每层各自的 KV Cache</text>
+<text x="835" y="513" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">K: [T+1, d]，V: [T+1, dv]</text>
+<rect x="817" y="592" width="580" height="120" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="835" y="627" font-size="23" fill="#087f70" font-weight="700" text-anchor="start">新 query 读取历史键</text>
+<text x="835" y="659" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">q @ Kᵀ / sqrt(d) → scores [1, T+1]</text>
+<text x="835" y="686" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">softmax 后得到对历史与当前位置的权重</text>
+<rect x="817" y="752" width="580" height="120" rx="14" fill="#f5f8fc" stroke="#dce4ee"/>
+<text x="835" y="787" font-size="23" fill="#087f70" font-weight="700" text-anchor="start">计算当前输出</text>
+<text x="835" y="819" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">P @ V → o [1, dv]</text>
+<text x="835" y="846" font-size="20" fill="#172b45" font-weight="400" text-anchor="start">后续层与 LM Head 用来预测下一个 token</text>
+<path d="M1107 414 L1107 436" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M1107 560 L1107 582" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M1107 720 L1107 742" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="48" y="977" width="1383" height="124" rx="20" fill="#eaf1ff" stroke="#d7e4ff"/>
+<text x="72" y="1016" font-size="24" fill="#2563eb" font-weight="700" text-anchor="start">缓存减少历史 K/V 的重复计算，不会消除新 query 对历史 K/V 的读取与注意力计算。</text>
+<text x="72" y="1050" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">有历史缓存时若一次处理多个新 token，mask 必须带上历史位置偏移；只检查单 token 不够。</text>
+<text x="72" y="1080" font-size="20" fill="#52667e" font-weight="400" text-anchor="start">标准稠密 KV 估算：2 × 层数 × batch × 序列长度 × KV 头数 × 每头维度 × 元素字节数。</text>
+<text x="48" y="1142" font-size="16" fill="#52667e" font-weight="400" text-anchor="start">学习路线 · 图中是数学形状，实际后端可能使用不同的缓存布局、预分配与精度。</text>
+</svg>

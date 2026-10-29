@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="930" viewBox="0 0 1480 930" role="img" aria-label="部署全链路：从原始权重到端侧应用">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L8 4 L0 8" fill="none" stroke="#2563eb" stroke-width="2"/></marker></defs>
+<style>text {font-family: 'Microsoft YaHei', 'Noto Sans CJK SC', 'SimHei', sans-serif;}</style>
+<rect width="1480" height="930" fill="#f5f8fc"/>
+<rect width="1480" height="10" fill="#2563eb"/>
+
+<text x="48" y="78" font-size="38" fill="#172b45" font-weight="700" text-anchor="start">部署全链路：从原始权重到端侧应用</text>
+<text x="48" y="120" font-size="20" fill="#52667e" font-weight="400" text-anchor="start">沿箭头前进；每个环节都保留输入、输出、版本和日志。</text>
+<rect x="48" y="185" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="66" y="203" width="42" height="34" rx="9" fill="#edf3ff" stroke="#edf3ff"/>
+<text x="87" y="227" font-size="19" fill="#2563eb" font-weight="700" text-anchor="middle">01</text>
+<text x="124" y="227" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">模型仓库</text>
+<text x="68" y="277" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">原始模型资料</text>
+<text x="68" y="317" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">权重 / config / Tokenizer</text>
+<text x="68" y="347" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">固定来源与 revision</text>
+<text x="68" y="377" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">确认架构和 SDK 支持</text>
+<rect x="411" y="185" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="429" y="203" width="42" height="34" rx="9" fill="#edf3ff" stroke="#edf3ff"/>
+<text x="450" y="227" font-size="19" fill="#2563eb" font-weight="700" text-anchor="middle">02</text>
+<text x="487" y="227" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">电脑端</text>
+<text x="431" y="277" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">浮点推理基准</text>
+<text x="431" y="317" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">按模型模板构造输入</text>
+<text x="431" y="347" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">保存固定问题与回答</text>
+<text x="431" y="377" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">记录生成参数与版本</text>
+<rect x="774" y="185" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="792" y="203" width="42" height="34" rx="9" fill="#edf3ff" stroke="#edf3ff"/>
+<text x="813" y="227" font-size="19" fill="#2563eb" font-weight="700" text-anchor="middle">03</text>
+<text x="850" y="227" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">电脑端</text>
+<text x="794" y="277" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">校准数据</text>
+<text x="794" y="317" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">覆盖真实业务与长度</text>
+<text x="794" y="347" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">保留输入 / 参考回答</text>
+<text x="794" y="377" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">与独立测试集分开</text>
+<rect x="1137" y="185" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="1155" y="203" width="42" height="34" rx="9" fill="#edf3ff" stroke="#edf3ff"/>
+<text x="1176" y="227" font-size="19" fill="#2563eb" font-weight="700" text-anchor="middle">04</text>
+<text x="1213" y="227" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">WSL · Toolkit</text>
+<text x="1157" y="277" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">转换与量化</text>
+<text x="1157" y="317" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">load → build → export</text>
+<text x="1157" y="347" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">首次优先 W8A8</text>
+<text x="1157" y="377" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">记录目标 / 上下文 / 参数</text>
+<path d="M350 290 L401 290" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M713 290 L764 290" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M1076 290 L1127 290" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M1284 409 L1284 476" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="1137" y="490" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="1155" y="508" width="42" height="34" rx="9" fill="#edf3ff" stroke="#edf3ff"/>
+<text x="1176" y="532" font-size="19" fill="#2563eb" font-weight="700" text-anchor="middle">05</text>
+<text x="1213" y="532" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">导出产物</text>
+<text x="1157" y="582" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">部署文件</text>
+<text x="1157" y="622" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">生成 .rkllm 文件</text>
+<text x="1157" y="652" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">记录大小与 SHA256</text>
+<text x="1157" y="682" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">上传后再次核对摘要</text>
+<rect x="774" y="490" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="792" y="508" width="42" height="34" rx="9" fill="#e4f5ef" stroke="#e4f5ef"/>
+<text x="813" y="532" font-size="19" fill="#087f70" font-weight="700" text-anchor="middle">06</text>
+<text x="850" y="532" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">RK3588 · Runtime</text>
+<text x="794" y="582" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">板端推理</text>
+<text x="794" y="622" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">使用匹配的库与程序</text>
+<text x="794" y="652" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">加载 → 输入 → 回调</text>
+<text x="794" y="682" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">检查错误与资源释放</text>
+<rect x="411" y="490" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="429" y="508" width="42" height="34" rx="9" fill="#e4f5ef" stroke="#e4f5ef"/>
+<text x="450" y="532" font-size="19" fill="#087f70" font-weight="700" text-anchor="middle">07</text>
+<text x="487" y="532" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">电脑基准 ↔ 板端</text>
+<text x="431" y="582" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">效果与性能验证</text>
+<text x="431" y="622" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">同题比较任务结果</text>
+<text x="431" y="652" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">首字 / 速度 / 内存</text>
+<text x="431" y="682" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">长输入 / 多轮 / 连续运行</text>
+<rect x="48" y="490" width="294" height="210" rx="20" fill="white" stroke="#dce4ee"/>
+<rect x="66" y="508" width="42" height="34" rx="9" fill="#e4f5ef" stroke="#e4f5ef"/>
+<text x="87" y="532" font-size="19" fill="#087f70" font-weight="700" text-anchor="middle">08</text>
+<text x="124" y="532" font-size="17" fill="#52667e" font-weight="400" text-anchor="start">自己的程序</text>
+<text x="68" y="582" font-size="25" fill="#172b45" font-weight="700" text-anchor="start">应用集成</text>
+<text x="68" y="622" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">接口 / 流式输出 / 队列</text>
+<text x="68" y="652" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">会话 / 取消 / 超时</text>
+<text x="68" y="682" font-size="18" fill="#52667e" font-weight="400" text-anchor="start">按实测瓶颈逐项优化</text>
+<path d="M1127 595 L1076 595" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M764 595 L713 595" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<path d="M401 595 L350 595" fill="none" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="48" y="754" width="1383" height="112" rx="20" fill="#eaf1ff" stroke="#d7e4ff"/>
+<text x="72" y="793" font-size="23" fill="#2563eb" font-weight="700" text-anchor="start">三个边界要分清</text>
+<text x="72" y="826" font-size="21" fill="#172b45" font-weight="400" text-anchor="start">主机加载精度 ≠ 最终运行精度；导出成功 ≠ 板端成功；一次回答正常 ≠ 效果与稳定性验收。</text>
+<text x="48" y="906" font-size="16" fill="#52667e" font-weight="400" text-anchor="start">学习路线 · RK3588 / RKLLM · 2026-10-28</text>
+</svg>
