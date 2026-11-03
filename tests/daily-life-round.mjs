@@ -4,6 +4,7 @@ import { chromium } from 'playwright-core'
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import { homedir } from 'node:os'
+import { ProgressMonitor, ReceiptProgressReader } from './daily-life-progress.mjs'
 const output = resolve(process.env.COLOOP_DAILY_OUTPUT || '.qa/daily-life-round1')
 const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'))
 const evidenceRoot = join(
@@ -24,6 +25,8 @@ const report = {
   version: manifest.version,
   scope: 'Production dispatchTask IPC; real configured RK/model; no business action substitution.',
   prior_attempts: manifest.prior_attempts || [],
+  assessment_policy:
+    'No total task deadline. Track continuity and delivery separately; stalls are diagnostic and do not cancel tasks.',
   cases: [],
   skipped: manifest.skipped,
 }
@@ -60,6 +63,9 @@ try {
       status: 'RUNNING',
       assistance: [],
       phases: [],
+      progress_events: [],
+      continuity_status: 'running',
+      delivery_status: 'pending',
     }
     report.cases.push(record)
     await mkdir(join(output, test.id), { recursive: true })
@@ -78,19 +84,39 @@ try {
     record.task_id = dispatched.value.id
     log({ event: 'started', id: test.id, task_id: record.task_id })
     const start = Date.now()
-    let questionSince = 0,
-      lastPhase = '',
-      stopped = false
+    const monitor = new ProgressMonitor(
+      performance.now(),
+      test.stall_timeout_ms ?? manifest.stall_timeout_ms,
+    )
+    const reader = new ReceiptProgressReader(join(evidenceRoot, record.task_id))
+    let lastPhase = '',
+      lastProgressState = '',
+      hadStall = false
     while (true) {
-      const current = await state(record.task_id)
+      let current
+      try {
+        current = await state(record.task_id)
+        if (!current.task) throw new Error('Task snapshot temporarily missing')
+      } catch (error) {
+        log({ event: 'observation_retry', id: test.id, reason: error.message })
+        await pause(2000)
+        continue
+      }
       if (current.task?.status !== 'running') {
         record.task = current.task
         record.status =
           current.task?.status === 'completed'
             ? 'COMPLETED_REVIEW'
-            : stopped
-              ? record.status
-              : (current.task?.status || 'TASK_MISSING').toUpperCase()
+            : (current.task?.status || 'TASK_MISSING').toUpperCase()
+        record.continuity_status =
+          current.task.status === 'failed'
+            ? 'interrupted'
+            : current.task.status === 'cancelled'
+              ? 'stopped'
+              : hadStall
+                ? 'stall_observed'
+                : 'continuous'
+        record.delivery_status = 'review_required'
         break
       }
       const phase = `${current.task.stage} / ${current.phase || ''}`
@@ -100,24 +126,23 @@ try {
         lastPhase = phase
         await save()
       }
-      if (current.activeTaskId === record.task_id && current.phase === 'waiting_user') {
-        questionSince ||= Date.now()
+      const waiting = current.activeTaskId === record.task_id && current.phase === 'waiting_user'
+      if (waiting) {
         record.question = current.question
-      } else questionSince = 0
-      if (
-        !stopped &&
-        (Date.now() - start > test.max_ms || (questionSince && Date.now() - questionSince > 45000))
-      ) {
-        record.status = questionSince ? 'BLOCKED_QUESTION' : 'TIMEOUT'
-        record.stop_reason = questionSince
-          ? 'Unexpected user dependency; no synthetic answer supplied.'
-          : 'Round observation deadline; not success.'
-        const cancel = await page.evaluate((id) => window.coloop.cancelTask(id), record.task_id)
-        log({ event: 'cancel', id: test.id, reason: record.status, ok: cancel.ok })
-        stopped = true
       }
-      if (stopped && Date.now() - start > test.max_ms + 60000)
-        throw new Error('Task cancellation did not settle')
+      const markers = await reader.read()
+      if (current.task.answer?.trim()) markers.push(`answer:${current.task.answer}`)
+      const progress = monitor.update(performance.now(), markers, waiting)
+      if (progress.state === 'stalled') hadStall = true
+      if (progress.new_evidence || progress.state !== lastProgressState) {
+        record.progress_events.push({ at: new Date().toISOString(), ...progress })
+        record.continuity_status = progress.state
+        log({ event: 'progress', id: test.id, ...progress })
+        lastProgressState = progress.state
+        await save()
+      }
+      // Elapsed total time, phase cycling and waiting for a user answer never
+      // cancel the task. A stall is diagnostic; preserve the task for recovery.
       await pause(2000)
     }
     record.finished_at = new Date().toISOString()
