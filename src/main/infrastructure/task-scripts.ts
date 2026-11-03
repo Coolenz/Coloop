@@ -10,7 +10,7 @@ const requestSchema = z
     runtime: z.enum(['node', 'powershell', 'python']),
     code: z.string().min(1).max(24000),
     verify_code: z.string().min(1).max(24000),
-    timeout_ms: z.number().int().min(100).max(60000).default(30000),
+    timeout_ms: z.number().int().min(100).max(300000).default(30000),
   })
   .strict()
 export type TaskScriptRequest = z.input<typeof requestSchema>
