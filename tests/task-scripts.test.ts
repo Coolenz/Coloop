@@ -104,4 +104,32 @@ describe('task script execution', () => {
       expect(result.evidence).toBe('SCRIPT_OK')
     },
   )
+  it('reads UTF-8 JSON without a BOM through default PowerShell file commands', async () => {
+    const { executor, root } = await setup()
+    const node = await executor.execute(
+      'utf8',
+      {
+        ...request(),
+        code: `require('fs').writeFileSync('todo.json',JSON.stringify({text:'晚饭后散步'}),'utf8')`,
+        verify_code: `console.log(JSON.stringify({verified:true,evidence:require('fs').readFileSync('todo.json','utf8')}))`,
+      },
+      new AbortController().signal,
+    )
+    expect(node.verified).toBe(true)
+    const ps = await executor.execute(
+      'utf8',
+      {
+        ...request(),
+        runtime: 'powershell',
+        code: `$value=Get-Content -Raw 'todo.json'|ConvertFrom-Json; Set-Content 'copy.txt' $value.text -NoNewline`,
+        verify_code: `$value=Get-Content -Raw 'todo.json'|ConvertFrom-Json; @{verified=($value.text -eq '晚饭后散步');evidence=@{text=$value.text}}|ConvertTo-Json -Compress`,
+      },
+      new AbortController().signal,
+    )
+    expect(ps.verified).toBe(true)
+    expect(JSON.parse(ps.evidence).text).toBe('晚饭后散步')
+    expect((await readFile(join(root, 'utf8', 'copy.txt'), 'utf8')).replace(/^\ufeff/, '')).toBe(
+      '晚饭后散步',
+    )
+  })
 })

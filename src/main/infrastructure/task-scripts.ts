@@ -146,7 +146,7 @@ export class TaskScriptExecutor {
     await writeFile(
       file,
       runtime === 'powershell'
-        ? "\ufeff[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; $ErrorActionPreference='Stop'\n" +
+        ? "\ufeff[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $OutputEncoding=[Console]::OutputEncoding; $ErrorActionPreference='Stop'; $PSDefaultParameterValues['*:Encoding']='utf8'\n" +
             code
         : code,
       'utf8',

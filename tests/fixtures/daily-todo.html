@@ -1,0 +1,14 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>生活待办清单验收</title>
+<style>body{font:20px system-ui;max-width:800px;margin:60px auto}input,button,select{font:inherit;margin:8px;padding:8px}li{padding:8px}.done{text-decoration:line-through;color:#777}#status{color:#176329}</style>
+<h1>生活待办清单</h1><p>本地测试样品；数据保存在本浏览器，不上传。</p>
+<form id="add"><label>新待办<input id="new-task" required></label><button>添加</button></form>
+<label>显示<select id="filter"><option value="all">全部</option><option value="open">未完成</option><option value="done">已完成</option></select></label>
+<p id="counts"></p><ul id="tasks"></ul><button id="export">导出JSON</button><p id="status" role="status"></p>
+<script>
+let tasks=JSON.parse(localStorage.getItem('coloop-daily-todo-v1')||'[]');
+const persist=()=>{localStorage.setItem('coloop-daily-todo-v1',JSON.stringify(tasks));render()};
+function render(){const ul=document.querySelector('#tasks');ul.replaceChildren();for(const task of tasks){if(filter.value==='open'&&task.done||filter.value==='done'&&!task.done)continue;const li=document.createElement('li');li.dataset.id=task.id;const box=document.createElement('input');box.type='checkbox';box.checked=task.done;box.setAttribute('aria-label','完成 '+task.text);box.onchange=()=>{task.done=box.checked;persist()};const text=document.createElement('input');text.value=task.text;text.setAttribute('aria-label','编辑 '+task.text);if(task.done)text.className='done';text.onchange=()=>{task.text=text.value;persist()};li.append(box,text);ul.append(li)}document.querySelector('#counts').textContent=`共 ${tasks.length} 项，已完成 ${tasks.filter(t=>t.done).length} 项，未完成 ${tasks.filter(t=>!t.done).length} 项`}
+document.querySelector('#add').onsubmit=e=>{e.preventDefault();const input=document.querySelector('#new-task');if(!input.value.trim())return;tasks.push({id:crypto.randomUUID(),text:input.value.trim(),done:false});input.value='';persist()};
+const filter=document.querySelector('#filter');filter.onchange=render;
+document.querySelector('#export').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({tasks,exportedAt:new Date().toISOString()},null,2)],{type:'application/json'}));a.download='todo-export.json';a.click();URL.revokeObjectURL(a.href);document.querySelector('#status').textContent='已导出 '+tasks.length+' 项待办'};render();
+</script></html>

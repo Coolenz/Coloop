@@ -332,6 +332,7 @@ class Agent:
                 if response.get('error'):
                     recoverable = {
                         'observe.request': {'OBSERVATION_RETRY'},
+                        'cloud_transport': {'RELAY_OUTPUT_TRUNCATED', 'RELAY_RESPONSE_LIMIT'},
                         'script.execute': {'SCRIPT_ARGUMENT_INVALID', 'SCRIPT_EXECUTION_CONFLICT', 'SCRIPT_START_FAILED'},
                         'input.validate': {'INPUT_TARGET_CHANGED', 'OBSERVATION_EXPIRED'},
                         'input.guard': {'INPUT_TARGET_CHANGED', 'INPUT_GUARD_CHANGED',
@@ -977,7 +978,10 @@ class Agent:
                 self.check()
                 view = self.observe()
                 tools.append({'type': 'replan', 'reason': reason,
-                              'instruction': 'Inspect the fresh screen and prior receipts. Do not blindly replay sent actions.'})
+                              'instruction': ('Previous model output was cut off and was not executed. '
+                                'Return a shorter complete JSON step; split long scripts into smaller steps.'
+                                if reason in ('RELAY_OUTPUT_TRUNCATED', 'RELAY_RESPONSE_LIMIT') else
+                                'Inspect the fresh screen and prior receipts. Do not blindly replay sent actions.')})
             tools = tools[-5:]
 
     def wait_for_help(self, reason):

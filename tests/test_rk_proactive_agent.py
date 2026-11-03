@@ -73,6 +73,14 @@ class AgentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '^INPUT_TARGET_CHANGED$'):
             self.agent.rpc('input.validate', {})
 
+    def test_rpc_preserves_cloud_truncation_for_shorter_replanning(self):
+        for code in ('RELAY_OUTPUT_TRUNCATED', 'RELAY_RESPONSE_LIMIT'):
+            def emit(packet):
+                self.agent.accept({'type': 'reply', 'id': packet['id'], 'error': code})
+            self.agent.emit = emit
+            with self.assertRaisesRegex(ValueError, '^' + code + '$'):
+                self.agent.rpc('cloud_transport', {})
+
     def test_transient_ocr_failure_reads_again_without_input(self):
         self.start()
         attempts = []
