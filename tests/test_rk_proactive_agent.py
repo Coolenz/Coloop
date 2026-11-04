@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 
 
@@ -40,9 +41,17 @@ class AgentTests(unittest.TestCase):
         self.agent.latest = view()
 
     def tearDown(self):
-        for thread in self.agent.review_threads:
-            thread.join(2)
+        self.agent.memory_reviews.close(timeout=2)
         self.temp.cleanup()
+
+    def wait_memory(self, task_id='task1'):
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = self.agent.memory_reviews.status(task_id)
+            if status and status['status'] in ('saved', 'skipped', 'failed'):
+                return status
+            time.sleep(.01)
+        self.fail('Memory review did not finish')
 
     def start(self):
         self.agent.start({'task_id': 'task1', 'goal': 'append Chinese outline'})
@@ -350,7 +359,7 @@ class AgentTests(unittest.TestCase):
             return {'type': 'memory.set', 'key': 'procedure:test', 'value': 'verified'}
         self.agent.model = model
         writes = []
-        self.agent.mem = lambda op, body: writes.append(body) or True
+        self.agent.mem = lambda op, body: writes.append(body) or {'id': 'memory1'}
         original = self.agent.task
         original['verified'] = True
         self.agent.queue_memory_review(original, {'summary': 'done'})
@@ -359,7 +368,7 @@ class AgentTests(unittest.TestCase):
         self.agent.task = None
         self.agent.start({'task_id': 'task2', 'goal': 'next'})
         release.set()
-        self.agent.review_threads[0].join(2)
+        self.wait_memory()
         self.assertEqual(writes[0]['source_task_id'], 'task1')
         self.assertEqual(self.agent.task['task_id'], 'task2')
 
@@ -439,8 +448,10 @@ class AgentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'duplicate_task'):
             self.start()
         another = module.Agent(self.temp.name, lambda _: None)
+        self.addCleanup(another.memory_reviews.close)
         with self.assertRaises(FileExistsError):
             another.start({'task_id': 'task1', 'goal': 'Again'})
+        another.memory_reviews.close()
 
     def test_failed_admission_journal_cannot_leave_executable_task(self):
         self.agent.state = lambda _: (_ for _ in ()).throw(OSError('disk full'))
@@ -818,12 +829,15 @@ class AgentTests(unittest.TestCase):
         cloud_calls = []
         self.agent.cloud = lambda *args: cloud_calls.append(args) or next(responses)
         writes = []
-        self.agent.mem = lambda op, body: writes.append((op, body)) or {'memories': []}
+        self.agent.mem = lambda op, body: writes.append((op, body)) or (
+            {'id': 'memory1'} if op == 'memory.set' else {'memories': []})
         self.agent.run_task()
         self.assertTrue(self.agent.task['verified'])
-        for thread in self.agent.review_threads:
-            thread.join(2)
+        self.wait_memory()
         self.assertEqual(len(cloud_calls), 2)
+        feedback = cloud_calls[1][1]['tool_results'][-1]
+        self.assertTrue(feedback['paste_verified'])
+        self.assertIn('中文大纲', feedback['verified_text_excerpt'])
         self.assertEqual(writes[-1][0], 'memory.set')
         self.assertEqual(writes[-1][1]['source_task_id'], 'task1')
         self.assertEqual(self.agent.hid.commands, [{'action': 'hotkey', 'keys': 'CTRL+V'}])

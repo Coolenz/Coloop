@@ -3,6 +3,12 @@ import { randomUUID } from 'node:crypto'
 import type { Readable, Writable } from 'node:stream'
 import { DesktopPipe } from '../infrastructure/desktop-pipe'
 import type { ProactiveState } from '../../shared/proactive'
+import {
+  parseSuggestion,
+  suggestionContent,
+  suggestionSystem,
+} from '../domain/proactive-suggestion'
+import { parseStrictJson } from '../domain/strict-json'
 export type { ProactiveState } from '../../shared/proactive'
 
 export interface ProactiveObservation {
@@ -28,9 +34,10 @@ interface Options {
   releaseClipboard(taskId: string): Promise<void>
   prepareInput(): Promise<void>
   onChange(): void
+  onObservationRetry?: (observationId: string) => void
 }
 
-/** Host transport only: the task loop, local memory review and USB sender stay on RK; cloud understands OCR. */
+/** The host asks the cloud for passive suggestions; RK owns accepted task execution. */
 export class ProactiveAgentService {
   private pipe?: DesktopPipe
   private opening?: Promise<void>
@@ -56,32 +63,36 @@ export class ProactiveAgentService {
   }
   async connect() {
     if (this.disposed) throw new Error('PROACTIVE_DISPOSED')
+    if (this.opening) return this.opening
     if (this.pipe) return
     if (!this.options.available()) throw new Error('RK_NOT_READY')
-    if (this.opening) return this.opening
     this.opening = (async () => {
       const source = await readFile(this.options.script, 'utf8')
       const channel = await this.options.openRuntime(source)
       if (this.disposed) {
         channel.close()
-        return
+        throw new Error('PROACTIVE_DISPOSED')
       }
       const pipe = new DesktopPipe(channel, channel, () => channel.close())
       this.pipe = pipe
       pipe.on('packet', (packet) => {
-        void this.packet(packet).catch(() => this.changed({ error: 'RK_EVENT_INVALID' }))
+        void this.packet(pipe, packet).catch(() => {
+          if (this.pipe === pipe && !this.disposed) this.changed({ error: 'RK_EVENT_INVALID' })
+        })
       })
       pipe.on('closed', () => {
         if (this.pipe !== pipe) return
         this.pipe = undefined
         clearInterval(this.heartbeat)
         this.abort.abort()
-        this.passiveAbort.abort()
+        this.cancelObservation()
+        this.observations.clear()
         if (this.current.taskId)
           void this.options.releaseClipboard(this.current.taskId).catch(() => {})
         this.changed({
           connected: false,
           active: false,
+          question: undefined,
           phase: this.current.active ? 'input_unknown' : 'offline',
           error: 'RK_CONNECTION_CLOSED',
         })
@@ -95,9 +106,9 @@ export class ProactiveAgentService {
       }, 1000)
       this.heartbeat.unref()
       await pipe.ready
+      if (this.pipe !== pipe || this.disposed) throw new Error('RK_CONNECTION_CLOSED')
       if (!this.current.active) {
         this.abort = new AbortController()
-        this.passiveAbort = new AbortController()
       }
       this.changed({ connected: true, error: undefined })
     })().finally(() => {
@@ -111,27 +122,77 @@ export class ProactiveAgentService {
     return view
   }
   async submitObservation(view: ProactiveObservation) {
-    if (
-      this.current.active ||
-      this.current.phase === 'input_unknown' ||
-      this.disposed ||
-      !this.options.available()
-    )
+    if (this.current.active || this.current.phase === 'input_unknown' || this.disposed) return
+    if (!this.options.available()) {
+      this.options.onObservationRetry?.(view.observation_id)
       return
-    await this.connect()
-    if (this.current.active || this.disposed) return
-    if (this.current.suggestion && this.current.suggestion.observation_id !== view.observation_id)
-      this.changed({ suggestion: undefined, phase: 'idle' })
+    }
+    this.cancelObservation()
     this.latestPassiveId = view.observation_id
-    this.pipe!.send({ type: 'observe', value: this.remember(view) })
+    this.remember(view)
+    const signal = this.passiveAbort.signal
+    void this.recommend(view, signal)
+  }
+  cancelObservation() {
+    this.passiveAbort.abort()
+    this.passiveAbort = new AbortController()
+    this.latestPassiveId = undefined
+    if (this.current.suggestion) this.changed({ suggestion: undefined, phase: 'idle' })
+  }
+  private async recommend(view: ProactiveObservation, signal: AbortSignal) {
+    const current = () =>
+      !signal.aborted &&
+      !this.disposed &&
+      !this.active &&
+      this.current.phase !== 'input_unknown' &&
+      this.latestPassiveId === view.observation_id
+    try {
+      const content = suggestionContent(view)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const system =
+          suggestionSystem +
+          (attempt ? '\nReturn exactly one valid JSON object using the specified fields.' : '')
+        const raw = await this.options.cloud(system, content, signal)
+        if (!current()) return
+        if (!this.options.available()) {
+          this.options.onObservationRetry?.(view.observation_id)
+          return
+        }
+        let response: ReturnType<typeof parseSuggestion>
+        try {
+          response = parseSuggestion(raw)
+        } catch (error) {
+          if (!attempt) continue
+          throw error
+        }
+        if (response.type === 'defer') this.options.onObservationRetry?.(view.observation_id)
+        if (response.type === 'suggestion') {
+          this.changed({
+            suggestion: {
+              ...response,
+              suggestion_id: randomUUID(),
+              observation_id: view.observation_id,
+            },
+            phase: 'suggestion',
+            error: undefined,
+          })
+        }
+        return
+      }
+    } catch {
+      if (current()) {
+        this.changed({ error: 'PROACTIVE_RECOMMENDATION_FAILED' })
+        this.options.onObservationRetry?.(view.observation_id)
+      }
+    }
   }
   async startTask(goal: string, taskId: string = randomUUID()) {
     this.options.assertStart()
     if (!goal.trim() || Buffer.byteLength(goal) > 16000) throw new Error('INVALID_TASK_GOAL')
     if (this.active) throw new Error('TASK_BUSY')
+    if (this.current.phase === 'input_unknown') throw new Error('INPUT_OUTCOME_UNKNOWN')
     this.stopped = false
-    this.passiveAbort.abort()
-    this.passiveAbort = new AbortController()
+    this.cancelObservation()
     this.abort = new AbortController()
     this.changed({
       active: true,
@@ -159,41 +220,17 @@ export class ProactiveAgentService {
     return taskId
   }
   async acceptSuggestion(id: string) {
-    this.options.assertStart()
-    if (this.active || this.current.suggestion?.suggestion_id !== id)
+    const proposal = this.current.suggestion
+    if (
+      this.active ||
+      proposal?.suggestion_id !== id ||
+      proposal.observation_id !== this.latestPassiveId
+    )
       throw new Error('STALE_SUGGESTION')
-    this.stopped = false
-    this.passiveAbort.abort()
-    this.passiveAbort = new AbortController()
-    this.abort = new AbortController()
-    const taskId = randomUUID()
-    this.changed({
-      active: true,
-      taskId,
-      phase: 'queued',
-      suggestion: undefined,
-      question: undefined,
-      error: undefined,
-      summary: undefined,
-      memorySaved: undefined,
-    })
-    try {
-      await this.connect()
-      if (this.stopped || this.disposed) throw new Error('TASK_STOPPED')
-      this.options.assertStart()
-      this.pipe!.send({ type: 'suggestion.accept', value: { suggestion_id: id, task_id: taskId } })
-    } catch (error) {
-      this.changed({
-        active: false,
-        phase: this.stopped ? 'cancelled' : 'failed',
-        error: this.stopped ? 'TASK_STOPPED' : 'TASK_START_FAILED',
-      })
-      throw error
-    }
+    await this.startTask(`${String(proposal.goal)}\n\n已接纳的页面建议：\n${String(proposal.text)}`)
   }
   dismissSuggestion(id: string) {
     if (this.current.suggestion?.suggestion_id !== id) throw new Error('STALE_SUGGESTION')
-    this.pipe?.send({ type: 'suggestion.ignore', value: { suggestion_id: id } })
     this.changed({ suggestion: undefined, phase: 'idle' })
   }
   answer(taskId: string, questionId: string, answer: string) {
@@ -225,12 +262,16 @@ export class ProactiveAgentService {
       summary: 'Previous input result was not verified. No automatic retry was made.',
     })
   }
-  private async packet(packet: {
-    type: string
-    id?: string
-    op?: string
-    value?: Record<string, unknown>
-  }) {
+  private async packet(
+    pipe: DesktopPipe,
+    packet: {
+      type: string
+      id?: string
+      op?: string
+      value?: Record<string, unknown>
+    },
+  ) {
+    if (this.pipe !== pipe || this.disposed) return
     const value = packet.value ?? {}
     if (packet.type !== 'suggestion')
       console.info(
@@ -245,15 +286,17 @@ export class ProactiveAgentService {
         }),
       )
     if (packet.type === 'request') {
-      const pipe = this.pipe
       try {
-        const result = await this.tool(packet.op!, value)
-        pipe?.send({ type: 'reply', id: packet.id, value: result })
+        const result = await this.tool(pipe, packet.op!, value)
+        if (this.pipe === pipe && !this.disposed)
+          pipe.send({ type: 'reply', id: packet.id, value: result })
       } catch (error) {
         // Fixed diagnostic only; provider errors and clipboard contents stay private.
         const code =
           error instanceof Error &&
-          /^(CLIPBOARD|DESKTOP|INPUT|TASK|OBSERVATION|RK|RELAY|SCRIPT)_[A-Z_]{1,80}$/.test(error.message)
+          /^(CLIPBOARD|DESKTOP|INPUT|TASK|OBSERVATION|RK|RELAY|SCRIPT)_[A-Z_]{1,80}$/.test(
+            error.message,
+          )
             ? error.message
             : 'HOST_TOOL_FAILED'
         console.info(
@@ -261,25 +304,23 @@ export class ProactiveAgentService {
           JSON.stringify({
             op: packet.op,
             code,
-            error: error instanceof Error ? error.message : 'unknown',
           }),
         )
-        pipe?.send({
+        if (this.pipe !== pipe || this.disposed) return
+        pipe.send({
           type: 'reply',
           id: packet.id,
           error: this.stopped ? 'TASK_STOPPED' : code,
         })
       }
-    } else if (packet.type === 'suggestion') {
-      if (!this.active && value.observation_id === this.latestPassiveId)
-        this.changed({ suggestion: value, phase: 'suggestion', error: undefined })
     } else if (packet.type === 'question') {
-      if (value.task_id === this.current.taskId)
+      if (this.active && !this.stopped && value.task_id === this.current.taskId)
         this.changed({ question: value, phase: 'waiting_user' })
     } else if (packet.type === 'task.state') {
-      if (value.task_id === this.current.taskId) this.changed({ phase: String(value.phase) })
+      if (this.active && !this.stopped && value.task_id === this.current.taskId)
+        this.changed({ phase: String(value.phase) })
     } else if (packet.type === 'task.result') {
-      if (value.task_id !== this.current.taskId) return
+      if (!this.active || value.task_id !== this.current.taskId) return
       this.changed({
         active: false,
         question: undefined,
@@ -294,22 +335,50 @@ export class ProactiveAgentService {
       this.changed({ error: String(value.code ?? 'RK_AGENT_ERROR') })
     }
   }
-  private async tool(op: string, value: Record<string, unknown>) {
+  private async tool(pipe: DesktopPipe, op: string, value: Record<string, unknown>) {
     if (op === 'cloud_transport') {
       if (typeof value.system !== 'string' || typeof value.content !== 'string')
         throw new Error('INVALID_CLOUD_REQUEST')
-      let passive = false
+      let context: Record<string, unknown>
       try {
-        passive = JSON.parse(value.content).mode === 'suggest'
+        let parsed = parseStrictJson(value.content)
+        for (let depth = 0; depth < 4; depth++) {
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+            throw new Error('INVALID_CLOUD_CONTEXT')
+          const row = parsed as Record<string, unknown>
+          if (!row.original_request) break
+          parsed = row.original_request
+        }
+        context = parsed as Record<string, unknown>
       } catch {
         throw new Error('INVALID_CLOUD_CONTEXT')
       }
-      if (passive && this.active) throw new Error('PASSIVE_SUPERSEDED')
-      return this.options.cloud(
-        value.system,
-        value.content,
-        passive ? this.passiveAbort.signal : this.abort.signal,
-      )
+      const mode = value.mode ?? context.mode ?? 'task'
+      if (mode !== 'task' && mode !== 'suggest') throw new Error('INVALID_CLOUD_CONTEXT')
+      const passive = mode === 'suggest'
+      const taskId =
+        value.task_id ?? context.task_id ?? (value.mode ? undefined : this.current.taskId)
+      const observationId = value.observation_id ?? context.observation_id
+      const signal = passive ? this.passiveAbort.signal : this.abort.signal
+      const assertCurrent = () => {
+        if (this.pipe !== pipe || this.disposed) throw new Error('RK_CONNECTION_CLOSED')
+        if (passive) {
+          if (
+            signal.aborted ||
+            this.active ||
+            !this.latestPassiveId ||
+            observationId !== this.latestPassiveId
+          )
+            throw new Error('OBSERVATION_EXPIRED')
+        } else {
+          if (!this.active || taskId !== this.current.taskId) throw new Error('TASK_MISMATCH')
+          if (signal.aborted || this.stopped) throw new Error('TASK_STOPPED')
+        }
+      }
+      assertCurrent()
+      const result = await this.options.cloud(value.system, value.content, signal)
+      assertCurrent()
+      return result
     }
     if (!this.active || value.task_id !== this.current.taskId) throw new Error('TASK_MISMATCH')
     if (this.stopped && op !== 'clipboard.finish') throw new Error('TASK_STOPPED')
@@ -352,7 +421,12 @@ export class ProactiveAgentService {
       const view = this.observations.get(String(value.observation_id))
       if (!view || view.window_id === '0') throw new Error('OBSERVATION_EXPIRED')
       if (op === 'input.validate') await this.options.prepareInput()
-      if (this.stopped || !this.active || value.task_id !== this.current.taskId)
+      if (
+        this.pipe !== pipe ||
+        this.stopped ||
+        !this.active ||
+        value.task_id !== this.current.taskId
+      )
         throw new Error('TASK_STOPPED')
       if (
         op === 'input.validate' ||
@@ -367,7 +441,12 @@ export class ProactiveAgentService {
           }
           if (clipboard?.allowed !== true) throw new Error('CLIPBOARD_LEASE_CHANGED')
         }
-        if (this.stopped || !this.active || value.task_id !== this.current.taskId)
+        if (
+          this.pipe !== pipe ||
+          this.stopped ||
+          !this.active ||
+          value.task_id !== this.current.taskId
+        )
           throw new Error('TASK_STOPPED')
         return result
       }
@@ -375,7 +454,12 @@ export class ProactiveAgentService {
         allowed?: boolean
       }
       if (guarded?.allowed !== true) throw new Error('INPUT_GUARD_CHANGED')
-      if (this.stopped || !this.active || value.task_id !== this.current.taskId)
+      if (
+        this.pipe !== pipe ||
+        this.stopped ||
+        !this.active ||
+        value.task_id !== this.current.taskId
+      )
         throw new Error('TASK_STOPPED')
       return this.options.clipboard(op, value)
     }

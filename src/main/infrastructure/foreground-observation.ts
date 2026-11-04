@@ -102,7 +102,16 @@ public class ColoopForeground {
    POINT start=new POINT();start.x=local.left;start.y=local.top;POINT end=new POINT();end.x=local.right;end.y=local.bottom;
    ClientToScreen(h,ref start);ClientToScreen(h,ref end);rect.left=start.x;rect.top=start.y;rect.right=end.x;rect.bottom=end.y;
   } else return null;
-  return new System.Collections.Generic.Dictionary<string,object>{{"name",name},{"type",type},{"source","win32"},{"rect",new int[]{rect.left,rect.top,rect.right,rect.bottom}},{"runtime_id",item<0?new long[]{42,h.ToInt64()}:new long[]{42,h.ToInt64(),item}},{"enabled",true},{"process_id",expectedPid}};
+  var target=new System.Collections.Generic.Dictionary<string,object>{{"name",name},{"type",type},{"source","win32"},{"rect",new int[]{rect.left,rect.top,rect.right,rect.bottom}},{"runtime_id",item<0?new long[]{42,h.ToInt64()}:new long[]{42,h.ToInt64(),item}},{"enabled",true},{"process_id",expectedPid}};
+  IntPtr state;
+  if((type=="CheckBox"||type=="RadioButton")&&Msg(h,0xF0,IntPtr.Zero,IntPtr.Zero,2,250,out state)!=IntPtr.Zero) {
+   long check=state.ToInt64();
+   if(check==0||check==1)target[type=="RadioButton"?"selected":"checked"]=check==1;
+  }
+  if(type=="ListItem"&&Msg(h,0x187,new IntPtr(item),IntPtr.Zero,2,250,out state)!=IntPtr.Zero&&state.ToInt64()>=0) {
+   target["selected"]=state.ToInt64()>0;
+  }
+  return target;
  }
  public static System.Collections.Generic.Dictionary<string,object>[] NativeControlTargets(IntPtr top,uint pid) {
   var results=new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string,object>>();
@@ -139,6 +148,19 @@ function Test-ColoopEditable($element) {
   }
  } catch {}
  return $false
+}
+function Read-ColoopControlState($element,$target) {
+ try {
+  $toggle=$element.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+  $state=$toggle.Current.ToggleState
+  if($state -ne [System.Windows.Automation.ToggleState]::Indeterminate) {
+   $target.checked=($state -eq [System.Windows.Automation.ToggleState]::On)
+  }
+ } catch {}
+ try {
+  $selection=$element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
+  $target.selected=$selection.Current.IsSelected
+ } catch {}
 }
 while ($null -ne ($line = [Console]::ReadLine())) {
  try {
@@ -199,8 +221,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     if (@('Edit','Document') -contains $type -and !(Test-ColoopEditable $hitElement)) { break }
     if (!$hitElement.Current.IsPassword) { $hr=$hitElement.Current.BoundingRectangle; $pointTarget=@{name=$hitElement.Current.Name;type=$type;rect=@($hr.Left,$hr.Top,$hr.Right,$hr.Bottom);runtime_id=@($hitElement.GetRuntimeId());enabled=$hitElement.Current.IsEnabled;process_id=$hitElement.Current.ProcessId} }
     if ($null -ne $pointTarget) {
-     try { $toggle=$hitElement.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern); $ts=$toggle.Current.ToggleState; if($ts -ne [System.Windows.Automation.ToggleState]::Indeterminate){$pointTarget.checked=($ts -eq [System.Windows.Automation.ToggleState]::On)} } catch {}
-     try { $selection=$hitElement.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern); $pointTarget.selected=$selection.Current.IsSelected } catch {}
+     Read-ColoopControlState $hitElement $pointTarget
     }
     break
    }
@@ -225,13 +246,36 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     }
    }
   } catch {}
+  try {
+   $toggleCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty,$true)
+   $selectionCondition=[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty,$true)
+   $stateCondition=[System.Windows.Automation.OrCondition]::new($toggleCondition,$selectionCondition)
+   $controls=$windowElement.FindAll([System.Windows.Automation.TreeScope]::Descendants,$stateCondition)
+   for($i=0;$i-lt $controls.Count -and $controlTargets.Count-lt 32;$i++) {
+    $e=$controls[$i]
+    $type=$e.Current.ControlType.ProgrammaticName.Replace('ControlType.','')
+    if($e.Current.ProcessId -ne $processId -or $e.Current.IsOffscreen -or !$e.Current.IsEnabled -or $e.Current.IsPassword){continue}
+    if(@('Button','CheckBox','RadioButton','ListItem','MenuItem','TabItem','TreeItem','DataItem') -notcontains $type){continue}
+    $r=$e.Current.BoundingRectangle
+    if($r.Width-le 0 -or $r.Height-le 0 -or $r.Left-lt $rect.left -or $r.Top-lt $rect.top -or $r.Right-gt $rect.right -or $r.Bottom-gt $rect.bottom){continue}
+    $target=@{type=$type;name=$e.Current.Name;source='uia';runtime_id=@($e.GetRuntimeId());rect=@($r.Left,$r.Top,$r.Right,$r.Bottom);enabled=$true;process_id=$processId}
+    Read-ColoopControlState $e $target
+    if($target.ContainsKey('checked') -or $target.ContainsKey('selected')){$controlTargets+=,$target}
+   }
+  } catch {}
   foreach($nativeEditor in [ColoopForeground]::NativeEditors($handle,$processId)) {
    $er=New-Object ColoopForeground+RECT;[void][ColoopForeground]::GetWindowRect($nativeEditor,[ref]$er)
    $editorName='Native text editor'
    try {$label=[System.Windows.Automation.AutomationElement]::FromHandle($nativeEditor).Current.Name;if($label -and $label.Length-le 120 -and $label-ne [ColoopForeground]::ReadEditText($nativeEditor)){$editorName=$label}}catch{}
    $editorTargets+=@{type='Edit';name=$editorName;source='win32';runtime_id=@(42,$nativeEditor.ToInt64());rect=@($er.left,$er.top,$er.right,$er.bottom)}
   }
-  $controlTargets=@([ColoopForeground]::NativeControlTargets($handle,$processId))
+  foreach($target in [ColoopForeground]::NativeControlTargets($handle,$processId)) {
+   if($controlTargets.Count-ge 32){break}
+   $bounds=$target.rect
+   if($bounds[0]-lt $rect.left -or $bounds[1]-lt $rect.top -or $bounds[2]-gt $rect.right -or $bounds[3]-gt $rect.bottom){continue}
+   $identity=$target.runtime_id -join ','
+   if(!@($controlTargets|Where-Object{($_.runtime_id -join ',') -eq $identity}).Count){$controlTargets+=,$target}
+  }
  }
  @{ window_id=$handle.ToInt64().ToString(); process_id=$processId; process_name=(Get-Process -Id $processId -ErrorAction Stop).ProcessName; window_rect=@($rect.left,$rect.top,$rect.right,$rect.bottom); point_owner=$pointOwner.ToString(); point_process_id=$pointProcessId; point_target=$pointTarget; focus_diagnostic=$focusDiag; editor_targets=$editorTargets; control_targets=$controlTargets; editable_focus=$editable; editable_rect=$editRect; editable_runtime_id=$editRuntime; editable_source=$editableSource; editable_text=$editText; selection_start=$selectionStart; selection_end=$selectionEnd; screen=@{x=[ColoopForeground]::GetSystemMetrics(76);y=[ColoopForeground]::GetSystemMetrics(77);width=[ColoopForeground]::GetSystemMetrics(78);height=[ColoopForeground]::GetSystemMetrics(79)} } | ConvertTo-Json -Compress -Depth 5 | ForEach-Object { [Console]::WriteLine($_) }
  } catch { [Console]::WriteLine('{"error":"foreground_unavailable"}') }
@@ -262,10 +306,13 @@ export interface ForegroundMetadata {
     source: 'uia' | 'win32'
     runtime_id: number[]
     rect: number[]
+    checked?: boolean
+    selected?: boolean
   }[]
   point_target?: {
     name: string
     type: string
+    source?: 'uia' | 'win32'
     rect: number[]
     runtime_id: number[]
     enabled: boolean
@@ -564,6 +611,31 @@ export class WindowsObservationCapture {
       center: item.center.map((v, i) => v / scale[i] + origin[i]),
       confidence: item.confidence,
     }))
+    const editor = live.editable_rect
+    const outsideEditor = ocrItems.filter(
+      (item) =>
+        !editor ||
+        item.center[0] < editor[0] ||
+        item.center[0] >= editor[2] ||
+        item.center[1] < editor[1] ||
+        item.center[1] >= editor[3],
+    )
+    const editorCoversDocument =
+      !!editor &&
+      (editor[2] - editor[0]) * (editor[3] - editor[1]) >=
+        (frame.window_rect[2] - frame.window_rect[0]) *
+          (frame.window_rect[3] - frame.window_rect[1]) *
+          0.5
+    const semanticText =
+      live.editable_focus && typeof live.editable_text === 'string'
+        ? live.editable_text +
+          '\n' +
+          (ocrItems.length
+            ? outsideEditor.map((item) => item.text).join('\n')
+            : editorCoversDocument
+              ? ''
+              : ocr.text)
+        : ocr.text
     return {
       ...meta,
       observation_id: randomUUID(),
@@ -571,12 +643,17 @@ export class WindowsObservationCapture {
       // A caret may be OCR'd as I/|. UIA text is used only as a local dedup key;
       // the context sent to RK/cloud remains the original OCR text and boxes.
       content_hash: createHash('sha256')
+        .update(frame.window_id + '\n' + semanticText)
         .update(
-          frame.window_id +
-            '\n' +
-            (live.editable_focus && typeof live.editable_text === 'string'
-              ? live.editable_text
-              : ocr.text),
+          JSON.stringify(
+            distinctEditors
+              .filter((target) => 'checked' in target || 'selected' in target)
+              .map((target) => ({
+                runtime_id: target.runtime_id,
+                checked: 'checked' in target ? target.checked : undefined,
+                selected: 'selected' in target ? target.selected : undefined,
+              })),
+          ),
         )
         .digest('hex'),
       ocr_text: ocr.text,
@@ -836,7 +913,11 @@ export class WindowsObservationCapture {
       typeof target[property] !== 'boolean'
     )
       return failed
-    return { verified: target[property] === value, observable: true, source: 'uia' }
+    return {
+      verified: target[property] === value,
+      observable: true,
+      source: target.source ?? 'uia',
+    }
   }
   async verifyVisibleText(snapshot: ForegroundObservation, expectedText: string) {
     if (!expectedText.trim() || expectedText.length > 1000)
@@ -867,7 +948,9 @@ interface ObservationOptions {
   recognize: (frame: ForegroundFrame, signal?: AbortSignal) => Promise<ForegroundObservation>
   isOcrBusy: () => boolean
   canObserve: () => boolean
+  isInteracting?: () => boolean
   onObservation: (snapshot: ForegroundObservation) => void | Promise<void>
+  onInvalidated?: () => void
   onError?: (error: Error) => void
   intervalMs?: number
   stableMs?: number
@@ -880,9 +963,14 @@ export class ForegroundObservationService {
   private pauses = new Set<string>()
   private abort?: AbortController
   private fingerprint = ''
+  private targetIdentity = ''
   private processedFingerprint = ''
   private stableSince = 0
   private emitted = ''
+  private emittedObservationId?: string
+  private lastContentHash = ''
+  private retryCount = 0
+  private retryAfter = 0
   private running = false
   private busy = false
   private lastOcrAt = -Infinity
@@ -893,8 +981,10 @@ export class ForegroundObservationService {
     this.schedule()
   }
   pause(reason = 'user') {
+    if (this.pauses.has(reason)) return
     this.pauses.add(reason)
     this.abort?.abort()
+    this.invalidate()
   }
   resume(reason = 'user') {
     this.pauses.delete(reason)
@@ -904,6 +994,19 @@ export class ForegroundObservationService {
   }
   get isWorking() {
     return this.busy
+  }
+  invalidate() {
+    this.emitted = ''
+    this.emittedObservationId = undefined
+    this.retryCount = 0
+    this.retryAfter = 0
+    this.options.onInvalidated?.()
+  }
+  retryObservation(observationId: string) {
+    if (observationId !== this.emittedObservationId || this.retryCount >= 3) return
+    this.retryAfter = (this.options.now?.() ?? Date.now()) + 5000 * 2 ** this.retryCount
+    this.retryCount += 1
+    this.emitted = ''
   }
   private schedule() {
     if (this.running)
@@ -918,26 +1021,55 @@ export class ForegroundObservationService {
     this.abort = new AbortController()
     try {
       const frame = await this.options.capture(this.abort.signal)
-      if (!frame) return
+      if (!frame || this.abort.signal.aborted) return
       const now = this.options.now?.() ?? Date.now()
-      if (frame.fingerprint !== this.fingerprint) {
+      const identity = `${frame.process_id}:${frame.window_id}:${frame.window_rect.join()}`
+      if (identity !== this.targetIdentity) {
+        this.targetIdentity = identity
+        this.invalidate()
+      }
+      if (this.options.isInteracting?.()) {
+        // The island changes its own mask while hovered or edited. Continue
+        // checking the target, then compare page text once that mask settles.
         this.fingerprint = frame.fingerprint
         this.stableSince = now
         return
       }
+      if (frame.fingerprint !== this.fingerprint) {
+        this.fingerprint = frame.fingerprint
+        this.stableSince = now
+        // A caret, hover, or our own overlay can change pixels without changing
+        // the page. Keep the recommendation until OCR confirms new content.
+        return
+      }
+      if (now < this.retryAfter) return
       if (frame.fingerprint === this.processedFingerprint && now - this.lastOcrAt < 5000) return
       if (now - this.stableSince < (this.options.stableMs ?? 800)) return
       if (now - this.lastOcrAt < (this.options.minOcrIntervalMs ?? 1500)) return
       this.lastOcrAt = now
       const snapshot = await this.options.recognize(frame, this.abort.signal)
-      this.processedFingerprint = frame.fingerprint
-      if (this.paused || !this.options.canObserve() || snapshot.content_hash === this.emitted)
+      if (this.options.isInteracting?.()) {
+        this.stableSince = this.options.now?.() ?? Date.now()
         return
+      }
+      this.processedFingerprint = frame.fingerprint
+      if (
+        this.abort.signal.aborted ||
+        this.paused ||
+        !this.options.canObserve() ||
+        snapshot.content_hash === this.emitted
+      )
+        return
+      if (snapshot.content_hash !== this.lastContentHash) this.invalidate()
+      this.lastContentHash = snapshot.content_hash
       this.emitted = snapshot.content_hash
+      this.emittedObservationId = snapshot.observation_id
       await this.options.onObservation(snapshot)
     } catch (error) {
-      if (!this.abort.signal.aborted)
+      if (!this.abort.signal.aborted) {
+        if (this.emittedObservationId) this.retryObservation(this.emittedObservationId)
         this.options.onError?.(error instanceof Error ? error : new Error('Observation failed'))
+      }
     } finally {
       this.busy = false
       this.abort = undefined
@@ -965,5 +1097,6 @@ export class ForegroundObservationService {
     this.running = false
     if (this.timer) clearTimeout(this.timer)
     this.abort?.abort()
+    this.invalidate()
   }
 }

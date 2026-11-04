@@ -101,6 +101,42 @@ describe('automatic connection and credential binding', () => {
     expect(f.connect).not.toHaveBeenCalled()
     expect(f.service.snapshot().phase).toBe('ready')
   })
+  it('returns the SSH connection while local model startup is still pending', async () => {
+    const f = fixture()
+    f.connect.mockImplementationOnce(async () => {
+      const connected: DeviceState = { status: 'connected', qwenReady: false }
+      f.setState(connected)
+      return connected
+    })
+    let finish!: () => void
+    f.startModel.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const connected = await f.service.connectManually('synthetic-password')
+    expect(connected.status).toBe('connected')
+    expect(connected.qwenReady).toBe(false)
+    expect(f.service.snapshot().phase).toBe('ready')
+    expect(f.startModel).toHaveBeenCalledOnce()
+    finish()
+    await f.service.tick()
+  })
+  it('retries local model failure independently of the usable SSH connection', async () => {
+    const f = fixture()
+    f.setState({ status: 'connected', qwenReady: false, modelPrivacyReady: false })
+    f.startModel.mockRejectedValueOnce(new Error('model unavailable'))
+    await f.service.tick()
+    expect(f.service.snapshot()).toMatchObject({ phase: 'ready', attempts: 0 })
+    await f.service.tick()
+    expect(f.startModel).toHaveBeenCalledOnce()
+    expect(f.connect).not.toHaveBeenCalled()
+    f.advance(30000)
+    await f.service.tick()
+    expect(f.startModel).toHaveBeenCalledTimes(2)
+    expect(f.service.snapshot().phase).toBe('ready')
+  })
   it('an explicit disconnect remains disabled and does not fight a pending attempt', async () => {
     const f = fixture()
     f.settings.remember(config, 'synthetic-password')

@@ -14,6 +14,8 @@ interface Options {
 }
 export class AutoConnectionService {
   private pending = false
+  private modelPending = false
+  private modelRetryAt = 0
   private stopped = false
   private attempt = 0
   private next = 0
@@ -27,7 +29,7 @@ export class AutoConnectionService {
   snapshot(): AutoConnectionSnapshot {
     const device = this.options.state()
     const enabled = this.options.settings.enabled
-    const ready = device.status === 'connected' && device.qwenReady && device.modelPrivacyReady
+    const ready = device.status === 'connected'
     return {
       enabled,
       hasCredential: this.options.settings.hasCredential(this.options.config()),
@@ -35,7 +37,9 @@ export class AutoConnectionService {
       attempts: this.attempt,
       retryAt: this.next > this.now() ? new Date(this.next).toISOString() : undefined,
       message: ready
-        ? 'RK 已连接，可以发送消息'
+        ? device.qwenReady && device.modelPrivacyReady
+          ? 'RK 已连接，可以发送消息'
+          : 'RK 已连接，云端任务可用，本地记忆模型尚未就绪'
         : !enabled
           ? '自动连接已暂停，点击重新连接可恢复'
           : this.message || '首次连接 RK 后将自动重连',
@@ -53,18 +57,13 @@ export class AutoConnectionService {
     const generation = this.generation
     this.update('connecting', '正在连接 RK')
     try {
-      const result = await this.options.connect(password)
+      await this.options.connect(password)
       if (this.stopped || generation !== this.generation) throw new Error('已取消自动连接')
       this.options.settings.remember(this.options.config(), password)
       this.attempt = 0
       this.next = 0
-      if (!result.qwenReady) {
-        this.update('starting_model', 'RK 已连接，正在启动本地模型')
-        await this.options.startModel()
-      }
-      if (!this.options.state().modelPrivacyReady)
-        throw new Error('RK 隐私服务尚未就绪，请检查端侧服务')
       this.update('ready', 'RK 已连接，可以发送消息')
+      void this.prepareLocalModel()
       return this.options.state()
     } catch (error) {
       this.backoff(error)
@@ -77,6 +76,7 @@ export class AutoConnectionService {
     this.options.settings.setEnabled(true)
     this.next = 0
     this.attempt = 0
+    this.modelRetryAt = 0
     void this.tick()
   }
   disable() {
@@ -97,13 +97,39 @@ export class AutoConnectionService {
       error instanceof Error ? error.message.slice(0, 350) : '请检查 RK 的 USB 连接和供电'
     this.update('waiting', `连接未完成，将自动重试。${detail}`)
   }
+  private async prepareLocalModel() {
+    if (
+      this.stopped ||
+      !this.options.settings.enabled ||
+      this.modelPending ||
+      this.options.state().status !== 'connected' ||
+      this.options.state().qwenReady ||
+      this.modelRetryAt > this.now() ||
+      !this.options.canAttempt()
+    )
+      return
+    this.modelPending = true
+    const generation = this.generation
+    try {
+      await this.options.startModel()
+      this.modelRetryAt = this.options.state().qwenReady ? 0 : this.now() + 30000
+    } catch {
+      // The SSH transport remains usable for cloud planning and RK execution.
+      // Model health remains available on DeviceState, with a separate retry clock.
+      this.modelRetryAt = this.now() + 30000
+    } finally {
+      this.modelPending = false
+      if (!this.stopped && generation === this.generation) this.options.onChange()
+    }
+  }
   async tick() {
     if (this.stopped || this.pending || !this.options.settings.enabled) return
     const state = this.options.state()
-    if (state.status === 'connected' && state.qwenReady && state.modelPrivacyReady) {
+    if (state.status === 'connected') {
       this.attempt = 0
       this.next = 0
       this.update('ready', 'RK 已连接，可以发送消息')
+      await this.prepareLocalModel()
       return
     }
     if (this.next > this.now() || state.status === 'connecting') return
@@ -118,28 +144,20 @@ export class AutoConnectionService {
       this.update('needs_setup', (error as Error).message)
       return
     }
-    if (state.status !== 'connected' && password === undefined) {
+    if (password === undefined) {
       this.update('needs_setup', '请在电脑设备管理连接 RK 一次，之后会自动连接')
       return
     }
     this.pending = true
     const generation = this.generation
     try {
-      if (state.status !== 'connected') {
-        this.update('connecting', '正在自动连接 RK')
-        await this.options.connect(password!)
-      }
+      this.update('connecting', '正在自动连接 RK')
+      await this.options.connect(password)
       if (this.stopped || generation !== this.generation) return
-      const connected = this.options.state()
-      if (!connected.qwenReady) {
-        this.update('starting_model', 'RK 已连接，正在启动本地模型')
-        await this.options.startModel()
-      }
-      if (!this.options.state().modelPrivacyReady)
-        throw new Error('RK 隐私服务尚未就绪，请检查端侧服务')
       this.attempt = 0
       this.next = 0
       this.update('ready', 'RK 已连接，可以发送消息')
+      void this.prepareLocalModel()
     } catch (error) {
       this.backoff(error)
     } finally {

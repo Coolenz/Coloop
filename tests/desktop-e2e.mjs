@@ -78,17 +78,32 @@ try {
       COLOOP_TEST_NO_HOOKS: '1',
     },
   })
-  page = await app.firstWindow()
+  await app.firstWindow()
+  page = await until(
+    async () =>
+      app
+        .windows()
+        .find(
+          (candidate) =>
+            candidate.url().includes('index.html') && !candidate.url().includes('surface=control'),
+        ),
+    (candidate) => !!candidate,
+    'main application window',
+  )
   page.on('pageerror', (error) => errors.push(error.message))
   await page.getByRole('button', { name: '电脑操作', exact: true }).click()
   await page.getByRole('heading', { name: '电脑操作', exact: true }).waitFor()
+  await page.locator('.desktop-legacy > summary').click()
   assert.equal(await page.getByRole('button', { name: '开始操作', exact: true }).isDisabled(), true)
   await page.screenshot({ path: join(directory, 'desktop-empty.png'), animations: 'disabled' })
   const mainWindow = await app.browserWindow(page)
   await mainWindow.evaluate((window) => window.setSize(1060, 720))
   await page.screenshot({ path: join(directory, 'desktop-compact.png'), animations: 'disabled' })
   assert.equal(
-    await page.locator('.desktop-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
+    await page
+      .locator('.desktop-page')
+      .first()
+      .evaluate((el) => el.scrollWidth <= el.clientWidth),
     true,
   )
   check('new desktop page, disconnected state, minimum window without horizontal overflow')

@@ -10,9 +10,11 @@ import os
 from pathlib import Path
 import queue
 import re
+import sqlite3
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -101,6 +103,9 @@ For paste, put the exact Unicode content in the action_plan's text field. Use ob
 example IDs are illustrative. Each plan contains 1..8 actions from the same stable screen.
 After navigation or layout changes, use the next observation to plan further. Previous action receipts
 show what was sent: inspect actual screen results before repeating an action or declaring completion.
+An action_result with paste_verified=true is independent host readback confirming exact text insertion.
+If that evidence and the current observation satisfy the goal, return finish. Do not paste again or
+select/copy the whole document merely because a long document extends beyond the visible screenshot.
 expected_text is a short literal visible result; for writing, use a substring of the pasted content.
 For nonwriting actions use a new visible result rather than a label already present beforehand.
 Alternatively omit expected_text and use expected_state:{"target_id":3,"property":"checked","value":true}
@@ -131,8 +136,11 @@ class Qwen:
     def __init__(self, root):
         self.root = Path(root)
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        self.last_timing = {}
 
     def __call__(self, system, content, tokens):
+        self.last_timing = {'readiness_ms': 0, 'inference_ms': 0,
+                            'model_requests': 0, 'json_repairs': 0}
         from memory_client import MemoryClient
         activity = None
         config = self.root / '.runtime/memory-config.json'
@@ -143,8 +151,16 @@ class Qwen:
             activity.request('/activity', {'session_id': lease, 'active': True}, timeout=5)
         try:
             if activity:
-                activity.request('/ready-for-foreground', {}, timeout=185)
-            return self.generate(system, content, tokens)
+                started = time.monotonic()
+                try:
+                    activity.request('/ready-for-foreground', {}, timeout=185)
+                finally:
+                    self.last_timing['readiness_ms'] = round((time.monotonic() - started) * 1000)
+            started = time.monotonic()
+            try:
+                return self.generate(system, content, tokens)
+            finally:
+                self.last_timing['inference_ms'] = round((time.monotonic() - started) * 1000)
         finally:
             if activity:
                 activity.request('/activity', {'session_id': lease, 'active': False}, timeout=5)
@@ -161,6 +177,7 @@ class Qwen:
                 'tools': [], 'tool_choice': 'none', 'stream': False, 'temperature': 0}
         request = urllib.request.Request('http://127.0.0.1:8088/v1/chat/completions',
                                          data=encode(body).encode(), headers=headers)
+        self.last_timing['model_requests'] = self.last_timing.get('model_requests', 0) + 1
         with self.opener.open(request, timeout=180) as response:
             if response.headers.get('X-RK-Privacy') != 'metadata-only':
                 raise ValueError('model_privacy_contract')
@@ -175,6 +192,7 @@ class Qwen:
             folder.mkdir(parents=True, exist_ok=True)
             (folder / (uuid.uuid4().hex + '.json')).write_text(encode({'output': value}), encoding='utf-8')
             if not repair:
+                self.last_timing['json_repairs'] = self.last_timing.get('json_repairs', 0) + 1
                 correction = ('\nReply ONLY one digit: 0, 1 or 2. No other characters.' if tokens == 16 else
                               '\nReturn EXACTLY ONE valid JSON object. No Markdown, no explanation.')
                 return self.generate(system + correction,
@@ -214,8 +232,288 @@ class DecisionBudget:
         return None
 
 
+class MemoryReviewQueue:
+    """Durable, namespace-scoped outbox with one cross-process writer."""
+    MAX_PENDING = 64
+    MAX_FAILURES = 3
+
+    def __init__(self, root, namespace, infer, memory, emit):
+        self.root, self.namespace = Path(root), namespace
+        self.infer, self.memory, self.emit = infer, memory, emit
+        directory = self.root / '.runtime/coloop-memory-reviews'
+        directory.mkdir(parents=True, exist_ok=True)
+        scope = hashlib.sha256(namespace.encode()).hexdigest()
+        self.database = directory / (scope + '.sqlite3')
+        # All scopes share the same local model and storage service.
+        self.lock_path = directory / 'writer.lock'
+        self.stopped, self.wake = threading.Event(), threading.Event()
+        self.notification_lock = threading.RLock()
+        self.subscriptions, self.last_notified = set(), {}
+        with self.connect() as db:
+            db.execute('PRAGMA journal_mode=WAL')
+            db.execute('''CREATE TABLE IF NOT EXISTS jobs (
+                task_id TEXT PRIMARY KEY, job TEXT NOT NULL, proposal TEXT,
+                status TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
+                next_attempt REAL NOT NULL DEFAULT 0, created REAL NOT NULL,
+                last_error TEXT, memory_id TEXT)''')
+            db.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)')
+            db.execute('BEGIN IMMEDIATE')
+            columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
+            if 'retries' not in columns:
+                db.execute('ALTER TABLE jobs ADD COLUMN retries INTEGER NOT NULL DEFAULT 0')
+                db.execute('UPDATE jobs SET retries=failures')
+                db.execute("""UPDATE jobs SET status='retry',failures=0,next_attempt=0
+                    WHERE status='failed' AND last_error IN
+                    ('URLError','TimeoutError','ConnectionRefusedError','ConnectionError','OSError')""")
+            db.commit()
+        if namespace == 'production':
+            self.quarantine_legacy()
+        self.worker = threading.Thread(target=self.run, name='coloop-memory-review', daemon=True)
+        self.worker.start()
+
+    def connect(self):
+        connection = sqlite3.connect(self.database, timeout=5)
+        connection.row_factory = sqlite3.Row
+        return contextlib.closing(connection)
+
+    def quarantine_legacy(self):
+        # Older logs have no scope. They may belong to QA, so never replay them
+        # into production automatically. Retain them for explicit review.
+        with self.connect() as db:
+            if db.execute("SELECT 1 FROM metadata WHERE key='legacy_scanned'").fetchone():
+                return
+            for path in (self.root / 'logs/coloop-proactive').glob('*/memory-review.json'):
+                try:
+                    old = parse(path.read_text(encoding='utf-8'))
+                    job = old['job']
+                    if old.get('status') not in ('pending', 'failed'):
+                        continue
+                    task_id = job['task_id']
+                    if not isinstance(task_id, str) or not 1 <= len(task_id) <= 128:
+                        continue
+                    db.execute('''INSERT OR IGNORE INTO jobs
+                        (task_id,job,status,created,last_error) VALUES (?,?,?,?,?)''',
+                        (task_id, encode(job), 'needs_review', time.time(), 'legacy_scope_unknown'))
+                except (OSError, ValueError, KeyError, TypeError):
+                    continue
+            db.execute("INSERT OR IGNORE INTO metadata VALUES ('legacy_scanned','1')")
+            db.commit()
+
+    def notify(self, task_id, status, error=None, memory_id=None):
+        value = {'task_id': task_id, 'status': status}
+        if error:
+            value['error'] = error
+        if memory_id:
+            value['memory_id'] = memory_id
+        with self.notification_lock:
+            terminal = status in ('saved', 'skipped', 'failed', 'needs_review')
+            if task_id not in self.subscriptions:
+                return
+            if self.last_notified.get(task_id) == value:
+                if terminal:
+                    self.subscriptions.discard(task_id)
+                return
+            try:
+                self.emit('memory.review', **value)
+                if terminal:
+                    self.emit('memory.saved', **value, saved=status == 'saved')
+                    self.subscriptions.discard(task_id)
+                self.last_notified[task_id] = value
+            except Exception:
+                # Retry notification from durable state if transport delivery failed.
+                pass
+
+    def poll_statuses(self):
+        with self.notification_lock:
+            watched = tuple(self.subscriptions)
+        with self.connect() as db:
+            for task_id in watched:
+                row = db.execute('SELECT status,last_error,memory_id FROM jobs WHERE task_id=?',
+                                 (task_id,)).fetchone()
+                if row:
+                    self.notify(task_id, row['status'], row['last_error'], row['memory_id'])
+
+    def enqueue(self, job):
+        if self.stopped.is_set():
+            raise ValueError('memory_queue_closed')
+        if job.get('verified') is not True:
+            raise ValueError('memory_requires_verified_task')
+        task_id = job.get('task_id')
+        if not isinstance(task_id, str) or not 1 <= len(task_id) <= 128 or '\x00' in task_id:
+            raise ValueError('invalid_memory_task')
+        canonical_job = json.dumps(job, sort_keys=True, ensure_ascii=False, allow_nan=False)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            existing = db.execute('SELECT job FROM jobs WHERE task_id=?', (task_id,)).fetchone()
+            if existing:
+                stored_job = json.dumps(parse(existing['job']), sort_keys=True,
+                                        ensure_ascii=False, allow_nan=False)
+                if stored_job != canonical_job:
+                    raise ValueError('memory_task_conflict')
+            if not existing:
+                pending = db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('pending','running','retry')").fetchone()[0]
+                if pending >= self.MAX_PENDING:
+                    raise ValueError('memory_queue_full')
+                db.execute('INSERT INTO jobs (task_id,job,status,created) VALUES (?,?,?,?)',
+                           (task_id, encode(job), 'pending', time.time()))
+            db.commit()
+        with self.notification_lock:
+            self.subscriptions.add(task_id)
+        self.poll_statuses()
+        self.wake.set()
+
+    def status(self, task_id):
+        with self.connect() as db:
+            row = db.execute('SELECT status,last_error,memory_id FROM jobs WHERE task_id=?', (task_id,)).fetchone()
+            return dict(row) if row else None
+
+    @contextlib.contextmanager
+    def writer_lock(self):
+        with self.lock_path.open('a+b') as lock:
+            if lock.tell() == 0:
+                lock.write(b'0')
+                lock.flush()
+            lock.seek(0)
+            acquired = False
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError:
+                pass
+            try:
+                yield acquired
+            finally:
+                if acquired:
+                    lock.seek(0)
+                    if os.name == 'nt':
+                        msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def validate_proposal(self, value, task_id):
+        if not isinstance(value, dict):
+            raise ValueError('invalid_memory_proposal')
+        if (value.get('type') == 'finish' and not set(value) - {'type', 'summary'}
+                and isinstance(value.get('summary', ''), str)):
+            return None
+        allowed = {'type', 'key', 'value', 'kind', 'tags', 'summary'}
+        if value.get('type') != 'memory.set' or set(value) - allowed:
+            raise ValueError('invalid_memory_proposal')
+        text, summary, tags = value.get('value'), value.get('summary', ''), value.get('tags', [])
+        if (value.get('kind', 'procedure') != 'procedure'
+                or not isinstance(text, str) or not 1 <= len(text.strip()) <= 1000 or '\x00' in text
+                or not isinstance(summary, str) or len(summary) > 160 or '\x00' in summary
+                or not isinstance(tags, list) or len(tags) > 8
+                or any(not isinstance(tag, str) or not 1 <= len(tag) <= 64 or '\x00' in tag for tag in tags)):
+            raise ValueError('invalid_memory_proposal')
+        identity = hashlib.sha256(encode([self.namespace, task_id]).encode()).hexdigest()
+        return {'type': 'memory.set', 'key': 'procedure:coloop:' + identity,
+                'kind': 'procedure', 'value': text, 'tags': tags, 'summary': summary,
+                'source_task_id': task_id, 'source': 'agent', 'verified': False}
+
+    def process(self, row):
+        if self.stopped.is_set():
+            return
+        task_id = row['task_id']
+        with self.connect() as db:
+            db.execute("UPDATE jobs SET status='running' WHERE task_id=?", (task_id,))
+            db.commit()
+        self.notify(task_id, 'running')
+        try:
+            proposal = parse(row['proposal']) if row['proposal'] else self.validate_proposal(
+                self.infer('memory_review', REVIEW, parse(row['job']), 384), task_id)
+            if proposal is None:
+                self.finish(task_id, 'skipped')
+                return
+            with self.connect() as db:
+                db.execute('UPDATE jobs SET proposal=? WHERE task_id=?', (encode(proposal), task_id))
+                db.commit()
+            if self.stopped.is_set():
+                self.finish(task_id, 'pending')
+                return
+            ack = self.memory('memory.set', proposal)
+            if isinstance(ack, dict) and ack.get('deferred') is True:
+                raise OSError('memory_save_deferred')
+            if (not isinstance(ack, dict) or not isinstance(ack.get('id'), str) or not ack['id'].strip()
+                    or ack.get('error') or ack.get('deferred') or ack.get('saved') is False
+                    or ack.get('key', proposal['key']) != proposal['key']):
+                raise ValueError('memory_save_unacknowledged')
+            self.finish(task_id, 'saved', memory_id=ack['id'])
+        except Exception as error:
+            code = str(error) if re.fullmatch(r'[a-z_]{1,80}', str(error)) else type(error).__name__
+            transient = self.transient_error(error)
+            failures = row['failures'] + (0 if transient else 1)
+            retries = row['retries'] + 1
+            status = 'failed' if failures >= self.MAX_FAILURES else 'retry'
+            delay = min(60, 2 ** min(retries, 6))
+            with self.connect() as db:
+                db.execute('UPDATE jobs SET status=?,failures=?,retries=?,next_attempt=?,last_error=? WHERE task_id=?',
+                           (status, failures, retries, time.time() + delay, code, task_id))
+                db.commit()
+            self.notify(task_id, status, error=code)
+
+    @staticmethod
+    def transient_error(error):
+        if isinstance(error, urllib.error.HTTPError):
+            return error.code in (408, 429) or error.code >= 500
+        return isinstance(error, (OSError, TimeoutError, sqlite3.OperationalError))
+
+    def finish(self, task_id, status, memory_id=None):
+        with self.connect() as db:
+            db.execute('UPDATE jobs SET status=?,memory_id=?,last_error=NULL WHERE task_id=?',
+                       (status, memory_id, task_id))
+            db.commit()
+        self.notify(task_id, status, memory_id=memory_id)
+
+    def run(self):
+        restored = False
+        reported_failure = False
+        while not self.stopped.is_set():
+            try:
+                if not restored:
+                    with self.connect() as db:
+                        retained = db.execute("""SELECT task_id FROM jobs
+                            WHERE status IN ('pending','running','retry','needs_review')""").fetchall()
+                    with self.notification_lock:
+                        self.subscriptions.update(row['task_id'] for row in retained)
+                    restored = True
+                # The owning host receives its ACK even when another runtime is
+                # processing the job. Reading state never requires the writer lock.
+                self.poll_statuses()
+                with self.writer_lock() as acquired:
+                    if acquired and not self.stopped.is_set():
+                        with self.connect() as db:
+                            row = db.execute('''SELECT * FROM jobs WHERE status IN ('pending','running','retry')
+                                AND next_attempt<=? ORDER BY created LIMIT 1''', (time.time(),)).fetchone()
+                        if row:
+                            self.process(row)
+                            reported_failure = False
+                            continue
+            except Exception:
+                # Database/transport errors must not terminate the worker or hot-loop.
+                if not reported_failure:
+                    try:
+                        self.emit('memory.queue_error', error='memory_queue_unavailable')
+                    except Exception:
+                        pass
+                    reported_failure = True
+            self.wake.wait(.25)
+            self.wake.clear()
+
+    def close(self, timeout=1):
+        self.stopped.set()
+        self.wake.set()
+        self.worker.join(timeout)
+
+
 class Agent:
-    def __init__(self, root, emit, *, model=None, memory=None, hid=None, clock=time.monotonic):
+    def __init__(self, root, emit, *, model=None, memory=None, hid=None, clock=time.monotonic,
+                 memory_namespace=None):
         self.root, self.emit, self.clock = Path(root), emit, clock
         self.model, self.memory, self.hid = model or Qwen(root), memory, hid
         self.pending, self.guard = {}, threading.RLock()
@@ -226,34 +524,33 @@ class Agent:
         self.answers = queue.Queue()
         self.terminal = None
         self.heartbeat = self.clock()
-        self.review_lock = threading.Lock()
-        self.review_threads = []
+        namespace = memory_namespace
+        if namespace is None:
+            namespace = getattr(memory, 'review_namespace', None) if memory is not None else 'production'
+        if namespace is None:
+            namespace = 'injected:' + uuid.uuid4().hex
+        if not isinstance(namespace, str) or not 1 <= len(namespace) <= 128 or '\x00' in namespace:
+            raise ValueError('invalid_memory_namespace')
+        self.memory_namespace = namespace
+        self.memory_reviews = None
+        try:
+            self.open_memory_reviews()
+        except Exception:
+            self.event('memory.queue_error', error='memory_queue_unavailable')
+
+    def open_memory_reviews(self):
+        if self.memory_reviews is None:
+            self.memory_reviews = MemoryReviewQueue(self.root, self.memory_namespace,
+                lambda *args: self.infer(*args), lambda *args: self.mem(*args), self.event)
 
     def queue_memory_review(self, task, result):
         # Snapshot verified evidence: no live task/clipboard state enters background work.
         job = {'task_id': task['task_id'], 'goal': task['goal'][:1000],
-               'verified': True, 'result': str(result.get('summary', ''))[:600],
+               'verified': task.get('verified') is True, 'result': str(result.get('summary', ''))[:600],
                'receipts': [{k: row[k] for k in ('action', 'outcome') if k in row}
                             for row in task['receipts'][-16:]]}
-        path = task['path'] / 'memory-review.json'
-        path.write_text(encode({'status': 'pending', 'job': job}), encoding='utf-8')
-        def review():
-            with self.review_lock:
-                saved = False
-                try:
-                    proposal = self.infer('memory_review', REVIEW, job, 384)
-                    if proposal.get('type') == 'memory.set':
-                        proposal['source_task_id'] = job['task_id']
-                        saved = bool(self.mem('memory.set', proposal))
-                    path.write_text(encode({'status': 'saved' if saved else 'skipped',
-                                           'job': job}), encoding='utf-8')
-                except Exception:
-                    path.write_text(encode({'status': 'failed', 'job': job}), encoding='utf-8')
-                self.event('memory.saved', task_id=job['task_id'], saved=saved)
-        thread = threading.Thread(target=review, daemon=True)
-        self.review_threads = [t for t in self.review_threads if t.is_alive()]
-        self.review_threads.append(thread)
-        thread.start()
+        self.open_memory_reviews()
+        self.memory_reviews.enqueue(job)
 
     def event(self, kind, **value):
         self.emit({'type': kind, 'value': value})
@@ -265,9 +562,10 @@ class Agent:
             success = True
             return result
         finally:
+            timing = self.model.last_timing if isinstance(self.model, Qwen) else {}
             self.event('model.timing', stage=stage, clock_host='rk',
                        elapsed_ms=round((self.clock() - started) * 1000),
-                       max_tokens=tokens, success=success)
+                       max_tokens=tokens, success=success, **timing)
 
     def accept(self, packet):
         kind, value = packet.get('type'), packet.get('value', {})
@@ -446,10 +744,17 @@ class Agent:
 
     def cloud(self, policy, payload):
         payload = self.planning_context(payload)
+        mode = 'suggest' if payload.get('mode') == 'suggest' else 'task'
+        scope = {'mode': mode}
+        if mode == 'suggest':
+            scope['observation_id'] = payload.get('observation_id')
+        elif self.task:
+            scope['task_id'] = self.task['task_id']
         request = payload
         for attempt in range(2):
             self.check()
-            raw = self.rpc('cloud_transport', {'system': policy, 'content': encode(request)}, timeout=180)
+            raw = self.rpc('cloud_transport', {**scope, 'system': policy,
+                           'content': encode(request)}, timeout=180)
             self.check()
             try:
                 result = parse(raw) if isinstance(raw, str) else raw
@@ -908,12 +1213,17 @@ class Agent:
                     task['expected_state_window'] = [view.get('window_id'), view.get('process_id')]
                     task['expected_was_present'] = was_present
                     before_count = len(task['receipts'])
+                    before_verified = len(task['verified_texts'])
                     outcome = self.execute_group(actions, view)
                     before_text = view.get('ocr_text')
                     view = self.observe()
                     tools.append({'type': 'action_result', 'input_sent': any(
                                       row['outcome'] == 'input_sent' for row in task['receipts'][before_count:]),
                                   'actions': [row['action'] for row in task['receipts'][before_count:]],
+                                  'paste_verified': len(task['verified_texts']) > before_verified,
+                                  'verified_text_excerpt': (task['verified_texts'][-1][:500]
+                                      if len(task['verified_texts']) > before_verified else None),
+                                  'completion_expected_text': task['expected_text'],
                                   'unexecuted_actions': len(actions) - (len(task['receipts']) - before_count),
                                   'no_content_change': before_text == view.get('ocr_text')})
                 elif kind == 'finish':
@@ -1088,6 +1398,8 @@ def main():
         agent.closed.set()
         agent.cancel.set()
         agent.wake.set()
+        if agent.memory_reviews is not None:
+            agent.memory_reviews.close(timeout=1)
         worker.join(6)
 
 

@@ -1,6 +1,100 @@
 .desktop-page {
   max-width: 1100px;
 }
+.computer-agent-status {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.computer-status-heading,
+.computer-inline-actions,
+.computer-choices {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.computer-status-heading {
+  justify-content: space-between;
+  gap: 20px;
+}
+.computer-status-heading > .desktop-status {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.computer-suggestion,
+.computer-question {
+  margin-top: 24px;
+}
+.computer-suggestion h3 {
+  font-size: 16px;
+  line-height: 1.6;
+  margin: 0 0 8px;
+}
+.computer-suggestion p,
+.computer-task-summary {
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0 0 16px;
+}
+.computer-task-summary {
+  margin-top: 20px;
+}
+.computer-question {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.computer-question label {
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.computer-question textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 90px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  line-height: 1.7;
+}
+.computer-question textarea::placeholder {
+  color: var(--subtle);
+}
+.computer-choices button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+.computer-choices button[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--accent-soft);
+}
+.computer-memory-status {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 16px 0 0;
+}
+.desktop-legacy {
+  margin-top: 28px;
+}
+.desktop-legacy > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.desktop-legacy > .page-content {
+  padding: 20px 0 0;
+}
 .desktop-form fieldset {
   border: 0;
   padding: 0;

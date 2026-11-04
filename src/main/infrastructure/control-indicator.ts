@@ -278,6 +278,10 @@ export class ControlIndicatorWindow {
     return Boolean(this.window && !this.window.isDestroyed() && this.window.isVisible())
   }
 
+  get isInteracting() {
+    return this.revealed || this.actionPending || Boolean(this.dragging) || this.editingCommand
+  }
+
   get id() {
     return this.window && !this.window.isDestroyed() ? this.window.id : undefined
   }

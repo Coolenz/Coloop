@@ -17,6 +17,23 @@ const request = () => ({
   timeout_ms: 3000,
 })
 describe('task script execution', () => {
+  it('preserves long original requests in the script task directory without truncation', async () => {
+    const { root, executor } = await setup()
+    const goal = '保留完整用户目标\n参考资料：' + '中文资料'.repeat(15000)
+    const signal = new AbortController().signal
+    const prepared = await executor.prepareGoal('long-task', goal, signal)
+    expect(Buffer.byteLength(prepared)).toBeLessThan(16000)
+    expect(prepared).toContain('user-request.txt')
+    expect(await readFile(join(root, 'long-task', 'user-request.txt'), 'utf8')).toBe(goal)
+    expect(await executor.prepareGoal('long-task', goal, signal)).toBe(prepared)
+    await expect(executor.prepareGoal('long-task', goal + 'changed', signal)).rejects.toThrow(
+      'SCRIPT_TASK_CONTEXT_CONFLICT',
+    )
+    expect(await executor.prepareGoal('short-task', '打开记事本', signal)).toBe('打开记事本')
+    await expect(executor.prepareGoal('../outside', goal, signal)).rejects.toThrow(
+      'SCRIPT_TASK_INVALID',
+    )
+  })
   it('executes a real script and independent readback, once per execution ID', async () => {
     const { root, executor } = await setup()
     const input = request()

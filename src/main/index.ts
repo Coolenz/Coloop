@@ -30,7 +30,6 @@ import { AppStore } from './infrastructure/store'
 import { BoardGateway, importRkBoard } from './infrastructure/board'
 import { CloudGateway } from './infrastructure/cloud'
 import { OcrEngine } from './infrastructure/ocr'
-import { TaskScriptExecutor } from './infrastructure/task-scripts'
 import { TaskService } from './services/tasks'
 import { CoordinatorService, ReviewInputError } from './services/coordinator'
 import { AgentHookService } from './services/agent-hooks'
@@ -39,7 +38,8 @@ import { publishConnection } from './infrastructure/coordinator-connection'
 import { errorMessage } from './domain/errors'
 import { SessionControlService, SessionControlError } from './services/session-control'
 import { ControlIndicatorWindow } from './infrastructure/control-indicator'
-import type { ControlIndicatorSnapshot } from '../shared/control-indicator'
+import { islandAnswerSchema, type ControlIndicatorSnapshot } from '../shared/control-indicator'
+import { proactivePhaseLabels } from '../shared/proactive'
 import { CredentialService } from './services/credentials'
 import { MemoryManagementService } from './services/memory'
 import { PrivateMemoryEntryWindow } from './infrastructure/private-memory-entry'
@@ -60,7 +60,8 @@ import { VioloopService, violoopIntentPolicy } from './services/violoop'
 import { planDesktopTask } from './services/desktop-planner'
 import { ConnectionSettings } from './infrastructure/connection-settings'
 import { AutoConnectionService } from './services/auto-connection'
-import { ProactiveAgentService } from './services/proactive-agent'
+import { TarsAgentService, type TarsAgentOptions } from './services/tars-agent'
+import { RkTarsBridge } from './infrastructure/rk-tars-bridge'
 import {
   ForegroundObservationService,
   WindowsObservationCapture,
@@ -109,7 +110,7 @@ async function initialize() {
   let violoop: VioloopService | undefined
   let autoConnection: AutoConnectionService | undefined
   let coordinatedTaskId: string | undefined
-  let proactive: ProactiveAgentService | undefined
+  let proactive: TarsAgentService | undefined
   let foreground: ForegroundObservationService | undefined
   let foregroundCapture: WindowsObservationCapture | undefined
   let clipboardLeases: ClipboardLeaseService | undefined
@@ -165,7 +166,7 @@ async function initialize() {
     desktop: desktop?.snapshot(),
     violoop: violoop?.snapshot(),
     autoConnection: autoConnection?.snapshot(),
-    proactive: proactive?.snapshot(),
+    proactive: proactive ? { ...proactive.snapshot(), observationPaused } : undefined,
     mobile:
       mobileGateway && mobileTunnel
         ? {
@@ -185,6 +186,10 @@ async function initialize() {
     if (!notifyTimer)
       notifyTimer = setTimeout(() => {
         notifyTimer = undefined
+        if (foreground) {
+          if (canObserveForeground() && !proactive?.active) foreground.resume('unavailable')
+          else foreground.pause('unavailable')
+        }
         if (window && !window.isDestroyed()) window.webContents.send('app:snapshot', snapshot())
         void syncControlIndicator().catch(() => {})
       }, 70)
@@ -256,8 +261,9 @@ async function initialize() {
       signal.addEventListener('abort', stop, { once: true })
       try {
         signal.throwIfAborted()
-        if (proactive!.snapshot().taskId !== id || !proactive!.active) {
+        if (proactive!.snapshot().taskId !== id) {
           await foregroundCapture!.restoreTarget()
+          signal.throwIfAborted()
           await proactive!.startTask(goal, id)
           window?.hide()
         }
@@ -265,7 +271,7 @@ async function initialize() {
           signal.throwIfAborted()
           const state = proactive!.snapshot()
           if (state.taskId !== id) throw new Error('执行任务标识不匹配')
-          stage(state.phase === 'waiting_user' ? '等待你回答后继续原任务' : '正在操作并回读实际结果')
+          stage(proactivePhaseLabels[state.phase] ?? '正在操作并回读实际结果')
           if (!state.active) {
             if (state.phase === 'completed') return state.summary ?? '任务已通过屏幕结果核验'
             if (state.phase === 'cancelled') throw new DOMException('操作已停止', 'AbortError')
@@ -273,6 +279,15 @@ async function initialize() {
           }
           await new Promise((resolve) => setTimeout(resolve, 200))
         }
+      } catch (error) {
+        if (signal.aborted && proactive!.snapshot().taskId === id) {
+          await proactive!.stop()
+          while (proactive!.active && proactive!.snapshot().phase !== 'input_unknown')
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          if (proactive!.snapshot().phase === 'input_unknown')
+            throw new Error('INPUT_OUTCOME_UNKNOWN')
+        }
+        throw error
       } finally {
         signal.removeEventListener('abort', stop)
         coordinatedTaskId = undefined
@@ -424,16 +439,6 @@ async function initialize() {
     }
     const ai = proactive?.snapshot()
     if (mode === 'hidden' && ai) {
-      const phaseLabels: Record<string, string> = {
-        queued: 'Preparing task',
-        cloud_planning: 'Planning next step',
-        validating: 'Checking cloud actions',
-        dispatching: 'Controlling your computer',
-        verifying: 'Checking result',
-        reviewing: 'Task verified · Saving useful memory',
-        waiting_user: 'Your answer is needed',
-        stopping: 'Waiting for RK to stop',
-      }
       if (ai.active) {
         const question = ai.question
         state = {
@@ -447,7 +452,7 @@ async function initialize() {
           taskId: ai.taskId,
           phase: ai.phase,
           title: 'Coloop',
-          detail: phaseLabels[ai.phase] ?? 'Working on your task',
+          detail: proactivePhaseLabels[ai.phase] ?? '正在处理任务',
           ...(question
             ? {
                 questionId: String(question.question_id),
@@ -468,13 +473,13 @@ async function initialize() {
           title: String(ai.suggestion.title).slice(0, 100),
           content: String(ai.suggestion.text).slice(0, 12000),
           suggestionId: String(ai.suggestion.suggestion_id),
-          detail: 'Suggested for your current work',
+          detail: '当前窗口的下一步建议',
         }
       } else if (ai.phase === 'input_unknown') {
         state = {
           mode: 'unconfirmed',
           title: 'Coloop',
-          detail: 'Input result unknown. Check the target before retrying.',
+          detail: proactivePhaseLabels.input_unknown,
           error: ai.error?.slice(0, 180),
         }
       } else if (['completed', 'blocked', 'failed', 'cancelled'].includes(ai.phase)) {
@@ -486,11 +491,11 @@ async function initialize() {
           detail:
             ai.phase === 'completed'
               ? ai.memorySaved === false
-                ? 'Task completed · Memory not saved'
+                  ? '任务已完成 · 记忆保存未完成'
                 : ai.memorySaved
-                  ? 'Task completed · Memory saved'
-                  : 'Task completed'
-              : 'Task stopped',
+                  ? '任务已完成 · 记忆已保存'
+                  : '任务已完成 · 正在后台整理记忆'
+              : proactivePhaseLabels[ai.phase],
           error: ai.error?.slice(0, 180),
         }
       } else {
@@ -498,10 +503,10 @@ async function initialize() {
           mode: 'idle',
           title: 'Coloop',
           detail: observationPaused
-            ? 'Screen observation paused'
+            ? '屏幕观察已暂停'
             : ai.connected
-              ? 'Ready · Watching your current window'
-              : 'Waiting for RK connection',
+              ? '已就绪 · 正在观察当前窗口'
+              : '等待连接 RK',
           observationPaused,
         }
       }
@@ -514,8 +519,12 @@ async function initialize() {
       indicatorKey = key
       indicatorUpdate = indicator.update(state).catch(async (error) => {
         indicatorKey = ''
-        await sessionControl?.stopAll()
-        await desktop?.stop().catch(() => {})
+        await Promise.allSettled([
+          sessionControl?.stopAll(),
+          violoop?.stop(),
+          desktop?.stop(),
+          proactive?.stop(),
+        ])
         throw error
       })
     }
@@ -644,7 +653,7 @@ async function initialize() {
     onOpenMain: showMain,
     onRememberTarget: () => foregroundCapture!.rememberTarget(),
     onRestoreTarget: async () => { await foregroundCapture!.restoreTarget() },
-    onAcceptSuggestion: (id) => proactive!.acceptSuggestion(id),
+    onAcceptSuggestion: async (id) => { await proactive!.acceptSuggestion(id) },
     onDismissSuggestion: async (id) => {
       proactive!.dismissSuggestion(id)
     },
@@ -659,12 +668,16 @@ async function initialize() {
       if (paused) foreground?.pause('user')
       else foreground?.resume('user')
       await syncControlIndicator()
+      notify()
     },
     onUnavailable: async () => {
       indicatorKey = ''
-      await Promise.allSettled([sessionControl!.stopAll(), violoop?.stop()])
-      await desktop?.stop().catch(() => {})
-
+      await Promise.allSettled([
+        sessionControl!.stopAll(),
+        violoop?.stop(),
+        desktop?.stop(),
+        proactive?.stop(),
+      ])
     },
   })
   const resourceDirectory = app.isPackaged
@@ -688,20 +701,62 @@ async function initialize() {
     !coordinator?.snapshot().reviewing &&
     !sessionControl!.snapshot().controlActive &&
     !board.busy &&
-    board.state.status === 'connected' &&
-    !!board.state.modelPrivacyReady
-  const taskScripts = new TaskScriptExecutor(join(directory, 'task-scripts'), join(app.getAppPath(), 'node_modules'))
-  proactive = new ProactiveAgentService({
-    script: join(resourceDirectory, 'rk-proactive-agent.py'),
-    executeScript: (taskId, script, signal) => {
-      credentials!.assertObservationAllowed()
-      return taskScripts.execute(taskId, script, signal)
-    },
+    board.state.status === 'connected'
+  const tarsInput: TarsAgentOptions['input'] = async (op, observation, value) => {
+    credentials!.assertObservationAllowed()
+    const view = observation as unknown as ForegroundObservation
+    const action = value.action as ObservationAction & { text?: string }
+    if (op === 'clipboard.verify') return foregroundCapture!.verifyText(view, action.text ?? '')
+    if (op === 'completion.verify')
+      return value.evidence_mode === 'control_state'
+        ? foregroundCapture!.verifyControlState(view, value.expected_state)
+        : value.evidence_mode === 'visible_text'
+        ? foregroundCapture!.verifyVisibleText(view, String(value.expected_text ?? ''))
+        : foregroundCapture!.verifyCurrentText(view, String(value.expected_text ?? ''))
+    const checked =
+      op === 'input.guard'
+        ? await foregroundCapture!.guard(view, action)
+        : await foregroundCapture!.validate(view, action)
+    if (!checked.allowed) throw new Error('INPUT_TARGET_CHANGED')
+    return checked
+  }
+  const tarsBridge = new RkTarsBridge({
+    executorScript: join(resourceDirectory, 'rk-execution-adapter.py'),
+    memoryScript: join(resourceDirectory, 'rk-memory-worker.py'),
+    supportScript: join(resourceDirectory, 'rk-proactive-agent.py'),
     openRuntime: (source) => board.openDesktopRuntime(source),
-    available: () =>
-      board.state.status === 'connected' && !!board.state.modelPrivacyReady,
+    input: tarsInput,
+    clipboard: (op, value) => clipboardLeases!.call(op, value),
+    releaseClipboard: (taskId) => clipboardLeases!.releaseTask(taskId),
+    prepareInput: syncControlIndicator,
+    onMemorySaved: (taskId, saved) => proactive?.memorySaved(taskId, saved),
+    onDisconnected: () => proactive?.disconnected(),
+  })
+  const tarsModel: TarsAgentOptions['model'] = () => {
+    if (store.config.provider.protocol !== 'openai')
+      throw new Error('Agent TARS 电脑操作需要 OpenAI 兼容协议，请在设置中选择兼容的云端模型')
+    if (!store.apiKey) throw new Error('请先在设置中保存云端模型 API Key')
+    return {
+      provider: 'openai',
+      id: store.config.provider.model,
+      apiKey: store.apiKey,
+      baseURL: store.config.provider.baseUrl,
+    }
+  }
+  proactive = new TarsAgentService({
+    workspace: directory,
+    model: tarsModel,
+    fetch: (input, init) => {
+      credentials!.assertObservationAllowed()
+      return (net.fetch as typeof fetch)(input, init)
+    },
+    execution: tarsBridge,
+    memory: tarsBridge,
+    onObservationRetry: (id) => foreground?.retryObservation(id),
+    available: () => board.state.status === 'connected',
     assertStart: () => {
       credentials!.assertObservationAllowed()
+      tarsModel()
       if (!canObserveForeground() || stopUnconfirmed || sessionControl!.snapshot().stopped)
         throw new Error('请先连接 RK 并结束其他任务或恢复控制')
     },
@@ -724,33 +779,7 @@ async function initialize() {
       if (!view) throw new Error('OBSERVATION_RETRY')
       return view as unknown as import('./services/proactive-agent').ProactiveObservation
     },
-    cloud: (system, content, signal) => {
-      credentials!.assertObservationAllowed()
-      return cloud.relayText(store.config.provider, store.apiKey, system, content, signal, {
-        maxTokens: 8192,
-        maxResponseBytes: 32768,
-      })
-    },
-    input: async (op, observation, value) => {
-      credentials!.assertObservationAllowed()
-      const view = observation as unknown as ForegroundObservation
-      const action = value.action as ObservationAction & { text?: string }
-      if (op === 'clipboard.verify') return foregroundCapture!.verifyText(view, action.text ?? '')
-      if (op === 'completion.verify')
-        return value.evidence_mode === 'control_state'
-          ? foregroundCapture!.verifyControlState(view, value.expected_state)
-          : value.evidence_mode === 'visible_text'
-          ? foregroundCapture!.verifyVisibleText(view, String(value.expected_text ?? ''))
-          : foregroundCapture!.verifyCurrentText(view, String(value.expected_text ?? ''))
-      const checked =
-        op === 'input.guard'
-          ? await foregroundCapture!.guard(view, action)
-          : await foregroundCapture!.validate(view, action)
-      if (!checked.allowed) throw new Error('INPUT_TARGET_CHANGED')
-      return checked
-    },
-    clipboard: (op, value) => clipboardLeases!.call(op, value),
-    releaseClipboard: (taskId) => clipboardLeases!.releaseTask(taskId),
+    input: tarsInput,
     prepareInput: syncControlIndicator,
     onChange: () => {
       if (proactive?.active) foreground?.pause('task')
@@ -763,6 +792,8 @@ async function initialize() {
     recognize: (frame, signal) => foregroundCapture!.recognize(frame, signal),
     isOcrBusy: () => ocr.busy,
     canObserve: () => canObserveForeground() && !proactive!.active,
+    isInteracting: () => indicator?.isInteracting ?? false,
+    onInvalidated: () => proactive?.cancelObservation(),
     onObservation: (view) =>
       proactive!.submitObservation(
         view as unknown as import('./services/proactive-agent').ProactiveObservation,
@@ -890,11 +921,36 @@ async function initialize() {
     proactive!.startTask(z.string().trim().min(1).max(4000).parse(goal)),
   )
   handle('proactive:stop', () => proactive!.stop())
+  handle('proactive:accept', async (input: unknown) => {
+    const id = z.string().min(1).max(128).parse(input)
+    if (proactive!.snapshot().suggestion?.suggestion_id !== id)
+      throw new Error('这条建议已过期，请等待当前窗口的新建议')
+    await foregroundCapture!.restoreTarget()
+    await proactive!.acceptSuggestion(id)
+    window?.hide()
+  })
+  handle('proactive:dismiss', (input: unknown) => {
+    proactive!.dismissSuggestion(z.string().min(1).max(128).parse(input))
+  })
+  handle('proactive:answer', async (input: unknown) => {
+    const answer = islandAnswerSchema.parse(input)
+    const current = proactive!.snapshot()
+    if (
+      !current.active ||
+      current.taskId !== answer.taskId ||
+      current.question?.question_id !== answer.questionId
+    )
+      throw new Error('问题已结束，请查看当前任务')
+    await foregroundCapture!.restoreTarget()
+    proactive!.answer(answer.taskId, answer.questionId, answer.answer)
+    window?.hide()
+  })
   handle('proactive:pause', async (input: unknown) => {
     observationPaused = z.boolean().parse(input)
     if (observationPaused) foreground!.pause('user')
     else foreground!.resume('user')
     await syncControlIndicator()
+    notify()
   })
   handle('desktop:windows', () => desktop!.windows())
   handle('desktop:start', (input: unknown) => {
@@ -961,6 +1017,7 @@ async function initialize() {
   handle('sessions:stop-all', stopControl)
   handle('sessions:resume', async () => {
     await sessionControl!.resume()
+    if (!proactive?.active) proactive?.acknowledgeStopped()
     stopUnconfirmed = false
   })
   handle('sessions:preview-indicator', () => indicator!.preview())

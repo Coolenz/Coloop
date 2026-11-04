@@ -72,6 +72,28 @@ describe('cloud protocol adapters', () => {
       ).toBe('OK')
     }
   })
+  it('applies the task planner system policy without truncating accepted reference text', async () => {
+    const fetcher = vi.fn(
+      async () =>
+        new Response('{"choices":[{"message":{"content":"{\\"type\\":\\"execute\\"}"}}]}'),
+    )
+    const gateway = new CloudGateway(fetcher as typeof fetch)
+    const context = '原始参考资料'.repeat(5000)
+    await gateway.generate(
+      config,
+      'key',
+      '用户目标',
+      context,
+      new AbortController().signal,
+      () => {},
+      '云端规划策略',
+    )
+    const body = JSON.parse(
+      (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body as string,
+    )
+    expect(body.messages[0].content).toBe('云端规划策略')
+    expect(body.messages[1].content).toContain(context)
+  })
   it('redacts upstream error bodies and disables credential-carrying redirects', async () => {
     const fetcher = vi
       .fn()

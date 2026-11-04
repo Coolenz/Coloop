@@ -17,7 +17,7 @@ function fixture() {
     apiKey: '',
   } as unknown as AppStore
   const board = {
-    state: { qwenReady: true, modelPrivacyReady: true, model: 'rk' },
+    state: { status: 'connected', qwenReady: false, modelPrivacyReady: false, model: 'rk' },
     generate: vi.fn(
       async (
         _prompt: string,
@@ -33,37 +33,100 @@ function fixture() {
       '屏幕确认得到十个视频',
   )
   const screen = vi.fn(async () => 'screen')
+  const cloud = {
+    generate: vi.fn(async (..._args: unknown[]) => '{"type":"execute"}'),
+  }
   const service = new TaskService(
     store,
-    {} as CloudGateway,
+    cloud as unknown as CloudGateway,
     board as unknown as BoardGateway,
     screen,
     vi.fn(),
     execute,
   )
-  return { service, store, board, execute, screen }
+  return { service, store, board, cloud, execute, screen }
 }
-describe('unified task feedback loop', () => {
-  it('recovers an inability reply through tools under the original task identity', async () => {
+describe('cloud task planning and verified execution', () => {
+  it('runs explicit computer tasks through the execution entry and records their capability', async () => {
     const f = fixture()
-    f.board.privacyAgent.mockResolvedValueOnce('{"decision":"revise","feedback":"先生成候选回复"}')
+    const id = f.service.start({ ...request, intent: 'execute' })
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
+    expect(f.cloud.generate).not.toHaveBeenCalled()
+    expect(f.board.generate).not.toHaveBeenCalled()
+    expect(f.execute).toHaveBeenCalledExactlyOnceWith(
+      id,
+      request.prompt,
+      expect.any(AbortSignal),
+      expect.any(Function),
+    )
+    expect(f.store.tasks[0].execution).toBe('desktop')
+  })
+  it('keeps a computer task running while its executor is confirming cancellation', async () => {
+    const f = fixture()
+    let finish!: (value: string) => void
+    f.execute.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const id = f.service.start({ ...request, intent: 'execute' })
+    await vi.waitFor(() => expect(f.execute).toHaveBeenCalled())
+    f.service.cancel(id)
+    expect(f.store.tasks[0]).toMatchObject({
+      status: 'running',
+      stage: '正在停止操作，等待 RK 释放确认',
+    })
+    finish('late result')
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('cancelled'))
+    expect(f.store.tasks[0].stage).toBe('操作已停止')
+    expect(f.store.tasks[0].answer).toBe('')
+  })
+  it('retains an unknown hardware result as failed even after cancellation', async () => {
+    const f = fixture()
+    let fail!: (error: Error) => void
+    f.execute.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject
+        }),
+    )
+    const id = f.service.start({ ...request, intent: 'execute' })
+    await vi.waitFor(() => expect(f.execute).toHaveBeenCalled())
+    f.service.cancel(id)
+    fail(new Error('INPUT_OUTCOME_UNKNOWN'))
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('failed'))
+    expect(f.store.tasks[0]).toMatchObject({
+      execution: 'desktop',
+      error: 'INPUT_OUTCOME_UNKNOWN',
+      stage: '输入结果未确认，请检查目标窗口',
+    })
+  })
+  it('understands and executes without a local model under the original task identity', async () => {
+    const f = fixture()
     const id = f.service.start(request)
     await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
     expect(f.store.tasks).toHaveLength(1)
     expect(f.execute.mock.calls[0][0]).toBe(id)
     expect(f.execute.mock.calls[0][1]).toContain(request.prompt)
-    expect(f.execute.mock.calls[0][1]).toContain('实际调用工具完成目标')
     expect(f.store.tasks[0].answer).toBe('屏幕确认得到十个视频')
-  })
-  it('runs an operation without requiring a successful text answer first', async () => {
-    const f = fixture()
-    f.board.generate.mockRejectedValue(new Error('answer generation failed'))
-    f.service.start(request)
-    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
     expect(f.board.generate).not.toHaveBeenCalled()
+    expect(f.board.privacyAgent).not.toHaveBeenCalled()
+    expect(f.cloud.generate).toHaveBeenCalledTimes(1)
     expect(f.execute).toHaveBeenCalledTimes(1)
   })
-  it('does not publish the inability reply or finish while tools are still running', async () => {
+  it('answers questions in the cloud without requiring desktop input', async () => {
+    const f = fixture()
+    f.cloud.generate.mockResolvedValueOnce('{"type":"answer","answer":"完整答案"}')
+    f.service.start({ ...request, prompt: '解释这段文字', source: 'screen', context: '附加资料' })
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
+    expect(f.execute).not.toHaveBeenCalled()
+    expect(f.board.generate).not.toHaveBeenCalled()
+    expect(f.board.privacyAgent).not.toHaveBeenCalled()
+    expect(f.cloud.generate.mock.calls[0][3]).toBe('附加资料\n\nscreen')
+    expect(f.store.tasks[0].answer).toBe('完整答案')
+  })
+  it('does not publish a planned answer while tools are still running', async () => {
     const f = fixture()
     let finish!: (value: string) => void
     f.execute.mockImplementation(
@@ -79,28 +142,24 @@ describe('unified task feedback loop', () => {
     finish('verified result')
     await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
   })
-  it('regenerates incomplete answers with feedback before accepting completion', async () => {
+  it('retries malformed cloud decisions before any execution', async () => {
     const f = fixture()
-    f.board.privacyAgent
-      .mockResolvedValueOnce('{"decision":"revise","feedback":"先回答问题"}')
-      .mockResolvedValueOnce('{"decision":"revise","feedback":"补充遗漏的信息"}')
-      .mockResolvedValueOnce('{"decision":"complete","feedback":"已满足目标"}')
-    f.board.generate.mockResolvedValueOnce('partial').mockResolvedValueOnce('complete answer')
-    f.service.start({ ...request, prompt: '解释这段文字' })
-    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
-    expect(f.board.generate.mock.calls[1][0]).toContain('补充遗漏的信息')
-    expect(f.execute).not.toHaveBeenCalled()
-    expect(f.store.tasks[0].answer).toBe('complete answer')
-  })
-  it('retries malformed completion checks instead of completing or failing the task', async () => {
-    const f = fixture()
-    f.board.privacyAgent.mockResolvedValueOnce('我不能使用工具')
+    f.cloud.generate.mockResolvedValueOnce('我不能使用工具')
     f.service.start(request)
     await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
-    expect(f.board.privacyAgent).toHaveBeenCalledTimes(2)
+    expect(f.cloud.generate).toHaveBeenCalledTimes(2)
     expect(f.execute).toHaveBeenCalledTimes(1)
   })
-  it('keeps cancellation effective during execution feedback', async () => {
+  it('does not redispatch an execution whose outcome is unknown', async () => {
+    const f = fixture()
+    f.execute.mockRejectedValue(new Error('INPUT_OUTCOME_UNKNOWN'))
+    f.service.start(request)
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('failed'))
+    expect(f.execute).toHaveBeenCalledTimes(1)
+    expect(f.cloud.generate).toHaveBeenCalledTimes(1)
+    expect(f.store.tasks[0].error).toBe('INPUT_OUTCOME_UNKNOWN')
+  })
+  it('keeps cancellation effective during execution', async () => {
     const f = fixture()
     f.execute.mockImplementation(
       async (_id, _goal, signal) =>
@@ -115,5 +174,21 @@ describe('unified task feedback loop', () => {
     f.service.cancel(id)
     await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('cancelled'))
     expect(f.store.tasks[0].answer).toBe('')
+  })
+  it('discards a late cloud decision after cancellation', async () => {
+    const f = fixture()
+    let finish!: (value: string) => void
+    f.cloud.generate.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const id = f.service.start(request)
+    await vi.waitFor(() => expect(f.cloud.generate).toHaveBeenCalled())
+    f.service.cancel(id)
+    finish('{"type":"execute"}')
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('cancelled'))
+    expect(f.execute).not.toHaveBeenCalled()
   })
 })

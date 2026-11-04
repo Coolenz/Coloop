@@ -30,7 +30,9 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@agent-tars/core": "0.3.1",
     "lucide-react": "^0.468.0",
+    "openai": "6.0.0",
     "playwright-core": "1.64.1",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
@@ -69,6 +71,14 @@
       {
         "from": "resources/rk-proactive-agent.py",
         "to": "rk-proactive-agent.py"
+      },
+      {
+        "from": "resources/rk-execution-adapter.py",
+        "to": "rk-execution-adapter.py"
+      },
+      {
+        "from": "resources/rk-memory-worker.py",
+        "to": "rk-memory-worker.py"
       },
       {
         "from": "resources/clipboard-lease.ps1",

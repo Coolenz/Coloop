@@ -12,6 +12,7 @@ import type { AppSnapshot } from '../../shared/contracts'
 import type { DesktopPhase } from '../../shared/desktop'
 import { api, unwrap } from './api'
 import './desktop.css'
+import { ComputerAgentStatus } from './ComputerAgentStatus'
 
 const phases: Record<DesktopPhase, string> = {
   idle: '等待新任务',
@@ -29,6 +30,121 @@ const phases: Record<DesktopPhase, string> = {
 }
 
 export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
+  const [goal, setGoal] = useState('')
+  const [authorized, setAuthorized] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const busy =
+    !!snapshot.proactive?.active ||
+    !!snapshot.desktop?.active ||
+    !!snapshot.violoop?.active ||
+    snapshot.tasks.some((task) => task.status === 'running')
+  const connected = snapshot.device.status === 'connected'
+  const providerReady =
+    snapshot.settings.provider.hasKey && snapshot.settings.provider.protocol === 'openai'
+  const unknown = snapshot.proactive?.phase === 'input_unknown'
+  async function start(event: React.FormEvent) {
+    event.preventDefault()
+    if (submitting || busy) return
+    setSubmitting(true)
+    setError('')
+    try {
+      await unwrap(
+        api.dispatchTask({
+          prompt: goal,
+          target: 'cloud',
+          context: '',
+          source: 'text',
+          intent: 'execute',
+        }),
+      )
+      setGoal('')
+      setAuthorized(false)
+    } catch (failure) {
+      setError((failure as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+  return (
+    <div className="page-content desktop-page">
+      <div className="page-title-row">
+        <div>
+          <h1>电脑操作</h1>
+          <p>云端理解目标，RK 执行键鼠操作，独立回读实际结果。</p>
+        </div>
+        <span className="badge">
+          <MousePointer2 size={14} />
+          Agent TARS
+        </span>
+      </div>
+      <form className="desktop-form" onSubmit={(event) => void start(event)}>
+        <fieldset disabled={submitting || busy}>
+          <div className="desktop-field">
+            <label htmlFor="computer-goal">让电脑完成什么</label>
+            <textarea
+              id="computer-goal"
+              value={goal}
+              onChange={(event) => setGoal(event.target.value)}
+              placeholder="例如：保留当前文档的标题，在末尾补充三条简短中文大纲。"
+              rows={4}
+              maxLength={24000}
+              required
+            />
+            <p>先打开目标应用，再回到 Coloop 提交。开始后主窗口收起，由小窗显示进度。</p>
+          </div>
+          <label className="desktop-authorize">
+            <input
+              type="checkbox"
+              checked={authorized}
+              onChange={(event) => setAuthorized(event.target.checked)}
+            />
+            允许本次任务在目标应用发送键鼠输入
+          </label>
+        </fieldset>
+        <div className="desktop-actions">
+          <p>
+            {!connected
+              ? '请先在「设备管理」连接 RK。'
+              : !providerReady
+                ? '请在「模型连接」配置 OpenAI 兼容模型与访问凭据。'
+                : unknown
+                  ? '请先检查上次输入结果，并恢复控制。'
+                  : '单步执行后读取新观察，结束前核验结果。记忆由 RK 在后台整理。'}
+          </p>
+          <button
+            type="submit"
+            className="button primary"
+            disabled={
+              submitting ||
+              busy ||
+              !connected ||
+              !providerReady ||
+              unknown ||
+              !authorized ||
+              !goal.trim()
+            }
+          >
+            {submitting ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}
+            开始电脑操作
+          </button>
+        </div>
+        {error && (
+          <p className="desktop-error" role="alert">
+            {error}
+          </p>
+        )}
+      </form>
+      <ComputerAgentStatus snapshot={snapshot} />
+      <details className="desktop-legacy" open={snapshot.desktop?.active || undefined}>
+        <summary>其他操作模式</summary>
+        <LegacyDesktopPage snapshot={snapshot} />
+      </details>
+    </div>
+  )
+}
+
+function LegacyDesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
   const [windows, setWindows] = useState<string[]>([])
   const [windowTitle, setWindowTitle] = useState('')
   const [goal, setGoal] = useState('')
@@ -44,6 +160,8 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
   const browserGoal =
     browserTask === 'home' ? '打开 Bilibili' : '打开bilibili，点击主页的一个任意视频，然后三连点赞'
   const active = !!state?.active
+  const otherActive =
+    !!snapshot.proactive?.active || snapshot.tasks.some((task) => task.status === 'running')
   const connected =
     snapshot.device.status === 'connected' &&
     snapshot.device.qwenReady &&
@@ -96,7 +214,7 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
     <div className="page-content desktop-page">
       <div className="page-title-row">
         <div>
-          <h1>电脑操作</h1>
+          <h2>其他操作模式</h2>
           <p>描述目标，让 RK 操作窗口，并回读实际结果。</p>
         </div>
         <span className="badge">
@@ -105,7 +223,7 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
         </span>
       </div>
       <form onSubmit={(event) => void start(event)} className="desktop-form">
-        <fieldset disabled={active || busy}>
+        <fieldset disabled={active || busy || otherActive}>
           <div className="desktop-field">
             <div className="desktop-label-row">
               <label htmlFor="desktop-window">操作哪个窗口</label>
@@ -230,6 +348,7 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
               type="submit"
               disabled={
                 busy ||
+                otherActive ||
                 !connected ||
                 !authorized ||
                 (!browserMode && (!goal.trim() || !windowTitle.trim() || !expectedText.trim()))

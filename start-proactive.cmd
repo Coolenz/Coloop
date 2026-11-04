@@ -1,13 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-if exist "release\cloud-ocr-island-0.13.0-20261104-r1\win-unpacked\Coloop.exe" (
-  start "" "release\cloud-ocr-island-0.13.0-20261104-r1\win-unpacked\Coloop.exe"
+set "COLOOP_TARS_EXE=%~dp0release\tars-rk-0.13.0-20261104-r3\win-unpacked\Coloop.exe"
+if exist "%COLOOP_TARS_EXE%" (
+  start "" "%COLOOP_TARS_EXE%"
   exit /b 0
 )
-if exist "release\agent-state-check-0.13.0-20261103-r1\win-unpacked\Coloop.exe" (
-  start "" "release\agent-state-check-0.13.0-20261103-r1\win-unpacked\Coloop.exe"
-  exit /b 0
-)
-echo Coloop proactive build is missing. See docs\proactive-agent.md.
+echo Agent TARS build is missing. See docs\agent-tars-architecture.md.
 exit /b 1

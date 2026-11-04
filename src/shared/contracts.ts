@@ -76,6 +76,7 @@ export const taskRequestSchema = z.object({
   target: z.enum(['hybrid', 'cloud', 'rk']),
   context: z.string().max(50000).default(''),
   source: z.enum(['text', 'screen']).default('text'),
+  intent: z.literal('execute').optional(),
 })
 export type ProviderConfig = z.infer<typeof providerSchema>
 export type BoardConfig = z.infer<typeof boardSchema>
@@ -97,6 +98,7 @@ export interface Task {
   error?: string
   stage: string
   model: string
+  execution?: 'desktop'
 }
 export interface DeviceState {
   status: 'disconnected' | 'connecting' | 'connected' | 'error'
@@ -164,6 +166,13 @@ export interface DesktopApi {
   startProactiveTask(goal: string): Promise<Result<string>>
   stopProactiveTask(): Promise<Result<void>>
   pauseProactiveObservation(paused: boolean): Promise<Result<void>>
+  acceptProactiveSuggestion(id: string): Promise<Result<void>>
+  dismissProactiveSuggestion(id: string): Promise<Result<void>>
+  answerProactiveQuestion(input: {
+    taskId: string
+    questionId: string
+    answer: string
+  }): Promise<Result<void>>
   browseMemories(input: MemoryBrowse): Promise<Result<MemoryBrowseResult>>
   saveMemory(input: MemorySave): Promise<Result<void>>
   reviseMemory(input: MemoryRevise): Promise<Result<void>>

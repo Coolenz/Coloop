@@ -95,4 +95,23 @@ describe('local persistence and credential boundary', () => {
     })
     expect(readdirSync(directory).some((file) => file.startsWith('state.recovery-'))).toBe(false)
   })
+  it('persists the desktop execution capability beside legacy task history', () => {
+    const { store, directory, codec } = create()
+    const task = {
+      id: 'computer-task',
+      prompt: 'append a line',
+      target: 'cloud' as const,
+      source: 'text' as const,
+      status: 'completed' as const,
+      createdAt: new Date().toISOString(),
+      answer: 'verified',
+      stage: '已完成',
+      model: 'TARS',
+    }
+    store.tasks.push({ ...task, execution: 'desktop' }, { ...task, id: 'old-task' })
+    store.persist()
+    const reopened = new AppStore(directory, codec)
+    expect(reopened.tasks[0].execution).toBe('desktop')
+    expect(reopened.tasks[1]).not.toHaveProperty('execution')
+  })
 })

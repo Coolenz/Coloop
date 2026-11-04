@@ -39,6 +39,7 @@ const taskSchema = z.object({
   error: z.string().optional(),
   stage: z.string(),
   model: z.string(),
+  execution: z.literal('desktop').optional(),
 })
 export class AppStore {
   private settings: SettingsInput = structuredClone(defaultSettings)

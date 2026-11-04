@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -69,6 +70,119 @@ describe('passive foreground observation', () => {
     const changed = Buffer.from(before)
     changed.fill(0, 0, 400 * 4)
     expect(hasMeaningfulVisualChange(before, changed)).toBe(true)
+  })
+  it('retries deferred understanding with backoff and stops after three retries', async () => {
+    vi.useFakeTimers()
+    let sequence = 0
+    const onObservation = vi.fn(async (view: ForegroundObservation) => {
+      service.retryObservation(view.observation_id)
+    })
+    const service = new ForegroundObservationService({
+      capture: async () => frame,
+      recognize: async () => ({ ...snapshot, observation_id: `retry-${++sequence}` }),
+      isOcrBusy: () => false,
+      canObserve: () => true,
+      onObservation,
+      intervalMs: 100,
+      stableMs: 0,
+    })
+    service.start()
+    await vi.advanceTimersByTimeAsync(200)
+    expect(onObservation).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(4900)
+    expect(onObservation).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(onObservation).toHaveBeenCalledTimes(4)
+    service.dispose()
+  })
+  it('invalidates a suggestion immediately when the foreground changes', async () => {
+    vi.useFakeTimers()
+    const onInvalidated = vi.fn()
+    let currentFrame = frame
+    const service = new ForegroundObservationService({
+      capture: async () => currentFrame,
+      recognize: async () => snapshot,
+      isOcrBusy: () => false,
+      canObserve: () => true,
+      onObservation: vi.fn(),
+      onInvalidated,
+      intervalMs: 100,
+      stableMs: 800,
+    })
+    service.start()
+    await vi.advanceTimersByTimeAsync(1000)
+    onInvalidated.mockClear()
+    currentFrame = { ...frame, window_id: '99', fingerprint: 'another-window' }
+    await vi.advanceTimersByTimeAsync(100)
+    expect(onInvalidated).toHaveBeenCalledOnce()
+    service.dispose()
+  })
+  it('keeps a recommendation through same-window visual changes until content changes', async () => {
+    vi.useFakeTimers()
+    const onInvalidated = vi.fn()
+    const onObservation = vi.fn()
+    let currentFrame = frame
+    let currentSnapshot = snapshot
+    const service = new ForegroundObservationService({
+      capture: async () => currentFrame,
+      recognize: async () => currentSnapshot,
+      isOcrBusy: () => false,
+      canObserve: () => true,
+      onObservation,
+      onInvalidated,
+      intervalMs: 100,
+      stableMs: 200,
+      minOcrIntervalMs: 0,
+    })
+    service.start()
+    await vi.advanceTimersByTimeAsync(500)
+    onInvalidated.mockClear()
+    currentFrame = { ...frame, fingerprint: 'overlay-expanded' }
+    await vi.advanceTimersByTimeAsync(500)
+    expect(onInvalidated).not.toHaveBeenCalled()
+    expect(onObservation).toHaveBeenCalledTimes(1)
+    currentFrame = { ...frame, fingerprint: 'document-edited' }
+    currentSnapshot = { ...snapshot, observation_id: 'new-content', content_hash: 'changed' }
+    await vi.advanceTimersByTimeAsync(100)
+    expect(onInvalidated).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(400)
+    expect(onInvalidated).toHaveBeenCalledOnce()
+    expect(onObservation).toHaveBeenLastCalledWith(currentSnapshot)
+    service.dispose()
+  })
+  it('keeps page understanding stable during island interaction but invalidates switched targets', async () => {
+    vi.useFakeTimers()
+    let interacting = false
+    let currentFrame = frame
+    const onInvalidated = vi.fn()
+    const recognize = vi.fn(async () => snapshot)
+    const service = new ForegroundObservationService({
+      capture: async () => currentFrame,
+      recognize,
+      isOcrBusy: () => false,
+      canObserve: () => true,
+      isInteracting: () => interacting,
+      onObservation: vi.fn(),
+      onInvalidated,
+      intervalMs: 100,
+      stableMs: 200,
+      minOcrIntervalMs: 0,
+    })
+    service.start()
+    await vi.advanceTimersByTimeAsync(400)
+    onInvalidated.mockClear()
+    interacting = true
+    currentFrame = { ...frame, fingerprint: 'expanded-island' }
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(recognize).toHaveBeenCalledOnce()
+    expect(onInvalidated).not.toHaveBeenCalled()
+    currentFrame = { ...currentFrame, window_id: 'another-target' }
+    await vi.advanceTimersByTimeAsync(100)
+    expect(onInvalidated).toHaveBeenCalledOnce()
+    interacting = false
+    await vi.advanceTimersByTimeAsync(300)
+    expect(recognize).toHaveBeenCalledTimes(2)
+    service.dispose()
   })
   it('periodically refreshes OCR for small edits tolerated by visual comparison', async () => {
     vi.useFakeTimers()
@@ -181,7 +295,102 @@ describe('Windows target validation and text verification', () => {
     expect(second.ocr_text).toBe('产品发布计划I')
     expect(second).not.toHaveProperty('editable_text')
   })
+  it('exports observed toggle and selection states and detects changes with unchanged OCR', async () => {
+    const capture = new WindowsObservationCapture({
+      recognize: async () => ({
+        text: 'Enable sync\nFirst item',
+        confidence: 99,
+        durationMs: 1,
+        language: 'en',
+        items: [],
+        coordinateSpace: 'image_pixels',
+        engine: 'RapidOCR',
+      }),
+    })
+    const checkbox = {
+      name: 'Enable sync',
+      type: 'CheckBox',
+      source: 'uia' as const,
+      runtime_id: [42, 21],
+      rect: [20, 40, 160, 70],
+      checked: false,
+    }
+    const item = {
+      name: 'First item',
+      type: 'ListItem',
+      source: 'win32' as const,
+      runtime_id: [42, 22, 0],
+      rect: [20, 80, 160, 100],
+      selected: false,
+    }
+    const read = vi.spyOn(capture, 'metadata').mockResolvedValue({
+      ...meta,
+      editable_focus: false,
+      control_targets: [checkbox, item],
+    })
+    const before = await capture.recognize({ ...frame, editable_focus: false })
+    expect(before.targets).toEqual([
+      expect.objectContaining({ ...checkbox, id: 0, center: [90, 55] }),
+      expect.objectContaining({ ...item, id: 1, center: [90, 90] }),
+    ])
+    read.mockResolvedValue({
+      ...meta,
+      editable_focus: false,
+      control_targets: [{ ...checkbox, checked: true }, item],
+    })
+    const toggled = await capture.recognize({ ...frame, editable_focus: false })
+    expect(toggled.ocr_text).toBe(before.ocr_text)
+    expect(toggled.content_hash).not.toBe(before.content_hash)
+    read.mockResolvedValue({
+      ...meta,
+      editable_focus: false,
+      control_targets: [
+        { ...checkbox, checked: true },
+        { ...item, selected: true },
+      ],
+    })
+    const selected = await capture.recognize({ ...frame, editable_focus: false })
+    expect(selected.content_hash).not.toBe(toggled.content_hash)
+    expect(selected.targets[1]).toMatchObject({ selected: true, runtime_id: item.runtime_id })
+  })
   const create = () => new WindowsObservationCapture({ recognize: vi.fn() })
+  it('detects page changes outside a focused address bar whose text is unchanged', async () => {
+    let text = 'First page content'
+    const capture = new WindowsObservationCapture({
+      recognize: async () => ({
+        text,
+        confidence: 99,
+        durationMs: 1,
+        language: 'en',
+        coordinateSpace: 'image_pixels',
+        engine: 'RapidOCR',
+        items: [
+          {
+            text,
+            confidence: 99,
+            rect: [10, 200, 300, 230],
+            center: [155, 215],
+            box: [
+              [10, 200],
+              [300, 200],
+              [300, 230],
+              [10, 230],
+            ],
+          },
+        ],
+      }),
+    })
+    vi.spyOn(capture, 'metadata').mockResolvedValue({
+      ...meta,
+      editable_rect: [0, 0, 800, 50],
+      editable_text: 'example.test',
+    })
+    const first = await capture.recognize(frame)
+    text = 'Changed page content'
+    const second = await capture.recognize(frame)
+    expect(second.content_hash).not.toBe(first.content_hash)
+    expect(second).not.toHaveProperty('editable_text')
+  })
   it('rejects changed windows and covered points, returns HID screen coordinates', async () => {
     const capture = create()
     const read = vi.spyOn(capture, 'metadata').mockResolvedValue(meta)
@@ -216,7 +425,10 @@ describe('Windows target validation and text verification', () => {
   it('retains the original insertion baseline while focus and text settle', async () => {
     const capture = create()
     const read = vi.spyOn(capture, 'metadata').mockResolvedValue({
-      ...meta, editable_text: 'before', selection_start: 6, selection_end: 6,
+      ...meta,
+      editable_text: 'before',
+      selection_start: 6,
+      selection_end: 6,
     })
     await capture.validate(snapshot, { action: 'paste_text', target_id: 1 })
     read.mockResolvedValue({ ...meta, window_id: '99', editable_focus: false })
@@ -361,20 +573,146 @@ if (process.env.COLOOP_FOREGROUND_NATIVE_SMOKE === '1')
         capture.dispose()
       }
     }, 15000)
+    it('observes real checkbox and list selection states in an isolated native form', async () => {
+      const script = `
+        [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)
+        Add-Type -AssemblyName System.Windows.Forms
+        $form=[System.Windows.Forms.Form]::new()
+        $form.Text='Coloop control-state observation test'
+        $form.Size=[System.Drawing.Size]::new(560,400)
+        $form.ShowInTaskbar=$false
+        foreach($item in @(@('Unchecked',20,$false),@('Checked',50,$true),@('Indeterminate',80,$false),@('Disabled',260,$false),@('Hidden',290,$false),@('Offscreen',500,$false))) {
+          $check=[System.Windows.Forms.CheckBox]::new()
+          $check.FlatStyle=[System.Windows.Forms.FlatStyle]::System
+          $check.Text=$item[0]
+          $check.Location=[System.Drawing.Point]::new(20,$item[1])
+          $check.Size=[System.Drawing.Size]::new(180,24)
+          $check.Checked=$item[2]
+          if($item[0]-eq 'Indeterminate'){$check.ThreeState=$true;$check.CheckState=[System.Windows.Forms.CheckState]::Indeterminate}
+          if($item[0]-eq 'Disabled'){$check.Enabled=$false}
+          if($item[0]-eq 'Hidden'){$check.Visible=$false}
+          [void]$form.Controls.Add($check)
+        }
+        $list=[System.Windows.Forms.ListBox]::new()
+        $list.Location=[System.Drawing.Point]::new(20,120)
+        $list.Size=[System.Drawing.Size]::new(200,100)
+        [void]$list.Items.Add('First item')
+        [void]$list.Items.Add('Selected item')
+        $list.SelectedIndex=1
+        [void]$form.Controls.Add($list)
+        $form.Add_Shown({[Console]::WriteLine((@{window_id=$form.Handle.ToInt64().ToString();process_id=$PID}|ConvertTo-Json -Compress))})
+        [System.Windows.Forms.Application]::Run($form)
+      `
+      const fixture = spawn(
+        'powershell.exe',
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-EncodedCommand',
+          Buffer.from(script, 'utf16le').toString('base64'),
+        ],
+        { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
+      )
+      const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+      try {
+        const identity = await new Promise<{ window_id: string; process_id: number }>(
+          (resolve, reject) => {
+            const timer = setTimeout(
+              () => reject(new Error('Native control fixture startup timed out')),
+              10000,
+            )
+            let output = ''
+            fixture.stdout.on('data', (chunk) => {
+              output += chunk.toString()
+              if (!output.includes('\n')) return
+              clearTimeout(timer)
+              try {
+                resolve(JSON.parse(output.trim()))
+              } catch (error) {
+                reject(error)
+              }
+            })
+            fixture.once('error', (error) => {
+              clearTimeout(timer)
+              reject(error)
+            })
+            fixture.once('exit', () => {
+              clearTimeout(timer)
+              reject(new Error('Native control fixture exited before observation'))
+            })
+          },
+        )
+        const observed = await capture.metadata(
+          undefined,
+          identity.window_id,
+          true,
+          identity.process_id,
+        )
+        expect(observed.window_id).toBe(identity.window_id)
+        const controls = observed.control_targets ?? []
+        expect(controls.length).toBeLessThanOrEqual(32)
+        expect(controls).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ name: 'Unchecked', checked: false }),
+            expect.objectContaining({ name: 'Checked', checked: true }),
+            expect.objectContaining({ name: 'First item', selected: false }),
+            expect.objectContaining({ name: 'Selected item', selected: true }),
+          ]),
+        )
+        expect(
+          controls.some((target) => ['Disabled', 'Hidden', 'Offscreen'].includes(target.name)),
+        ).toBe(false)
+        for (const target of controls.filter((target) => target.name === 'Indeterminate'))
+          expect(target).not.toHaveProperty('checked')
+        for (const expected of [
+          { name: 'Checked', property: 'checked', value: true },
+          { name: 'First item', property: 'selected', value: false },
+          { name: 'Selected item', property: 'selected', value: true },
+        ]) {
+          const target = controls.find((target) => target.name === expected.name)!
+          const center = [
+            (target.rect[0] + target.rect[2]) / 2,
+            (target.rect[1] + target.rect[3]) / 2,
+          ]
+          expect(
+            await capture.verifyControlState(
+              { ...snapshot, ...observed },
+              {
+                center,
+                runtime_id: target.runtime_id,
+                property: expected.property,
+                value: expected.value,
+              },
+            ),
+          ).toMatchObject({ verified: true, observable: true })
+        }
+      } finally {
+        capture.dispose()
+        const exited = new Promise((resolve) => fixture.once('exit', resolve))
+        if (fixture.kill() && fixture.exitCode === null) await exited
+      }
+    }, 25000)
   })
-
 
 describe('independent control state completion', () => {
   const condition = { center: [50, 20], runtime_id: [42, 14], property: 'checked', value: true }
   it('reads UIA state and rejects changed identity, missing state and indeterminate state', async () => {
     const capture = new WindowsObservationCapture({ recognize: vi.fn() })
     const read = vi.spyOn(capture, 'metadata').mockResolvedValue({
-      ...meta, point_target: { ...meta.point_target!, checked: true },
+      ...meta,
+      point_target: { ...meta.point_target!, checked: true },
     })
-    expect(await capture.verifyControlState(snapshot, condition)).toMatchObject({ verified: true, observable: true })
+    expect(await capture.verifyControlState(snapshot, condition)).toMatchObject({
+      verified: true,
+      observable: true,
+    })
     expect(read).toHaveBeenLastCalledWith([50, 20])
     read.mockResolvedValue({ ...meta, point_target: { ...meta.point_target!, checked: false } })
-    expect(await capture.verifyControlState(snapshot, condition)).toMatchObject({ verified: false, observable: true })
+    expect(await capture.verifyControlState(snapshot, condition)).toMatchObject({
+      verified: false,
+      observable: true,
+    })
     for (const changed of [
       { ...meta, process_id: 99 },
       { ...meta, window_id: '99' },
@@ -383,15 +721,24 @@ describe('independent control state completion', () => {
       { ...meta, point_target: { ...meta.point_target!, checked: undefined } },
     ]) {
       read.mockResolvedValue(changed)
-      expect(await capture.verifyControlState(snapshot, condition)).toMatchObject({ verified: false, observable: false })
+      expect(await capture.verifyControlState(snapshot, condition)).toMatchObject({
+        verified: false,
+        observable: false,
+      })
     }
   })
   it('rejects malformed conditions before reading Windows state', async () => {
     const capture = new WindowsObservationCapture({ recognize: vi.fn() })
     const read = vi.spyOn(capture, 'metadata')
-    for (const raw of [null, {}, { ...condition, value: 'true' },
-      { ...condition, center: [NaN, 0] }, { ...condition, property: 'enabled' },
-      { ...condition, runtime_id: [] }, { ...condition, extra: true }]) {
+    for (const raw of [
+      null,
+      {},
+      { ...condition, value: 'true' },
+      { ...condition, center: [NaN, 0] },
+      { ...condition, property: 'enabled' },
+      { ...condition, runtime_id: [] },
+      { ...condition, extra: true },
+    ]) {
       expect((await capture.verifyControlState(snapshot, raw)).verified).toBe(false)
     }
     expect(read).not.toHaveBeenCalled()

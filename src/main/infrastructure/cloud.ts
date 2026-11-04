@@ -373,10 +373,11 @@ export class CloudGateway {
     context: string,
     signal: AbortSignal,
     onText: (text: string) => void,
+    systemOverride?: string,
   ): Promise<string> {
     if (!key && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.baseUrl).hostname))
       throw new Error('请在「模型连接」配置并保存 API Key')
-    const request = providerRequest(config, key, prompt, context)
+    const request = providerRequest(config, key, prompt, context, 'assistant', systemOverride)
     const response = await this.fetcher(request.url, {
       method: 'POST',
       headers: request.headers,

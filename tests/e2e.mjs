@@ -99,7 +99,7 @@ try {
   await page.getByRole('button', { name: '测试连接', exact: true }).click()
   await page.getByText(/连接成功：/).waitFor()
   await page.getByRole('button', { name: '工作台', exact: true }).first().click()
-  assert.equal(await page.getByLabel('选择推理位置').inputValue(), 'hybrid')
+  assert.equal(await page.getByLabel('选择推理位置').inputValue(), 'cloud')
   await page.getByLabel('任务内容').fill('请测试任务执行')
   assert.equal(await page.getByLabel('运行任务', { exact: true }).isDisabled(), true)
   const guarded = await page.evaluate(() =>
@@ -108,7 +108,7 @@ try {
   assert.equal(guarded.ok, false)
   assert.match(guarded.error, /连接 RK/)
   results.push({
-    check: 'default cooperative mode and legacy cloud requests require RK before dispatch',
+    check: 'fixed cloud routing and legacy cloud requests require RK before dispatch',
     passed: true,
   })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1060, 720))
