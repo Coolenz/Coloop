@@ -1,0 +1,32 @@
+Coloop Android — 第三方组件
+
+以下开源项目用于本应用。各项目的版权及合法归属由其作者保留；列出的组件采用 Apache License 2.0。完整许可文本随本 APK 保存在 APACHE-2.0.txt。使用这些组件不表示其作者认可或赞助 Coloop。
+
+Kotlin 2.2.21 / Kotlin standard library
+Copyright JetBrains s.r.o. and Kotlin Programming Language contributors.
+Source: https://github.com/JetBrains/kotlin
+License: https://github.com/JetBrains/kotlin/blob/master/license/LICENSE.txt
+
+AndroidX / Jetpack Compose / Material 3 / Material Icons
+Compose BOM 2025.10.00; Core 1.17.0; Activity 1.11.0; Lifecycle 2.9.4; Material Icons 1.7.8.
+Copyright The Android Open Source Project and contributors.
+Source: https://android.googlesource.com/platform/frameworks/support/
+License: https://android.googlesource.com/platform/frameworks/support/+/androidx-main/LICENSE.txt
+
+kotlinx.coroutines 1.10.2
+Copyright JetBrains s.r.o. and Kotlin contributors.
+Source: https://github.com/Kotlin/kotlinx.coroutines
+License: https://github.com/Kotlin/kotlinx.coroutines/blob/master/LICENSE.txt
+
+ZXing Android Embedded 4.3.0
+Copyright ZXing Android Embedded contributors / Journey Mobile, Inc.
+Source: https://github.com/journeyapps/zxing-android-embedded
+License: https://github.com/journeyapps/zxing-android-embedded/blob/master/COPYING
+
+ZXing core
+Copyright ZXing authors.
+Source: https://github.com/zxing/zxing
+License: https://github.com/zxing/zxing/blob/master/LICENSE
+
+完整 Apache License 2.0：
+https://www.apache.org/licenses/LICENSE-2.0.txt

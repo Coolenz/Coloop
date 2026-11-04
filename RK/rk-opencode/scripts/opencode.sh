@@ -2,9 +2,10 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 source "$root/scripts/profile.sh"
+bash "$root/scripts/start.sh" >&2
 bash "$root/scripts/start-memory.sh"
 export RK_AGENT_API_KEY="$(cat "$root/.runtime/api-key")"
-export OPENCODE_CONFIG="$root/$RK_AGENT_CONFIG"
+export OPENCODE_CONFIG="$(python3 "$root/model_profiles.py" config-path)"
 export RK_AGENT_ROOT="$root"
 export OPENCODE_DISABLE_AUTOUPDATE=true
 export OPENCODE_DISABLE_MODELS_FETCH=true

@@ -5,7 +5,7 @@ import type { AppStore } from '../src/main/infrastructure/store'
 import type { CloudGateway } from '../src/main/infrastructure/cloud'
 import type { BoardGateway } from '../src/main/infrastructure/board'
 
-const request = { prompt: 'test', context: '', target: 'cloud' as const, source: 'text' as const }
+const request = { prompt: 'test', context: '', target: 'rk' as const, source: 'text' as const }
 function setup(generate: (...args: any[]) => Promise<string>, screen = async () => 'screen text') {
   const store = {
     tasks: [],
@@ -14,7 +14,10 @@ function setup(generate: (...args: any[]) => Promise<string>, screen = async () 
     persist: vi.fn(),
   } as unknown as AppStore
   const cloud = { generate } as CloudGateway
-  const board = { generate } as unknown as BoardGateway
+  const board = {
+    state: { qwenReady: true, model: 'test-rk' },
+    generate,
+  } as unknown as BoardGateway
   return { store, service: new TaskService(store, cloud, board, screen, vi.fn()) }
 }
 describe('task lifecycle', () => {
@@ -37,7 +40,7 @@ describe('task lifecycle', () => {
     const { service, store } = setup(
       async (...args) =>
         new Promise((_resolve, reject) =>
-          args[4].addEventListener('abort', () =>
+          args[2].addEventListener('abort', () =>
             reject(new DOMException('cancelled', 'AbortError')),
           ),
         ),
@@ -68,7 +71,7 @@ describe('task lifecycle', () => {
     const { service, store } = setup(generate)
     service.start({ ...request, context: 'attached text', source: 'screen' })
     await vi.waitFor(() => expect(store.tasks[0].status).toBe('completed'))
-    expect(generate.mock.calls[0][3]).toBe('attached text\n\nscreen text')
+    expect(generate.mock.calls[0][1]).toBe('attached text\n\nscreen text')
   })
   it('rolls back cleanly when the initial task record cannot be saved', () => {
     const generate = vi.fn().mockResolvedValue('answer')

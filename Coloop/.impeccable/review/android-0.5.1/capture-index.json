@@ -1,0 +1,19 @@
+{
+  "scope": "Scoped 0.5.1 native UX refinement; all listed PNGs opened and inspected",
+  "captures": [
+    "options-light.png",
+    "options-overlimit-light.png",
+    "long-message-light.png",
+    "long-message-dark-font-1.3.png",
+    "landscape-keyboard.png",
+    "landscape-error.png",
+    "recovered-composer.png",
+    "options-keyboard-dark-font-1.3.png",
+    "options-condition-error-dark-font-1.3.png"
+  ],
+  "reports": [
+    "verification.json",
+    "options-verification.json"
+  ],
+  "excluded": "failure.png is an earlier failed fixture run, not final evidence."
+}

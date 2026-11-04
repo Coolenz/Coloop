@@ -17,6 +17,7 @@ import urllib.request
 
 from bench_report import summarize
 from host import ROOT, REMOTE, connect, command, hid_action
+from model_profiles import load_profile
 
 
 def write_json(path, value):
@@ -56,10 +57,13 @@ def main():
         "--code", help="Optional fixed 8-digit fixture input for repeatable comparisons"
     )
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--profile", default="qwen35-4b")
     parser.add_argument("--ocr-repeats", type=int, choices=range(1, 21), default=7)
     parser.add_argument("--wait-start", action="store_true", help="Wait for <run>/start.signal")
     parser.add_argument("--enable-hid", action="store_true", help="Configure USB HID if absent")
     args = parser.parse_args()
+    profile = load_profile(args.profile)
+    model_env = "RK_AGENT_PROFILE=" + shlex.quote(args.profile) + " "
     if args.code and (len(args.code) != 8 or not args.code.isascii() or not args.code.isdigit()):
         parser.error("--code must contain exactly 8 ASCII digits")
     if os.name != "nt":
@@ -79,6 +83,7 @@ def main():
         "code": args.code if args.code else f"{secrets.randbelow(100000000):08d}",
         "perception": args.perception,
         "runner": args.runner,
+        "model_profile": args.profile,
         "source_sha256": {},
     }
     for name in (
@@ -93,12 +98,15 @@ def main():
         "bridge/server.py",
         "src/worker.cpp",
         "opencode-qwen.json",
+        "model_profiles.py",
         "testbench.py",
         "bench_report.py",
         "scripts/bench-agent.py",
         "scripts/bench-compact.py",
         "plugins/desktop-fast.mjs",
     ):
+        manifest["source_sha256"][name] = hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+    for name in ("model-profiles/" + args.profile + ".json", profile["agent_config"]):
         manifest["source_sha256"][name] = hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
     write_json(folder / "manifest.json", manifest)
     print("TESTBENCH_DIR=" + str(folder), flush=True)
@@ -119,7 +127,8 @@ def main():
             client = connect()
         # Do not start a second NPU model over another application's worker.
         _, stdout, _ = client.exec_command(
-            "cd " + shlex.quote(REMOTE) + " && python3 scripts/check-health.py >/dev/null 2>&1"
+            "cd " + shlex.quote(REMOTE) + " && " + model_env
+            + "python3 scripts/check-health.py >/dev/null 2>&1"
         )
         started_model = stdout.channel.recv_exit_status() != 0
         if started_model:
@@ -131,7 +140,9 @@ def main():
                 started_model = False
                 raise RuntimeError("Another NPU model process is present: " + running)
             tick = time.perf_counter()
-            command(client, "cd " + shlex.quote(REMOTE) + " && bash scripts/start.sh")
+            command(
+                client, "cd " + shlex.quote(REMOTE) + " && " + model_env + "bash scripts/start.sh"
+            )
             manifest["model_start_seconds"] = time.perf_counter() - tick
         manifest["started_model"] = started_model
         compiler = Path(os.environ["WINDIR"]) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -219,7 +230,7 @@ def main():
             client,
             "cd "
             + shlex.quote(REMOTE)
-            + " && python3 scripts/"
+            + " && " + model_env + "python3 scripts/"
             + ("bench-compact.py" if args.runner == "compact" else "bench-agent.py")
             + " --run-id "
             + shlex.quote(run_id)

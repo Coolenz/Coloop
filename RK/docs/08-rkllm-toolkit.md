@@ -70,6 +70,28 @@ python tools/convert_llm.py \
 
 当前 WSL 可用内存总量约 7.4 GiB、交换空间约 2 GiB。完整模型转换的内存占用随模型、精度和校准样本而变化；大模型转换前需另行评估，本次不修改 WSL 全局配置。
 
+## 2026-10-31：RK3588 W4A8 参数实测
+
+在现有 WSL 独立 Toolkit 1.3.1 环境，复用随机、未训练的小型 Qwen2，分别尝试
+`target_platform='rk3588'`、`quantized_dtype='w4a8'`，量化算法为 `normal` 和 `grq`。
+两次 `load_huggingface(device='cpu')` 均返回 0，`build` 均返回 -1，原始错误为：
+
+```text
+ERROR: target_platform: rk3588 not support quantized_dtype: w4a8!
+```
+
+同时读取已安装 SDK 的 `RKLLM.build` 文档：量化类型枚举包含 W4A16 及其分组格式、
+W8A8 及其分组格式，没有 W4A8。此次直接调用补充了实际参数拒绝证据，不能仅凭枚举
+或此前 W4A16 失败推断本次结果。
+
+证据目录为 `logs/rkllm-w4a8-probe-20261031-003428/`，保存 `probe.py`、输入快照及
+SHA256、完整参数与环境版本 `summary.json`、原始输出 `raw-output.txt` 和进程退出码。
+探针退出码 2 表示两次构建均未成功；没有导出模型。
+
+范围仅为 **RKLLM Toolkit 1.3.1 / RK3588 的 W4A8 参数组合被拒绝**，不是完整
+Qwen3.5-9B 转换或质量测试，也不能推断其他引擎、其他四位格式或未来 SDK 的支持情况。
+未运行板端验证：转换阶段已拒绝，无可部署的新权重；现有模型、运行库及默认配置未修改。
+
 ## 重建环境
 
 在 WSL 执行：

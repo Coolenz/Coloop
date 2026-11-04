@@ -24,6 +24,14 @@
 | 12 | [端侧与电脑 48 题对照](14-qwen35-board-comparison.md) | 双端均 33/48，逐题差异、分科结果与测试边界 |
 | 13 | [C-Eval 260 题双端对照](15-qwen35-ceval260.md) | 全部 52 科，板端 200/260、电脑 187/260，分科结果及复现入口 |
 | 14 | [Qwen3.5 上下文配置](16-qwen35-context.md) | 4B / 9B 的 16K 日常默认值、模型转换上限与实机验证 |
+| 15 | [Coloop 与 RK 协调开发](17-coloop-coordination.md) | Agent 安全选项回复、本地隐私策略与真实 NPU 验证 |
+| 16 | [Coloop 原生 Hook 与 RK 快审](18-coloop-hooks.md) | OpenCode 原生采集、上下文/记忆边界与延迟验收 |
+| 17 | [Coloop / RK / 云端隐私协作](21-coloop-cloud-cooperation.md) | 复杂度路由、摘要脱敏、云端短 JSON 与 RK 本地整合 |
+| 18 | [真实 DeepSeek 云端验证](22-deepseek-cloud-validation.md) | 真实账户、独立推理题、源事实保真及 RK 完整协作 |
+| 19 | [Windows 桌面 skill 原型](23-windows-desktop-skill.md) | 软件键鼠、中文/数字输入、文件打开与真实 RK 隔离窗口验收 |
+| 20 | [RK USB HID 输入扩展](24-rk-hid-input.md) | 三键、双击、拖拽、垂直滚轮、组合键与停止释放的本次硬件验收 |
+| 21 | [RK 端侧桌面 Agent](25-rk-desktop-agent.md) | 全RK键鼠闭环、默认输入/上下文管理，以及输入处理加速与耗时分解 |
+| 22 | [Qwen3.5-4B 更换推理引擎实验](26-qwen35-open-engine.md) | 固定版本独立部署、普通/MTP解码与RKLLM同题测速 |
 
 ## 当前状态与下一步
 
@@ -47,3 +55,6 @@
 | RKLLM | 大语言模型使用的另一套 SDK；已配置 1.1.4 板端运行环境，电脑转换工具尚未安装 |
 
 开发入门的目标是“模型在 NPU 上正确运行”。先用已有模型推理，再考虑训练自己的模型。
+
+- [云端规划与 RK USB 转达试验](27-cloud-hid-relay.md)：固定打开 Bilibili，真实云端/NPU/HID/复盘证据，物理手机传输未在本轮实测。
+- [Browser Use 集成位置评估](28-browser-use-placement.md)：推荐上位机独立运行，真实 SDK 合成网页闭环、RK 接口差异及 CDP/USB 两种模式的边界。

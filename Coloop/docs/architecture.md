@@ -1,5 +1,7 @@
 # 架构与工程约束
 
+本文记录当前实现。2026-10-30 调整后的产品主线是电脑操作 AI；RK 执行端、Windows 观察助手和云端规划分工见 [开发方向](development-direction.md)。开发源码已新增单窗口桌面任务，采用同页整组规划和执行，详见 [电脑操作](desktop-operation.md)；跨应用仍未交付。
+
 ## 分层
 
 ```text
@@ -9,6 +11,9 @@ Sandboxed preload
    │  contextBridge + IPC allowlist
 Electron main composition root
    ├── TaskService：串行任务、状态转换、取消、恢复与审计
+   ├── DesktopTaskService：私有观察管道／规划适配 → SSH RK Runtime → 同页动作组／HID → 组后结果回读
+   ├── CooperativeAgent：RK 路由／脱敏／复核 → 必要摘要上云 → RK 本地核查
+   ├── PrivacyVault：任务内占位符、凭据移除、确定性出口检查
    ├── CloudGateway：OpenAI compatible / Anthropic / Gemini
    ├── BoardGateway：USB RNDIS + 固定指纹 SSH + 私有 HTTP 转发
    ├── OcrEngine：私有 JSON Lines + 常驻 Python OCR 子进程
@@ -35,9 +40,17 @@ Electron main composition root
 - 板端完成后一次返回回答，不把一次性结果伪装成逐 token 流式输出。HTTP 429 明确表示模型忙碌；鉴权失败、模型不可用、超时或输出截断分别反馈。
 - 「停止等待」取消本次 HTTP 等待，不强杀共享 worker，也不证明板端推理已停止。后续任务可能仍收到 HTTP 429；界面保留这一语义。修改配置或断开连接前需先停止当前 Coloop 端侧任务。
 
-Coloop 只暴露健康查询、启动已有服务和文本分析，没有通用 shell、HID、工具执行或记忆召回入口。端侧失败不会自动回退云端。
+设备网关只暴露健康查询、启动已有服务和文本分析，没有通用 shell、HID、工具执行或记忆召回入口。端侧失败不会自动回退云端。电脑 AI 会话通过独立的受限控制服务接入，见下文。
 
 若已部署 Mem0，推理前只登记前台活动并等待正在进行的记忆维护排空，结束或停止等待后释放本次活动登记；不读取、写入或召回用户记忆。模型服务与其他 RK 会话共享，Coloop 的单任务约束不能代替板端忙碌检测。
+
+## 电脑会话控制与可见性
+
+`SessionControlService` 管理稳定会话注册表、受限命令 outbox、回执和持久去重账本。桌面入口只提交 `send_message` / `abort_turn`，来源插件通过原生进程内 SDK 执行；不把本应用 `runTask/cancelTask` 当成外部会话控制。当前仅允许 Windows OpenCode 空闲会话发消息，RK 注册仅观察，不增加任意 shell 或桌面输入接口。
+
+`ControlIndicatorWindow` 使用独立 sandbox preload 和最小状态快照，主屏顶部显示真实控制状态。首次派发前必须等待窗口可见及渲染确认；显示异常会撤销待发消息并请求停止。HTTP accepted、送达 confirmed 和原生任务结束分别处理。停止锁、来源/实例绑定、原生 message ID 与任务归属检查避免重连补发和旧事件误关提示。
+
+控制插件的 register/poll/report 继续沿鉴权回环服务，保持浏览器拒绝与输入限制；Android 手机通过独立的 `RemoteGatewayService` 接同一控制服务，使用单次配对、每设备密钥、AES-GCM 帧、epoch/序号/到期校验。网关仅监听回环，`RemoteTunnel` 主动建立临时 HTTPS 公网路径；不把 Hook 服务、Electron IPC 或 SSH 公开。手机快照仅投影公共会话字段和净化后的内容摘要，私密输入保护继续约束手机读取与控制。主窗口关闭改为托盘驻留，明确退出时停止服务并做有界清理。详见 [会话控制](session-control.md) 与 [Android 首版](android.md)。
 
 ## OCR 决策
 
@@ -50,6 +63,7 @@ Coloop 只暴露健康查询、启动已有服务和文本分析，没有通用 
 ## 模型与凭据
 
 - 云端网关仅做协议适配和有限的 SSE/JSON 解析，使用 Electron `net.fetch`，请求直达配置端点。
+- 协作任务使用独立 `analyze()` 与固定云 Agent 策略，完整 JSON 校验后交 RK，不发布云中间结果。旧 `target: cloud` 也经本地隐私流程；普通 `generate()` 只保留连接测试等固定文本用途。详见 [隐私协作](cloud-cooperation.md)。
 - 请求超时 120 秒，输出上限 4 MB；不跟随重定向转发凭据；不回显服务商错误响应正文。
 - Key 只在主进程解密，使用 `safeStorage`（Windows DPAPI）持久化，界面只获得 `hasKey`。
 - 地址或协议改变时清除旧凭据，防止旧 Key 发到新端点。

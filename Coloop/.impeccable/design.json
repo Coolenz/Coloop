@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-29T06:31:19.2927644Z",
+  "title": "Design System: Coloop",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "白色画布"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "白色表面"
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "石墨黑导航"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "近黑正文"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "灰色辅助文字"
+      },
+      "subtle": {
+        "role": "neutral",
+        "displayName": "占位文字"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "细灰边界"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "石墨黑主操作"
+      },
+      "accent-soft": {
+        "role": "neutral",
+        "displayName": "浅灰反馈"
+      },
+      "green": {
+        "role": "neutral",
+        "displayName": "成功语义灰"
+      },
+      "red": {
+        "role": "neutral",
+        "displayName": "错误语义灰"
+      },
+      "inspector": {
+        "role": "neutral",
+        "displayName": "浅灰设备栏"
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "主操作悬停灰"
+      },
+      "context": {
+        "role": "neutral",
+        "displayName": "上下文标签灰"
+      },
+      "selected-surface": {
+        "role": "neutral",
+        "displayName": "选中表面灰"
+      }
+    },
+    "typographyMeta": {
+      "wordmark": {
+        "displayName": "Coloop 字标",
+        "purpose": "本地 Sora Variable，仅用于字标。"
+      },
+      "headline": {
+        "displayName": "页面标题",
+        "purpose": "Windows 字体栈，页面主标题。"
+      },
+      "title": {
+        "displayName": "区域标题",
+        "purpose": "Windows 字体栈，区域与设置标题。"
+      },
+      "body": {
+        "displayName": "功能正文",
+        "purpose": "Windows 字体栈，正文与常规字段。"
+      },
+      "label": {
+        "displayName": "操作标签",
+        "purpose": "常规按钮标签。"
+      },
+      "mono": {
+        "displayName": "逐字核对",
+        "purpose": "设备指纹等技术字段。"
+      },
+      "composer-title": {
+        "purpose": "21px；≤1240px 时18px，Windows功能字体。",
+        "displayName": "任务输入标题"
+      }
+    },
+    "shadows": [
+      {
+        "name": "toast",
+        "value": "0 8px 32px #3333331a",
+        "purpose": "浮层消息反馈。"
+      },
+      {
+        "name": "modal",
+        "value": "0 24px 100px #23232324",
+        "purpose": "模态对话框。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "button-state",
+        "value": "background 0.12s, border-color 0.12s",
+        "purpose": "按钮背景与边界状态切换。"
+      },
+      {
+        "name": "busy",
+        "value": "spin 1s linear infinite",
+        "purpose": "运行中的旋转指示；关键帧终点 rotate(360deg)。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transition: none; animation-duration: 0.01ms; animation-iteration-count: 1; scroll-behavior: auto",
+        "purpose": "prefers-reduced-motion: reduce 时应用。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide-desktop-min",
+        "value": "1550px"
+      },
+      {
+        "name": "compact-desktop-max",
+        "value": "1240px"
+      },
+      {
+        "name": "hide-inspector-max",
+        "value": "1120px"
+      },
+      {
+        "name": "defensive-stack-max",
+        "value": "1050px"
+      },
+      {
+        "name": "defensive-icon-rail-max",
+        "value": "760px"
+      }
+    ],
+    "focus": [
+      {
+        "name": "control",
+        "value": "3px solid #666666; outline-offset: 2px",
+        "purpose": "通用控件键盘焦点。"
+      },
+      {
+        "name": "composer-textarea",
+        "value": "2px solid #666; outline-offset: -4px",
+        "purpose": "任务文本区向内描边。"
+      },
+      {
+        "name": "ocr-editor",
+        "value": "2px solid var(--accent); outline-offset: -4px",
+        "purpose": "OCR编辑区单一向内描边。"
+      }
+    ],
+    "backdrop": {
+      "background": "#2828284d",
+      "filter": "blur(3px)"
+    }
+  },
+  "components": [
+    {
+      "kind": "button",
+      "description": "黑底白字的保存、连接等主要操作。",
+      "name": "Primary Button",
+      "refersTo": "button-primary",
+      "css": ".ds-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:8px 14px;border:1px solid transparent;border-radius:var(--radius-control,10px);font:500 12px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;white-space:nowrap;cursor:pointer;transition:background .12s,border-color .12s}.ds-button:focus-visible{outline:3px solid #666666;outline-offset:2px}.ds-button:disabled{opacity:.45;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-button{transition:none}}.ds-primary{background:var(--accent,#202124);border-color:var(--accent,#202124);color:#fff}.ds-primary:hover:not(:disabled){background:#383c43;border-color:#383c43}",
+      "html": "<button class=\"ds-button ds-primary\">保存配置</button>"
+    },
+    {
+      "kind": "button",
+      "description": "白底与细边框的次要操作。",
+      "name": "Secondary Button",
+      "refersTo": "button-secondary",
+      "css": ".ds-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:8px 14px;border:1px solid transparent;border-radius:var(--radius-control,10px);font:500 12px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;white-space:nowrap;cursor:pointer;transition:background .12s,border-color .12s}.ds-button:focus-visible{outline:3px solid #666666;outline-offset:2px}.ds-button:disabled{opacity:.45;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-button{transition:none}}.ds-secondary{background:#fff;border-color:#d2d2d2;color:#333}.ds-secondary:hover:not(:disabled){background:#f1f1f1;border-color:#999}",
+      "html": "<button class=\"ds-button ds-secondary\">导入 RK 配置</button>"
+    },
+    {
+      "kind": "input",
+      "description": "常规字段；标签始终可见。",
+      "name": "Text Field",
+      "refersTo": "input",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:8px;color:var(--ink,#26282c);font:500 11px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif}.ds-input{min-height:40px;padding:8px 12px;border:1px solid var(--line,#e3e3e3);border-radius:var(--radius-control,10px);background:var(--surface,#ffffff);color:var(--ink,#26282c);font:400 13px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;caret-color:var(--accent,#202124)}.ds-input:hover{border-color:var(--line,#e3e3e3)}.ds-input:focus-visible{outline:3px solid #666666;outline-offset:2px}.ds-input::placeholder{color:var(--subtle,#707070)}",
+      "html": "<label class=\"ds-field\">设备地址<input class=\"ds-input\" value=\"192.168.137.2\" /></label>"
+    },
+    {
+      "kind": "nav",
+      "description": "石墨黑导航，当前页白底黑字。",
+      "name": "Navigation",
+      "refersTo": "navigation-selected",
+      "css": ".ds-nav{background:var(--sidebar,#202124);padding:14px;width:184px}.ds-nav-item{display:flex;align-items:center;gap:11px;width:100%;min-height:42px;padding:10px 12px;margin-bottom:5px;border:0;border-radius:10px;text-align:left;background:none;color:#c2c5ca;font:400 13px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;cursor:pointer;transition:background .12s,border-color .12s}.ds-nav-item:hover{background:#2d3036;color:#fff}.ds-nav-item.ds-selected{background:#f1f2f1;color:#202124;font-weight:600}.ds-nav-item:focus-visible{outline:3px solid #666666;outline-offset:2px}@media(prefers-reduced-motion:reduce){.ds-nav-item{transition:none}}",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav-item ds-selected\" aria-current=\"page\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.9\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/></svg>工作台</button><button class=\"ds-nav-item\">屏幕理解</button></nav>"
+    },
+    {
+      "kind": "chip",
+      "description": "可移除的屏幕文字上下文。",
+      "name": "Context Chip",
+      "refersTo": "context-chip",
+      "css": ".ds-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border-radius:var(--radius-label,6px);background:#f0f0f0;color:var(--muted,#666666);font:400 11px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif}.ds-chip button{display:grid;place-items:center;padding:2px;border:0;background:none;color:inherit;cursor:pointer;transition:background .12s,border-color .12s}.ds-chip button:focus-visible{outline:3px solid #666666;outline-offset:2px}@media(prefers-reduced-motion:reduce){.ds-chip button{transition:none}}",
+      "html": "<span class=\"ds-chip\">已附加屏幕文字<button aria-label=\"移除上下文\"><svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"m18 6-12 12M6 6l12 12\"/></svg></button></span>"
+    },
+    {
+      "kind": "card",
+      "description": "平面设置容器；预览采用设备面板24px内边距。",
+      "name": "Panel",
+      "refersTo": "panel",
+      "css": ".ds-panel{padding:24px;border:1px solid #ededed;border-radius:16px;background:#fff;color:var(--ink,#26282c);font:400 13px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif}.ds-panel h2{margin:0;font-size:16px;font-weight:600;line-height:1.4}.ds-panel p{margin:8px 0 0;color:var(--muted,#666666)}",
+      "html": "<section class=\"ds-panel\"><h2>USB 连接设置</h2><p>通过 USB 网络连接开发板，查看状态与端侧能力。</p></section>"
+    },
+    {
+      "kind": "custom",
+      "description": "共用圆角边界的任务输入和工具栏；运行按钮展示空输入禁用状态。",
+      "name": "Task Composer",
+      "refersTo": "task-composer",
+      "css": ".ds-composer{overflow:hidden;border:1px solid #cfcfcf;border-radius:20px;background:#fff;color:var(--ink,#26282c);font:400 13px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif}.ds-composer:focus-within{border-color:#202124}.ds-composer-head{padding:20px 26px 0}.ds-composer-head label{display:block;font-size:21px;font-weight:600;letter-spacing:-.4px}.ds-composer textarea{box-sizing:border-box;display:block;width:100%;height:100px;min-height:90px;max-height:300px;resize:vertical;border:0;border-radius:0;outline:none;background:transparent;padding:14px 26px 20px;color:inherit;font:400 14px/1.8 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;caret-color:var(--accent,#202124)}.ds-composer textarea::placeholder{color:var(--muted,#666666)}.ds-composer textarea:focus-visible{outline:2px solid #666;outline-offset:-4px;border-radius:8px}.ds-composer-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:66px;padding:14px 20px;border-top:1px solid #eee;background:#fafafa;color:var(--muted,#666666);font-size:11px}.ds-composer-toolbar button{height:36px;padding:0 14px;border:0;border-radius:10px;background:#202124;color:#fff;font:600 12px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;transition:background .12s,border-color .12s}.ds-composer-toolbar button:hover:not(:disabled){background:#333}.ds-composer-toolbar button:focus-visible{outline:3px solid #666666;outline-offset:2px}.ds-composer-toolbar button:disabled{background:#e8e8e8;color:#707070;opacity:1;cursor:not-allowed}@media(max-width:1240px){.ds-composer-head label{font-size:18px}}@media(prefers-reduced-motion:reduce){.ds-composer-toolbar button{transition:none}}",
+      "html": "<section class=\"ds-composer\"><header class=\"ds-composer-head\"><label for=\"ds-prompt\">想让 Coloop 帮你处理什么？</label></header><textarea id=\"ds-prompt\" placeholder=\"描述你的任务，也可以附加当前屏幕…\"></textarea><footer class=\"ds-composer-toolbar\"><span>云端模型</span><button disabled>开始运行</button></footer></section>"
+    },
+    {
+      "css": ".ds-shortcut{display:grid;grid-template-columns:36px minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;column-gap:12px;row-gap:3px;width:100%;padding:10px 4px;border:0;border-bottom:1px solid var(--line,#e3e3e3);border-radius:0;background:transparent;text-align:left;font:400 13px/1.6 'Segoe UI Variable','Segoe UI','Microsoft YaHei UI',sans-serif;cursor:pointer;transition:background .12s,border-color .12s}.ds-shortcut:hover{background:#f7f7f7}.ds-shortcut:focus-visible{outline:3px solid #666666;outline-offset:2px}.ds-shortcut-icon{grid-area:1/1/3/2;color:#333}.ds-shortcut strong{grid-area:1/2;font-size:13px;font-weight:600;color:var(--ink,#26282c)}.ds-shortcut p{grid-area:2/2;margin:0;color:var(--muted,#666666);font-size:11px}.ds-shortcut-end{grid-area:1/3/3/4;display:flex;align-items:center;gap:18px;color:var(--muted,#666666);font-size:10px}@media(prefers-reduced-motion:reduce){.ds-shortcut{transition:none}}",
+      "name": "Shortcut Row",
+      "html": "<button class=\"ds-shortcut\"><svg class=\"ds-shortcut-icon\" width=\"21\" height=\"21\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8m-4-4v4\"/></svg><strong>识别屏幕文字</strong><p>提取当前屏幕中的文字</p><span class=\"ds-shortcut-end\">本机 OCR<svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M7 17 17 7M7 7h10v10\"/></svg></span></button>",
+      "kind": "custom",
+      "description": "快捷操作采用图标、标题说明与箭头的紧凑分隔行。"
+    }
+  ],
+  "narrative": {
+    "northStar": "连接回路",
+    "overview": "0.6.1 采用用户最新确认的黑白方向：石墨黑导航、白色任务工作区、浅灰设备栏。轻重不同的闭合圆弧是品牌的识别核心，界面通过圆角、线条轻重和留白延续同一语言，功能控件保持水平。\n\n本规范从已实现的 `src/renderer/src/system.css`、React 组件与 `resources/brand.svg` 提取，覆盖此前蓝色界面与竖直标志的描述。六个页面共享文字、状态和控件体系；产品的真实设备、OCR、模型及任务行为保持现有实现。",
+    "keyCharacteristics": [
+      "石墨黑导航以白底黑字明确标示当前页面。",
+      "白色内容与浅灰设备栏通过细边界和留白分层。",
+      "黑色主操作、灰阶反馈与清楚的状态文字。",
+      "倾斜双闭合半圆、水平功能控件与紧凑快捷操作行。"
+    ],
+    "rules": [
+      {
+        "name": "The Monochrome Rule",
+        "body": "新页面沿用黑白与灰阶；连接、错误和运行状态同时提供明确文字或图标。",
+        "section": "colors"
+      },
+      {
+        "name": "The Wordmark Rule",
+        "body": "Sora 保留给字标；新增功能标题和操作标签沿用 Windows 文字栈。",
+        "section": "typography"
+      },
+      {
+        "name": "The Surface Rule",
+        "body": "常驻内容用表面与边界表达层级，浮层才使用对应投影。",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** 复用石墨黑导航、白色工作区与浅灰设备栏。",
+      "**Do** 保留倾斜双闭合半圆与轻重不同的轮廓，使用同源 SVG 生成品牌资产。",
+      "**Do** 保留 Windows 功能字体、可见标签和清楚的键盘焦点。",
+      "**Do** 使用紧凑列表行组织快捷操作，并让状态文字对应真实数据。"
+    ],
+    "donts": [
+      "**Don't** 将此前蓝色界面或竖直标志偏好覆盖到 0.6.1。",
+      "**Don't** 倾斜按钮、字段或其他功能控件。",
+      "**Don't** 将 Sora 扩展为功能正文或表单字体。",
+      "**Don't** 给常驻内容添加浮层投影，或用颜色替代状态文字。"
+    ]
+  }
+}

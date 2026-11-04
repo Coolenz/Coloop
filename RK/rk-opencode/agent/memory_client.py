@@ -31,6 +31,10 @@ class MemoryClient:
     def delete(self, key, **kwargs):
         return self.call({"op": "delete", "key": key})
 
+    def lookup_private(self, query="", limit=5):
+        """Resolve private memory references, not plaintext or execution authority."""
+        return self.call({"op": "lookup_private", "query": query, "limit": limit})
+
 
 def memory_backend(root):
     root = Path(root)

@@ -26,7 +26,7 @@ Qwen3.5-4B 的独立实验入口为 **运行Qwen3.5-4B.cmd** / **看图Qwen3.5-4
 powershell -ExecutionPolicy Bypass -File scripts/board.ps1 -Action resnet
 ```
 
-密码提示时输入自己的开发板密码，输入时不会显示字符。
+密码提示时输入 `<RK_BOARD_PASSWORD>`，输入时不会显示字符。
 成功时输出 `space shuttle`，本次实测分数 0.999680。
 模型和图片在板子的 `~/rk-edge-ai/official-resnet18/`。
 
@@ -42,7 +42,7 @@ powershell -ExecutionPolicy Bypass -File scripts/board.ps1 -Action check
 powershell -ExecutionPolicy Bypass -File scripts/board.ps1 -Action shell
 ```
 
-使用自己的开发板用户名和密码。进入后：
+用户名 `cat`，镜像默认密码 `<RK_BOARD_PASSWORD>`。进入后：
 
 ```bash
 cd ~/rk-edge-ai
@@ -51,7 +51,7 @@ bash scripts/run-board.sh resnet
 ```
 
 USB 已配置本地地址，供电脑与板子直接通信。板子的网口目前未接入路由器；需要独立联网时接入路由器后确认 IP。
-当前 USB 地址为 `192.0.2.2`；若以后地址改变，更新 `config/board.json` 与 `config/ssh_config`。
+当前 USB 地址为 `169.254.207.141`；若以后地址改变，更新 `config/board.json` 与 `config/ssh_config`。
 
 ## 转换自己的模型
 

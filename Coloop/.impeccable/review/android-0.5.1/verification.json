@@ -1,0 +1,14 @@
+{
+  "scope": "Native Android emulator; local composer/options only; no model or HID task",
+  "checks": [
+    "Over-limit window stays intact with validation instead of truncation",
+    "Cancel discards unapplied options",
+    "Done applies options and shows removable chip",
+    "System Back discards sheet edits, retaining applied values",
+    "Over-limit input retains all 2001 characters and explains blocked send",
+    "Over-limit feedback reflows in dark theme and font1.3",
+    "Landscape IME blocked send reveals explanation and retains the full draft",
+    "Editing back within limit clears stale error and retains editable message"
+  ],
+  "passed": true
+}

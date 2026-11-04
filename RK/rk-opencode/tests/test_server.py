@@ -142,6 +142,30 @@ class HTTPTests(unittest.TestCase):
         self.http.worker.generate = busy
         self.assertEqual(self.request(self.body())[0], 429)
 
+    def test_custom_model_format_and_output_limit_are_profile_capabilities(self):
+        prompts = []
+
+        def generate(prompt, *_):
+            prompts.append(prompt)
+            return "8B fixture answer", 8, 3, {}
+
+        worker = SimpleNamespace(
+            context=8192, model_id="qwen3-8b-fixture", prompt_format="embedded",
+            max_output=128, default_output=24, generate=generate,
+            process=SimpleNamespace(poll=lambda: None),
+        )
+        body = self.body(model=worker.model_id)
+        with patch.object(self.http, "worker", worker):
+            status, text = self.request(body)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(text)["model"], worker.model_id)
+            self.assertNotIn("<｜", prompts[0])
+            self.assertEqual(self.request({**body, "max_tokens": 129})[0], 400)
+            self.assertEqual(len(prompts), 1)
+            # An arbitrary ID with the R1 format must still finish its reasoning segment.
+            worker.prompt_format = "deepseek-r1"
+            self.assertEqual(self.request(body)[0], 422)
+
     def test_cache_session_forwarding_usage_and_commit(self):
         cache = Mock()
         contexts = []

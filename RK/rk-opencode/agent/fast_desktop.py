@@ -1,6 +1,7 @@
 """Compact, automatically observed desktop steps for real OpenCode MCP sessions."""
 
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -8,8 +9,22 @@ import time
 
 from compact import BenchmarkTask, compact_observation, STEP_TOOL
 from desktop import DesktopTools
+from hid_workflow import HIDWorkflow, HID_TOOL
 
-FAST_TOOL = {**STEP_TOOL, "name": "step"}
+FAST_TOOL = copy.deepcopy(STEP_TOOL)
+FAST_TOOL["name"] = "step"
+FAST_TOOL["description"] = (
+    "RK desktop Agent step; compact/delta observations are automatic. Default op=act. "
+    "Use op=fill_form with fields and optional submit_target_id for verified local batches; "
+    "op=observe refreshes data, optional detail=full. Stop after any failure."
+)
+FAST_TOOL["inputSchema"]["required"] = []
+FAST_TOOL["inputSchema"]["properties"].update({
+    "op": {"type": "string", "enum": ["act", "fill_form", "observe"]},
+    "fields": HID_TOOL["inputSchema"]["oneOf"][2]["properties"]["fields"],
+    "submit_target_id": {"type": "integer"},
+    "detail": {"type": "string", "enum": ["auto", "full"]},
+})
 
 
 def benchmark_folder(root):
@@ -30,6 +45,17 @@ def trace(root, event):
 
 
 def observe_initial(root, desktop=None):
+    if not benchmark_folder(root):
+        workflow = HIDWorkflow(root, desktop)
+        if workflow.desktop.acquire_window().get("state") == "planned":
+            raise RuntimeError("Plan-only session cannot acquire foreground")
+        view = workflow.call({"op": "observe"}, reset=True)
+        observation = workflow.snapshot()
+        path = root / ".runtime/fast-desktop-initial.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(observation, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
+        return view
     observation = (desktop or DesktopTools(root)).call({"op": "observe"})
     path = root / ".runtime/fast-desktop-initial.json"
     temporary = path.with_suffix(".tmp")
@@ -47,6 +73,7 @@ class FastDesktop:
         self.observed = None
         self.initial_id = None
         self.failed = False
+        self.workflow = HIDWorkflow(self.root, self.desktop)
 
     def call(self, args):
         bench = benchmark_folder(self.root)
@@ -65,6 +92,14 @@ class FastDesktop:
             raise ValueError(
                 "Previous step failed; send a new user message to obtain a fresh observation"
             )
+        if not bench:
+            try:
+                result = self.workflow.call({"op": "act", **args})
+            except (ValueError, OSError, RuntimeError):
+                self.failed = True
+                raise
+            self.failed = result.get("ok") is False or bool(result.get("observation_error"))
+            return result
         if self.task:
             try:
                 self.task.validate_action(args, self.observed)

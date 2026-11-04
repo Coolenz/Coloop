@@ -1,0 +1,11 @@
+{
+  "scope": "Final APK review corrections; real Android/AES-GCM with explicitly synthetic uncertain submission and snapshot faults; no HID/model task from uncertainty",
+  "checks": [
+    "Cached idle plus failed post-submission snapshots cannot open reconciliation; pending is preserved without replay",
+    "A newly active computer snapshot prevents clearing pending admission",
+    "A failed snapshot during confirmation keeps the uncertain receipt",
+    "Only fresh idle confirmation clears pending, with exactly one original submission and no automatic replay",
+    "Unfinished filter includes awaiting-input plus failed records, excludes answered and locates the awaiting reply for supplement"
+  ],
+  "passed": true
+}

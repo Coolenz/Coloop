@@ -4,6 +4,16 @@
 
 入口：[开始使用](docs/START-HERE.md)。资料：[配套教程](downloads/README.md)、[原理图](downloads/hardware/README.md)。
 
+Coloop 协调开发：RK 本地分析、Agent 安全选项回复与请求级日志隐私保护，见 [Coloop 与 RK 协调说明](docs/17-coloop-coordination.md)。
+
+2026-10-30：RK Agent 已将模型差异集中为独立 profile，启动、桥接、记忆和桌面入口可共用不同 RKLLM 模型；默认仍为 Qwen3.5-4B。Qwen 8B 接入示例、运行库/上下文约束与实机验收边界见本机独立仓库的 `rk-opencode/model-profiles/README.md`（该子仓库不随父仓库分发）。
+
+2026-10-30：Coloop 0.9.0 新增 OpenCode 原生消息/工具/审批 Hook、隔离上下文与 RK 快审，接入和性能验收见 [原生 Hook 专题](docs/18-coloop-hooks.md)。
+
+2026-10-30：Coloop 0.10.0 已实现 RK 审批后的实际单次快照读取，真实 Agent 返回未知文件验证串；受控配置固定本地模型、路径与签名边界。入口和限制见 [受控审批](docs/20-coloop-managed-approvals.md)，固定题集及原始测试结果见 [评测报告](docs/19-coloop-managed-approval-evaluation.md)。
+
+2026-10-30：0.10.1消费缓存撤销及完整实际批次通过：36/36支持场景完成审批闸门，20次审批P95 2.703秒；Agent最终任务34/36，完整隐私观察与4个未支持路由另列。Linux策略127/128及真实fd27/27，失败和限制均保留在上述报告。
+
 Qwen3.5-4B：双击 **运行Qwen3.5-4B.cmd** 或 **看图Qwen3.5-4B.cmd**；独立部署目录、量化限制和实测结果见 [4B 部署说明](docs/11-qwen35-4b.md)。
 
 2026-10-29：Qwen3.5-4B / 9B 日常入口的默认上下文调整为 **16K（16384 token）**，可选 512～16384；依据与验证见 [上下文配置说明](docs/16-qwen35-context.md)。原公开同题评测继续固定 2048。
@@ -42,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File scripts/board.ps1 -Action shell
 powershell -ExecutionPolicy Bypass -File scripts/open-ai.ps1
 ```
 
-SSH 用户与密码请使用自己的设备配置；仓库不提供本机密码。
+SSH 用户 `cat`，镜像默认密码 `<RK_BOARD_PASSWORD>`；密码未写入连接配置。
 保持供电和 USB 连接；正常开机时不按 MR 键。
 
 ## 文件与复现

@@ -26,6 +26,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+# Coloop native Hook integration references
+
+`plugins/coloop-hook.mjs` uses the pinned OpenCode 1.19.5 plugin and SDK APIs
+(MIT, source commit `810c0eba1a7348036f8bdf61e6632d0c36c6876c`). It preserves
+the SDK's in-process source transport; no OpenCode source is copied into the plugin.
+
+Session mirroring/outbox design was reviewed against HumanLayer, Apache-2.0,
+commit `316e74ef9af0b7b3d64ac45b5eb93415b3ed2204`:
+https://github.com/humanlayer/humanlayer/tree/316e74ef9af0b7b3d64ac45b5eb93415b3ed2204 .
+Its OpenCode 2.x Riptide plugin, runtime, daemon and account services are not
+installed, copied, or bundled. The Coloop 1.19.5 adapter is original integration code.
+
 # Existing Rockchip components and DeepSeek model
 
 Mem0 OSS is used as an unmodified Python dependency (`mem0ai==2.2.1`), under

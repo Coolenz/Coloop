@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "model_id": "deepseek-rkllm",
+  "name": "DeepSeek 1.5B on RK3588 (experimental)",
+  "app": "~/rk-edge-ai/deepseek",
+  "model": "deepseek-r1-1.5B-rkllm1.1.4.rkllm",
+  "runtime_version": "1.3.1",
+  "lock": ".inference.lock",
+  "context_limit": 4096,
+  "context": 4096,
+  "max_output": 2048,
+  "default_output": 512,
+  "prompt_format": "deepseek-r1",
+  "thinking": true,
+  "native_cache": false,
+  "cache_mode": "off",
+  "embed_flash": 1,
+  "base_domain_id": 0,
+  "n_keep": 0,
+  "agent_config": "opencode.json"
+}

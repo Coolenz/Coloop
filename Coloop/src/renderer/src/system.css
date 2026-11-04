@@ -246,6 +246,11 @@ a {
 }
 .sidebar-bottom {
   margin-top: auto;
+  flex-shrink: 0;
+}
+.sidebar > nav {
+  min-height: 0;
+  overflow-y: auto;
 }
 .local-workspace {
   display: flex;

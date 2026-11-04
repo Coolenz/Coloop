@@ -1,0 +1,8 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label":"RK: Windows environment check","type":"process","command":"${workspaceFolder}/.venv/Scripts/python.exe","args":["tools/doctor.py"],"problemMatcher":[]},
+    {"label":"RK: ONNX smoke test","type":"process","command":"${workspaceFolder}/.venv/Scripts/python.exe","args":["tools/smoke_onnx.py"],"problemMatcher":[]},
+    {"label":"RK: Setup WSL conversion environment","type":"process","command":"powershell.exe","args":["-NoProfile","-ExecutionPolicy","Bypass","-File","${workspaceFolder}/scripts/setup-wsl.ps1"],"problemMatcher":[]}
+  ]
+}

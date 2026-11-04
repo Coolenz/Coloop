@@ -13,17 +13,21 @@ import threading
 import time
 
 from observations import ObservationRegistry, TargetIDs
+from hid import HID_ACTIONS
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / "tools"))
 
 
 class Observer:
-    def __init__(self, title, use_ocr, folder, perception="hybrid", fixture_state=None):
+    def __init__(self, title, use_ocr, folder, perception="hybrid", fixture_state=None,
+                 persist_images=True):
         started = time.perf_counter()
         from screen_ocr import ScreenOCR
 
         self.title = title
+        self.value_limit = 128
+        self.persist_images = persist_images
         self.ocr = ScreenOCR() if use_ocr else None
         self.startup_ms = (time.perf_counter() - started) * 1000
         self.perception = perception
@@ -38,11 +42,21 @@ class Observer:
         self.target_ids = TargetIDs()
         self.lock = threading.Lock()
 
+    def fixture_info(self):
+        """Read-only retry for Windows atomic-replace sharing conflicts, never input replay."""
+        for attempt in range(4):
+            try:
+                return json.loads(self.fixture_state.read_text(encoding="utf-8-sig"))
+            except (PermissionError, FileNotFoundError, json.JSONDecodeError):
+                if attempt == 3:
+                    raise
+                time.sleep(0.01)
+
     def snapshot(self):
         started = time.perf_counter()
         self.last_timing = {}
         if self.fixture_state and self.fixture_state.exists():
-            state = json.loads(self.fixture_state.read_text(encoding="utf-8-sig"))
+            state = self.fixture_info()
             if state.get("title") != self.title:
                 raise ValueError("Fixture title mismatch")
             if self.fixture_pid == state.get("pid") and state.get("closed") is True:
@@ -71,6 +85,10 @@ class Observer:
                     "The allowed window must be foreground; switch to it and observe again"
                 )
             left, top, width, height = window_region(window)
+            pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(
+                wintypes.HWND(window.handle), ctypes.byref(pid)
+            )
             if self.fixture_state:
                 pid = wintypes.DWORD()
                 ctypes.windll.user32.GetWindowThreadProcessId(
@@ -89,13 +107,24 @@ class Observer:
             image, origin = capture(region=[left, top, width, height])
             self.last_timing["capture_ms"] = (time.perf_counter() - tick) * 1000
             tick = time.perf_counter()
-            cv2.imwrite(str(self.folder / "latest.png"), image)
+            if self.persist_images:
+                cv2.imwrite(str(self.folder / "latest.png"), image)
             if self.first_image is None:
                 self.first_image, self.first_origin = image.copy(), origin
-                cv2.imwrite(str(self.folder / "first.png"), image)
+                if self.persist_images:
+                    cv2.imwrite(str(self.folder / "first.png"), image)
             self.last_timing["image_save_ms"] = (time.perf_counter() - tick) * 1000
             tick = time.perf_counter()
             uia = Desktop(backend="uia").window(handle=window.handle).wrapper_object()
+            client_rect, client_origin = wintypes.RECT(), wintypes.POINT()
+            api = ctypes.windll.user32
+            if not (api.GetClientRect(wintypes.HWND(window.handle), ctypes.byref(client_rect))
+                    and api.ClientToScreen(wintypes.HWND(window.handle), ctypes.byref(client_origin))):
+                raise ValueError("Window client area unavailable")
+            client_bounds = [client_origin.x, client_origin.y,
+                             client_origin.x + client_rect.right,
+                             client_origin.y + client_rect.bottom]
+            identity = hashlib.sha256(f"{window.handle}:{pid.value}".encode()).hexdigest()[:16]
             targets, focus, focus_type = [], None, None
             for control in uia.descendants():
                 try:
@@ -136,11 +165,16 @@ class Observer:
                         "rect": [r.left, r.top, r.right, r.bottom],
                         "enabled": control.is_enabled(),
                         "source": "uia",
+                        "_runtime_id": str(info.runtime_id),
+                        "identity": hashlib.sha256(
+                            f"{identity}:{info.runtime_id}".encode()).hexdigest()[:16],
                     }
+                    item["chrome"] = not (client_bounds[0] <= r.left < r.right <= client_bounds[2]
+                                          and client_bounds[1] <= r.top < r.bottom <= client_bounds[3])
                     item["focused"] = control.has_keyboard_focus()
                     if info.control_type == "Edit":
                         try:
-                            item["value"] = control.get_value()[:128]
+                            item["value"] = control.get_value()[: self.value_limit]
                         except Exception:
                             pass
                     if item["focused"]:
@@ -191,18 +225,123 @@ class Observer:
             self.last_timing["total_ms"] = (time.perf_counter() - started) * 1000
             return {
                 "window": self.title,
+                "window_identity": identity,
                 "window_open": True,
                 "focused_control": focus_type,
                 "rect": [left, top, left + width, top + height],
                 "screen": physical,
+                "dpi": ctypes.windll.user32.GetDpiForWindow(wintypes.HWND(window.handle)),
+                "image_origin": list(origin),
+                "image_size": [image.shape[1], image.shape[0]],
+                "coordinate_space": "desktop_physical_pixels",
                 "targets": targets,
                 "_handle": window.handle,
+                "_pid": pid.value,
                 "_focus": focus,
                 "_focus_type": focus_type,
                 "image_sha256": hashlib.sha256(image.tobytes()).hexdigest(),
             }
         finally:
             CoUninitialize()
+
+    def activation_snapshot(self, handle=None):
+        """Read-only HWND/caption facts. Never activates or injects input on the PC."""
+        import mss
+        from screen_ocr import find_window
+
+        if (ROOT / ".runtime/desktop-stop").exists():
+            raise ValueError("Desktop stop requested")
+        if handle is None:
+            handle = find_window(self.title).handle
+        api = ctypes.windll.user32
+        api.GetForegroundWindow.restype = wintypes.HWND
+        api.WindowFromPoint.restype = wintypes.HWND
+        api.GetAncestor.restype = wintypes.HWND
+        if not api.IsWindow(wintypes.HWND(handle)) or api.IsIconic(wintypes.HWND(handle)):
+            raise ValueError("Activation needs a visible, non-minimized target")
+        title = ctypes.create_unicode_buffer(api.GetWindowTextLengthW(wintypes.HWND(handle)) + 1)
+        api.GetWindowTextW(wintypes.HWND(handle), title, len(title))
+        if title.value != self.title:
+            raise ValueError("Activation title changed")
+        rect, pid = wintypes.RECT(), wintypes.DWORD()
+        if not api.GetWindowRect(wintypes.HWND(handle), ctypes.byref(rect)):
+            raise ValueError("Activation window unavailable")
+        api.GetWindowThreadProcessId(wintypes.HWND(handle), ctypes.byref(pid))
+        if self.fixture_state:
+            state = self.fixture_info()
+            if state.get("pid") != pid.value or state.get("title") != self.title:
+                raise ValueError("Activation fixture identity mismatch")
+        dpi = api.GetDpiForWindow(wintypes.HWND(handle))
+        point = [(rect.left + rect.right) // 2, rect.top + round(18 * dpi / 96)]
+        at = api.WindowFromPoint(wintypes.POINT(*point))
+        occluded = api.GetAncestor(wintypes.HWND(at), 2) != handle
+        hit = ctypes.c_size_t()
+        packed = (point[0] & 0xffff) | ((point[1] & 0xffff) << 16)
+        queried = api.SendMessageTimeoutW(wintypes.HWND(handle), 0x84, 0, packed, 2, 100,
+                                          ctypes.byref(hit))
+        with mss.MSS() as screen:
+            if len(screen.monitors) != 2:
+                raise ValueError("Activation requires a single display")
+            monitor = screen.monitors[1]
+            physical = [monitor[k] for k in ("left", "top", "width", "height")]
+        if not queried or hit.value != 2 or occluded:
+            raise ValueError("Target caption is covered or is not a normal window caption")
+        return {"window": self.title, "targets": [], "_activation": True,
+                "_handle": handle, "_pid": pid.value, "rect": [rect.left, rect.top, rect.right, rect.bottom],
+                "screen": physical, "dpi": dpi, "activation_point": point,
+                "foreground": api.GetForegroundWindow() == handle,
+                "_caption": True, "_point_occluded": occluded}
+
+    def guard_snapshot(self, body):
+        """Cheap live checks per report: no screenshot/OCR or new observation."""
+        import mss
+        from pywinauto.uia_defines import IUIA
+
+        if (ROOT / ".runtime/desktop-stop").exists():
+            raise ValueError("Desktop stop requested")
+        old = self.registry.latest or {}
+        handle = old.get("_handle")
+        if not handle:
+            raise ValueError("No bound input window")
+        if (self.registry.active or {}).get("action") == "activate":
+            return self.activation_snapshot(handle)
+        api = ctypes.windll.user32
+        api.GetForegroundWindow.restype = wintypes.HWND
+        if not api.IsWindow(wintypes.HWND(handle)) or api.GetForegroundWindow() != handle:
+            raise ValueError("Foreground changed during input")
+        title = ctypes.create_unicode_buffer(api.GetWindowTextLengthW(wintypes.HWND(handle)) + 1)
+        api.GetWindowTextW(wintypes.HWND(handle), title, len(title))
+        if title.value != self.title:
+            raise ValueError("Bound window title changed")
+        rect = wintypes.RECT()
+        if not api.GetWindowRect(wintypes.HWND(handle), ctypes.byref(rect)):
+            raise ValueError("Bound window unavailable")
+        pid = wintypes.DWORD()
+        api.GetWindowThreadProcessId(wintypes.HWND(handle), ctypes.byref(pid))
+        with mss.MSS() as screen:
+            if len(screen.monitors) != 2:
+                raise ValueError("HID requires a single connected display")
+            monitor = screen.monitors[1]
+            physical = [monitor[k] for k in ("left", "top", "width", "height")]
+        live = {"_handle": handle, "_pid": pid.value,
+                "rect": [rect.left, rect.top, rect.right, rect.bottom], "screen": physical,
+                "dpi": api.GetDpiForWindow(wintypes.HWND(handle))}
+        active = self.registry.active or {}
+        if active.get("action") in ("type", "hotkey"):
+            focused = IUIA().iuia.GetFocusedElement()
+            live["_focus"] = str(focused.GetRuntimeId()) if focused else None
+        if "point" in body:
+            point = body["point"]
+            if (not isinstance(point, list) or len(point) != 2
+                    or any(type(n) is not int for n in point)):
+                raise ValueError("Invalid guard point")
+            api.WindowFromPoint.restype = wintypes.HWND
+            api.GetAncestor.restype = wintypes.HWND
+            at = api.WindowFromPoint(wintypes.POINT(*point))
+            live["_point_occluded"] = api.GetAncestor(wintypes.HWND(at), 2) != handle
+        if api.GetForegroundWindow() != handle:
+            raise ValueError("Foreground changed during input check")
+        return live
 
     def call(self, path, body=None):
         with self.lock:
@@ -213,6 +352,8 @@ class Observer:
                     "session_id": self.registry.session_id,
                     "ocr_startup_ms": self.startup_ms,
                     "perception": self.perception,
+                    "hid_actions": list(HID_ACTIONS),
+                    "horizontal_wheel": False,
                 }
             if path == "/profile-ocr":
                 count = (body or {}).get("repeats", 5)
@@ -254,6 +395,14 @@ class Observer:
                     log.write(json.dumps(record) + "\n")
 
     def measured_call(self, path, body):
+        if path == "/activation":
+            return self.registry.observe(self.activation_snapshot())
+        if path == "/activate":
+            if set(body) - {"observation_id", "consume"}:
+                raise ValueError("Unknown activation field")
+            return self.registry.activate(body, self.activation_snapshot())
+        if path == "/guard":
+            return self.registry.guard(body, self.guard_snapshot(body))
         if path == "/observe":
             result = self.registry.observe(self.snapshot())
             result["targets"] = [
@@ -261,11 +410,23 @@ class Observer:
             ]
             return result
         if path == "/validate":
+            from hid import validate_action
+            validate_action(body)
             return self.registry.validate(body, self.snapshot())
         raise ValueError("Unknown endpoint")
 
 
 class Handler(BaseHTTPRequestHandler):
+    routes = (
+        ("GET", "/health"),
+        ("GET", "/observe"),
+        ("GET", "/activation"),
+        ("POST", "/activate"),
+        ("POST", "/validate"),
+        ("POST", "/guard"),
+        ("POST", "/profile-ocr"),
+    )
+
     def log_message(self, *_):
         pass
 
@@ -286,12 +447,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(size))
                 if not isinstance(body, dict):
                     raise ValueError("Expected object")
-            if (self.command, self.path) not in (
-                ("GET", "/health"),
-                ("GET", "/observe"),
-                ("POST", "/validate"),
-                ("POST", "/profile-ocr"),
-            ):
+            if (self.command, self.path) not in self.routes:
                 raise ValueError("Unknown endpoint")
             value = self.server.observer.call(self.path, body)
         except Exception as error:

@@ -73,4 +73,45 @@ describe('local persistence and credential boundary', () => {
     expect(new AppStore(directory, codec).tasks).toEqual([])
     expect(readdirSync(directory).some((file) => file.startsWith('state.recovery-'))).toBe(true)
   })
+  it('keeps cooperative task history readable across restarts', () => {
+    const { store, directory, codec } = create()
+    store.tasks.push({
+      id: 'hybrid-task',
+      prompt: 'synthetic',
+      target: 'hybrid',
+      source: 'text',
+      status: 'completed',
+      createdAt: new Date().toISOString(),
+      answer: '完成',
+      stage: '已完成',
+      model: 'RK + cloud',
+    })
+    store.persist()
+    expect(new AppStore(directory, codec).tasks[0]).toMatchObject({
+      id: 'hybrid-task',
+      target: 'hybrid',
+      status: 'completed',
+      answer: '完成',
+    })
+    expect(readdirSync(directory).some((file) => file.startsWith('state.recovery-'))).toBe(false)
+  })
+  it('persists the desktop execution capability beside legacy task history', () => {
+    const { store, directory, codec } = create()
+    const task = {
+      id: 'computer-task',
+      prompt: 'append a line',
+      target: 'cloud' as const,
+      source: 'text' as const,
+      status: 'completed' as const,
+      createdAt: new Date().toISOString(),
+      answer: 'verified',
+      stage: '已完成',
+      model: 'TARS',
+    }
+    store.tasks.push({ ...task, execution: 'desktop' }, { ...task, id: 'old-task' })
+    store.persist()
+    const reopened = new AppStore(directory, codec)
+    expect(reopened.tasks[0].execution).toBe('desktop')
+    expect(reopened.tasks[1]).not.toHaveProperty('execution')
+  })
 })

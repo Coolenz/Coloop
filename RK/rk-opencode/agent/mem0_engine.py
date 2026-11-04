@@ -7,6 +7,9 @@ from pathlib import Path
 import re
 import sqlite3
 import time
+import unicodedata
+
+from private_memory import PREFIX as PRIVATE_PREFIX, PrivateMemoryCatalog
 
 os.environ["MEM0_TELEMETRY"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -42,14 +45,17 @@ class Mem0Engine:
         LlmFactory.register_provider("rk_memory", "mem0_adapters.RKMemoryLLM", BaseLlmConfig)
         EmbedderFactory.provider_to_class["rk_local"] = "mem0_adapters.LocalEmbedding"
         self.stores = {}
-        for layer in ("facts", "capsules"):
+        layers = ["facts", "capsules"]
+        if config.get("private_credentials", {}).get("enabled") is True:
+            layers.append("private_refs")
+        for layer in layers:
             # 2.2.1 registers custom factories but its config validators retain a static
             # provider whitelist. Construct only these two typed wrappers explicitly;
             # factory config, vector-store and MemoryConfig validation still run.
             self.stores[layer] = Memory(
                 MemoryConfig(
                     llm=LlmConfig.model_construct(
-                        provider="rk_memory", config={"model": "qwen35-4b-rkllm"}
+                        provider="rk_memory", config={"model": "active-local-rkllm"}
                     ),
                     embedder=EmbedderConfig.model_construct(
                         provider="rk_local",
@@ -82,6 +88,81 @@ class Mem0Engine:
               created REAL,error TEXT);
         """)
         self.db.commit()
+        self.init_catalog()
+        self.private_catalog = PrivateMemoryCatalog(
+            self.db, self.stores.get("private_refs"), config
+        )
+
+    def init_catalog(self):
+        """Additive sidecar schema; old Mem0 vectors and entry versions stay intact."""
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS memory_descriptors(
+              memory_id TEXT PRIMARY KEY, summary TEXT NOT NULL, source_task_id TEXT);
+            CREATE TABLE IF NOT EXISTS memory_tags(
+              memory_id TEXT NOT NULL,tag TEXT NOT NULL,PRIMARY KEY(memory_id,tag));
+            CREATE INDEX IF NOT EXISTS memory_tags_lookup ON memory_tags(tag,memory_id);
+        """)
+        self.db.commit()
+
+    @staticmethod
+    def checked_tags(tags):
+        if not isinstance(tags, list) or len(tags) > 8:
+            raise ValueError("tags must contain at most 8 strings")
+        result = []
+        for tag in tags:
+            if not isinstance(tag, str):
+                raise ValueError("Invalid memory tag")
+            tag = unicodedata.normalize("NFC", tag.strip())
+            prefix, separator, value = tag.partition(":")
+            tag = prefix.lower() + separator + value
+            if not 1 <= len(tag) <= 64 or any(ord(c) < 32 for c in tag):
+                raise ValueError("Invalid memory tag")
+            if tag not in result:
+                result.append(tag)
+        return sorted(result)
+
+    def descriptor(self, identifier):
+        row = self.db.execute(
+            "SELECT summary,source_task_id FROM memory_descriptors WHERE memory_id=?",
+            (identifier,),
+        ).fetchone()
+        tags = [r[0] for r in self.db.execute(
+            "SELECT tag FROM memory_tags WHERE memory_id=? ORDER BY tag", (identifier,)
+        )]
+        return {"tags": tags, "summary": row[0] if row else "",
+                "sourceTaskId": row[1] if row else None}
+
+    def catalog(self, tags=None, query="", limit=5):
+        tags = self.checked_tags([] if tags is None else tags)
+        if not isinstance(query, str) or len(query) > 1000 or type(limit) is not int or not 1 <= limit <= 5:
+            raise ValueError("Invalid catalog query or limit")
+        # Current IDs are authoritative, including deletion, TTL and supersession.
+        live = {r["id"]: r for r in self.rows()}
+        if tags:
+            placeholders = ",".join("?" for _ in tags)
+            found = self.db.execute(
+                f"SELECT memory_id FROM memory_tags WHERE tag IN ({placeholders}) "
+                "GROUP BY memory_id HAVING COUNT(DISTINCT tag)=?", (*tags, len(tags)),
+            )
+            candidates = {r[0] for r in found}
+            live = {id_: row for id_, row in live.items() if id_ in candidates}
+        if query.strip() and live:
+            found = self.stores["facts"].search(query, filters=self.filters(), limit=30)["results"]
+            rows = [live[r["id"]] for r in found if r["id"] in live]
+        else:
+            rows = list(live.values())
+        return {"memories": [{"id": r["id"], "key": r["key"], "kind": r["kind"],
+                  "source": r["source"], "verified": bool(r["verified"]), "expiresAt": r["expires"],
+                  **self.descriptor(r["id"])} for r in rows[:limit]]}
+
+    def get_many(self, identifiers):
+        if (not isinstance(identifiers, list) or not 1 <= len(identifiers) <= 5
+                or any(not isinstance(id_, str) or not 1 <= len(id_) <= 128 for id_ in identifiers)
+                or len(set(identifiers)) != len(identifiers)):
+            raise ValueError("ids must contain 1..5 unique memory IDs")
+        live = {r["id"]: r for r in self.rows()}
+        return {"memories": [{**live[id_], **self.descriptor(id_)} for id_ in identifiers if id_ in live],
+                "missing": [id_ for id_ in identifiers if id_ not in live]}
 
     def filters(self, history=False):
         return {
@@ -143,10 +224,13 @@ class Mem0Engine:
         )
         self.db.commit()
 
-    def set(self, key, value, kind="fact", *, source="agent", verified=False, ttl=None):
+    def set(self, key, value, kind="fact", *, source="agent", verified=False, ttl=None,
+            tags=None, summary=None, source_task_id=None):
         from memory import MemoryStore, KINDS
 
         key = MemoryStore.checked_key(key)
+        if key.startswith(PRIVATE_PREFIX):
+            raise ValueError("Private memory references are maintained by their provider")
         if not isinstance(value, str) or not 1 <= len(value) <= 1000 or kind not in KINDS:
             raise ValueError("Invalid memory value or kind")
         if source == "agent" and verified:
@@ -154,6 +238,15 @@ class Mem0Engine:
         if ttl is not None and (type(ttl) not in (int, float) or not 1 <= ttl <= 31536000):
             raise ValueError("Invalid ttl")
         existing = self.get(key)
+        previous = self.descriptor(existing["id"]) if existing else {}
+        tags = self.checked_tags(previous.get("tags", []) if tags is None else tags)
+        summary = previous.get("summary", "") if summary is None else summary
+        source_task_id = previous.get("sourceTaskId") if source_task_id is None else source_task_id
+        if not isinstance(summary, str) or len(summary) > 160 or "\x00" in summary:
+            raise ValueError("summary must contain at most 160 characters")
+        if source_task_id is not None and (not isinstance(source_task_id, str)
+                or not 1 <= len(source_task_id) <= 128 or "\x00" in source_task_id):
+            raise ValueError("Invalid source task ID")
         if (
             existing
             and existing["value"] == value
@@ -163,7 +256,8 @@ class Mem0Engine:
             and ttl is None
             and existing["expires"] is None
         ):
-            return {**existing, "deduplicated": True}
+            self.write_descriptor(existing["id"], tags, summary, source_task_id)
+            return {**existing, **self.descriptor(existing["id"]), "deduplicated": True}
         text = f"{kind} {key}: {value}"
         result = self.stores["facts"].add(
             text,
@@ -177,6 +271,7 @@ class Mem0Engine:
                 "active": True,
                 "source": source,
                 "verified": bool(verified),
+                "tags": tags,
             },
         )
         ids = [r["id"] for r in result["results"]]
@@ -191,16 +286,28 @@ class Mem0Engine:
             verified=verified,
             expires=time.time() + ttl if ttl else None,
         )
+        self.write_descriptor(ids[0], tags, summary, source_task_id)
         if existing:
             self.stores["facts"].update(existing["id"], metadata={"active": False})
         self.invalidate_capsules()
         return self.get(key)
 
+    def write_descriptor(self, identifier, tags, summary, source_task_id):
+        with self.db:
+            self.db.execute("INSERT OR REPLACE INTO memory_descriptors VALUES(?,?,?)",
+                            (identifier, summary, source_task_id))
+            self.db.execute("DELETE FROM memory_tags WHERE memory_id=?", (identifier,))
+            self.db.executemany("INSERT INTO memory_tags VALUES(?,?)",
+                                [(identifier, tag) for tag in tags])
+
     def get(self, key):
         from memory import MemoryStore
 
         key = MemoryStore.checked_key(key)
-        return next((r for r in self.rows() if r["key"] == key), None)
+        if key.startswith(PRIVATE_PREFIX):
+            return self.private_catalog.get(key, self.project, self.user)
+        row = next((r for r in self.rows() if r["key"] == key), None)
+        return {**row, **self.descriptor(row["id"])} if row else None
 
     def search(self, query, limit=5, history=False):
         if (
@@ -211,14 +318,17 @@ class Mem0Engine:
         ):
             raise ValueError("Invalid search query or limit")
         live = {r["id"]: r for r in self.rows(history=history)}
+        private = [] if history else self.private_catalog.search(
+            query, limit, self.project, self.user
+        )
         if not query.strip():
-            return list(live.values())[:limit]
+            return (private + list(live.values()))[:limit]
         results = self.stores["facts"].search(query, filters=self.filters(history), limit=30)[
             "results"
         ]
-        return [{**live[r["id"]], "score": r.get("score")} for r in results if r["id"] in live][
-            :limit
-        ]
+        ordinary = [{**live[r["id"]], "score": r.get("score")}
+                    for r in results if r["id"] in live]
+        return (private + ordinary)[:limit]
 
     def enqueue(self, text, independent=False):
         if not isinstance(text, str) or not text.strip() or len(text.encode()) > 6000:
@@ -388,6 +498,8 @@ class Mem0Engine:
         from memory import MemoryStore
 
         key = MemoryStore.checked_key(key)
+        if key.startswith(PRIVATE_PREFIX):
+            raise ValueError("Delete private memory through Coloop's protected credential manager")
         rows = [r for r in self.rows(history=True) if r["key"] == key or r["id"] == key]
         for r in rows:
             self.stores["facts"].delete(r["id"])
@@ -434,6 +546,7 @@ class Mem0Engine:
             "provider": "mem0",
             "version": "2.2.1",
             "project": self.project,
+            "private_memory": self.private_catalog.sync(self.project, self.user),
             "active_facts": len(self.rows()),
             "archived_versions": len(self.rows(history=True)),
             "capsules": len(self.rows("capsules", True)),
@@ -451,11 +564,113 @@ class Mem0Engine:
         for store in self.stores.values():
             store.vector_store.client.close()
 
+    def browse(self, query="", category="all", offset=0, limit=25):
+        if (not isinstance(query, str) or len(query) > 1000
+                or category not in ("all", "ordinary", "private")
+                or type(offset) is not int or not 0 <= offset <= 100000
+                or type(limit) is not int or not 1 <= limit <= 50):
+            raise ValueError("Invalid memory browsing parameters")
+        private_status = self.private_catalog.sync(self.project, self.user)
+        ordinary = self.rows() if category != "private" else []
+        private = []
+        if category != "ordinary" and private_status["available"]:
+            private = [{"private": {"record_id": row["id"], "origin": row["origin"],
+                        "locator": "rk-vault://" + row["id"],
+                        "resolver": "coloop_private_login"}, "createdAt": row["createdAt"]}
+                       for row in self.private_catalog.live.values()]
+        mode = "all"
+        if query.strip():
+            needle = query.strip().casefold()
+            exact_facts = [row for row in ordinary if needle in (
+                (row["key"] or "") + "\n" + row["value"] + "\n" + row["id"] + "\n"
+                + " ".join(self.descriptor(row["id"])["tags"])
+            ).casefold()]
+            exact_private = [row for row in private if needle in (
+                row["private"]["origin"] + "\n" + row["private"]["locator"]
+                + "\n" + PRIVATE_PREFIX + row["private"]["record_id"]
+            ).casefold()]
+            if exact_facts or exact_private:
+                ordinary, private, mode = exact_facts, exact_private, "literal"
+            else:
+                mode = "semantic"
+                if ordinary:
+                    live = {row["id"]: row for row in ordinary}
+                    found = self.stores["facts"].search(query, filters=self.filters(), limit=30)["results"]
+                    ordinary = [{**live[row["id"]], "score": row.get("score", 0)}
+                                for row in found if row["id"] in live][:10]
+                if private:
+                    private = self.private_catalog.search(
+                        query, 10, self.project, self.user, explicit=True
+                    )
+        items = [{"id": row["id"], "category": "ordinary", "key": row["key"],
+                  "text": row["value"], "kind": row["kind"], "source": row["source"],
+                  "verified": bool(row["verified"]), "expiresAt": row["expires"],
+                  "score": row.get("score", 0), **self.descriptor(row["id"])} for row in ordinary]
+        items += [{"id": PRIVATE_PREFIX + row["private"]["record_id"], "category": "private",
+                   "recordId": row["private"]["record_id"], "origin": row["private"]["origin"],
+                   "locator": row["private"]["locator"], "resolver": "coloop_private_login",
+                   "protected": True, "score": row.get("score", 0)} for row in private]
+        if query.strip():
+            items.sort(key=lambda row: row["score"] or 0, reverse=True)
+        for row in items:
+            row.pop("score")
+        return {"items": items[offset:offset + limit], "total": len(items),
+                "offset": offset, "limit": limit, "mode": mode, "private_memory": private_status}
+
+    def revise(self, identifier, value, tags=None, summary=None):
+        old = next((row for row in self.rows() if row["id"] == identifier), None)
+        if old is None:
+            raise ValueError("Ordinary memory no longer exists")
+        key = old["key"] or "memory_" + old["id"]
+        if old["key"] is None:
+            if self.get(key) is not None:
+                raise ValueError("Generated memory key already exists")
+            self.db.execute("UPDATE entries SET key=? WHERE id=?", (key, identifier))
+            self.db.commit()
+        try:
+            current = self.set(key, value, old["kind"], tags=tags, summary=summary)
+        except Exception:
+            persisted = self.get(key)
+            if old["key"] is None and (persisted is None or persisted["id"] == identifier):
+                self.db.execute("UPDATE entries SET key=NULL WHERE id=?", (identifier,))
+                self.db.commit()
+            raise
+        if old["expires"] is not None:
+            self.db.execute("UPDATE entries SET expires=? WHERE id=?", (old["expires"], current["id"]))
+            self.db.commit()
+        return self.get(key)
+
     def call(self, args):
         op = args.get("op")
+        if op == "browse":
+            return self.browse(args.get("query", ""), args.get("category", "all"),
+                               args.get("offset", 0), args.get("limit", 25))
+        if op == "revise":
+            return self.revise(args.get("id"), args.get("value"), args.get("tags"), args.get("summary"))
+        if op == "catalog":
+            return self.catalog(args.get("tags"), args.get("query", ""), args.get("limit", 5))
+        if op == "get_many":
+            return self.get_many(args.get("ids"))
+        if op == "remove_record":
+            current = next((row for row in self.rows() if row["id"] == args.get("id")), None)
+            return self.delete(current["key"] or current["id"]) if current else {"deleted": False, "count": 0}
+        if op == "lookup_private":
+            return {"memories": self.private_catalog.search(
+                args.get("query", ""), args.get("limit", 5), self.project, self.user,
+                explicit=True,
+            ), "private_memory": {
+                "enabled": self.private_catalog.in_scope(self.project, self.user),
+                "available": self.private_catalog.available,
+                "provider": "credential_vault", "plaintext_readable": False,
+            }}
+        if op == "sync_private":
+            return {"private_memory": self.private_catalog.sync(
+                self.project, self.user, strict=True
+            )}
         if op == "set":
             return self.set(
-                args.get("key"), args.get("value"), args.get("kind", "fact"), ttl=args.get("ttl")
+                args.get("key"), args.get("value"), args.get("kind", "fact"), ttl=args.get("ttl"),
+                tags=args.get("tags"), summary=args.get("summary"), source_task_id=args.get("source_task_id")
             )
         if op == "get":
             return {"memory": self.get(args.get("key"))}

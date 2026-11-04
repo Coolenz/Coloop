@@ -50,6 +50,16 @@ class FastDesktopTests(unittest.TestCase):
         raw = json.loads((self.root / ".runtime/fast-desktop-initial.json").read_text())
         self.assertEqual(raw, self.initial)
 
+    def test_daily_initial_observation_uses_native_policy_without_a_compact_switch(self):
+        view = {"view": "full", "observation_id": "first", "targets": [[1, "Text", "Code"]]}
+        with patch.dict(os.environ, {"RK_DESKTOP_BENCH_DIR": ""}):
+            with patch("fast_desktop.HIDWorkflow") as factory:
+                factory.return_value.call.return_value = view
+                factory.return_value.snapshot.return_value = self.initial
+                result = observe_initial(self.root)
+        factory.return_value.call.assert_called_once_with({"op": "observe"}, reset=True)
+        self.assertEqual(result, view)
+
     def test_benchmark_step_guards_stage_then_returns_automatic_observation(self):
         fast = FastDesktop(self.root)
         observed = {
@@ -72,8 +82,8 @@ class FastDesktopTests(unittest.TestCase):
 
     def test_sent_input_observation_failure_blocks_replay_until_new_user_observation(self):
         fast = FastDesktop(self.root)
-        fast.desktop = Mock()
-        fast.desktop.step.return_value = {
+        fast.workflow = Mock()
+        fast.workflow.call.return_value = {
             "action": {"executed": True},
             "observation_error": "foreground changed",
         }
@@ -82,10 +92,21 @@ class FastDesktopTests(unittest.TestCase):
             self.assertTrue(result["action"]["executed"])
             with self.assertRaisesRegex(ValueError, "new user message"):
                 fast.call({"observation_id": "first", "action": "type", "text": "x"})
-            self.assertEqual(fast.desktop.step.call_count, 1)
+            self.assertEqual(fast.workflow.call.call_count, 1)
             self.write_initial({**self.initial, "observation_id": "new-turn"})
             fast.call({"observation_id": "new-turn", "action": "type", "text": "y"})
-        self.assertEqual(fast.desktop.step.call_count, 2)
+        self.assertEqual(fast.workflow.call.call_count, 2)
+
+    def test_normal_agent_dispatches_batch_to_native_workflow_and_returns_its_delta(self):
+        fast = FastDesktop(self.root)
+        fast.workflow = Mock()
+        fast.workflow.call.return_value = {"ok": True, "observation": {"view": "delta"}}
+        args = {"op": "fill_form", "observation_id": "first", "fields": [
+            {"target_id": 1, "text": "001"}]}
+        with patch.dict(os.environ, {"RK_DESKTOP_BENCH_DIR": ""}):
+            result = fast.call(args)
+        fast.workflow.call.assert_called_once_with(args)
+        self.assertEqual(result["observation"]["view"], "delta")
 
     def test_mcp_exposes_step_and_validates_args_before_dispatch(self):
         mcp = MCPServer(self.root, "desktop-fast")

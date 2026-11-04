@@ -16,7 +16,15 @@
 
 ![Coloop 工作台：文字任务、屏幕理解与 RK 设备连接概览](docs/assets/coloop-workspace.png)
 
-<p align="center"><sub>v0.7.0 · Windows 桌面端 · 截图来自隔离测试环境，设备未连接。</sub></p>
+<p align="center"><sub>历史 v0.7.0 界面 · 截图来自隔离测试环境，设备未连接。</sub></p>
+
+## 当前实现
+
+2026-11-04。`main` 同时保存当前 Coloop 上位机与 RK 配套源码。上位机为 0.13.0，电脑操作使用固定的官方 `@agent-tars/core@0.3.1` 运行循环。Windows 提供 OCR/UIA 观察与结果回读，RK 适配器执行 USB HID，独立记忆工作进程使用本地模型整理已验证任务。
+
+工作台与「电脑操作」支持任务进度、下一步建议、补充回答、停止确认及异步记忆状态。Coloop 728 项 TypeScript 测试与构建通过，RK 桥接侧 178 项测试通过，其中 10 项跳过。硬件、模型与界面验收范围见 [TARS 架构和验收记录](Coloop/docs/agent-tars-architecture.md)。
+
+更新前的完整远端实现在 `codex/history-pre-tars-20261104` 分支中保留。上位机各阶段的本地提交历史并入当前 `main`，导出来源与脱敏记录见 [源码快照](docs/source-snapshot.json)。
 
 Coloop 将截图、文字识别、模型分析与设备状态放在同一个工作区。你可以导入图片、提取中英文文字，再交给自己配置的云端模型或通过 USB 连接的 RK 开发板进行总结、翻译和信息整理。
 
@@ -67,7 +75,7 @@ npm ci
 npm run dev
 ```
 
-进入「模型连接」，配置自己的服务地址、模型和 Key，即可运行文字任务。端侧模式不需要云端 Key。
+进入「模型连接」配置云端服务，在「设备管理」连接 RK 后提交任务。默认电脑操作使用 OpenAI 兼容协议，本地模型负责后台记忆整理。「其他操作模式」提供已有的端侧规划等入口。
 
 ### 2. 启用本地 OCR
 
@@ -84,7 +92,7 @@ py -3.12 -m venv RK/deployment/screen-ocr/.venv
 
 首次准备模型需要联网，之后 OCR 可离线运行。应用默认的 `D:/RK` 是原开发机路径，换电脑后需要更新。
 
-### 3. 连接 RK 开发板（可选）
+### 3. 连接 RK 开发板
 
 已验证的硬件环境为 **LubanCat-4 / RK3588、16 GB 内存、Ubuntu 22.04**，通过 USB OTG 提供的网络连接 Windows。
 

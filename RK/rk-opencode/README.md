@@ -1,8 +1,18 @@
 # RK OpenCode：鲁班猫 4 本地 Agent
 
+2026-10-30 桌面主线新增原生 `RK桌面Agent.cmd`：RK端 `agent/hid_agent.py` 默认管理紧凑/增量观察、上下文预算、实际回执和业务核验，通过本地模型及函数执行USB HID，无MCP依赖。可见目标窗口的前台获取也由RK点击标题栏完成。现有轻量OpenCode入口默认复用同一HIDWorkflow投影/批填/失败策略，保留其记忆插件；原生入口不自动读写记忆内容。真实模型→HID→窗口值/最终回答的严格样例已通过，详见 [RK端侧桌面Agent](../docs/25-rk-desktop-agent.md)。
+
+2026-10-30 私密凭据属于统一记忆系统：`scripts/setup-memory-management.py` 更新现有 Mem0 私密引用目录及本地管理接口，Coloop 在单一「记忆」页面共同搜索、分类、新建和删除普通／私密记忆，普通内容可编辑并保留历史。设备通过原有记忆 `search/get/recall` 或 `lookup_private` 查到记录编号、`rk-vault://` 位置与 Coloop 执行器。账号密码正文由 `rk-credential-vault.service` 在 root 权限密文库中保护，不进入模型、普通事实或摘要；MCP 未扩展本地管理操作。Coloop 专用窗口通过编号、目标校验、短心跳和一次性请求触发 HID；引用不授予执行许可。完整真实Agent查询及新版管理接口已分层验收，限制、桌面独立包与证据见父项目 [私密凭据](../docs/22-private-credentials.md)。
+
+2026-10-30：模型差异集中到 `model-profiles/*.json`，普通 Agent、记忆和桌面入口共用模型描述。默认仍为已验证的 Qwen3.5-4B；新增模型只需独立描述和对应 RKLLM 资产，无需修改业务 Agent。接入步骤与本次验收见 [多模型接入](model-profiles/README.md)。Qwen 8B 目前只有配置示例，没有下载、部署或实机质量结论。
+
+2026-10-30：Coloop 0.10 的受控入口为 `scripts/coloop-managed.sh`。真实本地 Qwen Agent → RK 审批 → 主机签名 → 原生单次许可 → 冻结文件快照 → 未知随机串精确返回已通过，审批约 2.50 秒。只允许该受控读取；固定本地 provider、私有 HOME/XDG、关闭长期记忆插件。普通旧入口的 read allow 边界仍保持。使用说明与真实/CPU 分层证据见 [受控审批](../docs/20-coloop-managed-approvals.md) 和 [固定评测](../docs/19-coloop-managed-approval-evaluation.md)。
+
 沿用已安装的 OpenCode v1.19.5，在板端调用现有 Qwen3.5-4B / RKLLM 1.3.0，通过本地 MCP 工具接入 Mem0 记忆、电脑观察和 USB HID。电脑端运行窗口截图、UIA、OCR 小程序；模型推理和动作决策在板端。
 
 2026-10-29：随机文件工具闭环、跨会话记忆与隔离窗口 USB 桌面闭环已通过真实 NPU 测试。testbench 默认 OpenCode 轻量集成版：三次动作决策加一次最终回答，最终一次实测约 64.9 秒。独立 Python compact 三次决策样例约 45.9 秒，原 OpenCode 样例约 130～145 秒；三种入口均保留。调试中的参数、OCR、输出格式和日志导出失败分别留档。详细结果见 [VALIDATION.md](VALIDATION.md)。
+
+2026-10-30：增加 `plugins/coloop-hook.mjs` 与 `scripts/coloop-opencode.sh`，直接向 Coloop 上报原生消息、工具、状态及审批，使用源 SDK 进程内 transport 复查/回复 pending。连接 Coloop 后运行 `bash ~/rk-opencode/scripts/coloop-opencode.sh`；SSH 反向回环及私有连接文件由 Coloop 管理。Hook 短期上下文不写 Mem0；正常启动仍保留既有 MemoryPlugin。权限 allow 继续等待数据路径验收。完整参数、测试指标与边界见父项目 [Hook 专题](../docs/18-coloop-hooks.md)。
 
 ## 架构与 Linux 分层
 
@@ -20,17 +30,19 @@ Linux 内核：已有 RKNPU 驱动、USB Gadget / HID 驱动
 
 这些是现有 Ubuntu 上的应用开发和 USB 功能配置，无需重新烧录系统或编写新的内核驱动。模型提出工具调用，OpenCode 执行工具并把真实结果交回模型；桥接层不会补造工具调用或替模型猜路径。
 
-源码在 `D:\RK\rk-opencode`，板端在 `/home/cat/rk-opencode`。原开发工作区中它是独立 Git 仓库；本发布仓库将源码作为普通目录收录，不包含嵌套 Git 元数据。模型、运行库、二进制、密钥、记忆和运行日志不进入 Git。模型继续复用 `/home/cat/rk-edge-ai/qwen35-4b`，不会覆盖权重或替换原运行库。
+源码在 `D:\RK\rk-opencode`，板端在 `/home/cat/rk-opencode`。这是独立 Git 仓库，父仓库通过 `.git/info/exclude` 排除它。模型、运行库、二进制、密钥、记忆和运行日志不进入 Git。模型继续复用 `/home/cat/rk-edge-ai/qwen35-4b`，不会覆盖权重或替换原运行库。
 
 ## 日常使用
 
 | 入口 | 功能 |
 | --- | --- |
-| `运行OpenCode.cmd` | Qwen 4B，允许读取文件和调用持久记忆 |
+| `RK桌面Agent.cmd` | 原生RK桌面Agent主入口：默认紧凑观察、上下文预算、USB HID获取前台/操作、实际回读；需先启动指定窗口的电脑观察助手 |
+| `运行OpenCode.cmd` | 默认 Qwen 4B，允许读取文件和调用持久记忆；其他模型用启动器的 `-Profile` |
 | `本地纯聊天.cmd` | 不执行工具的聊天 |
 | `记忆Agent.cmd` | 仅使用持久记忆工具 |
 | `桌面Agent.cmd` | 使用电脑观察/动作工具和记忆；需先启动电脑助手 |
-| `轻量桌面Agent.cmd` | OpenCode 插件自动观察，MCP 动作后返回新观察，保留记忆工具 |
+| `轻量桌面Agent.cmd` | 可选OpenCode入口：默认紧凑/增量观察及板端批填，保留原记忆工具；其上下文管理仍由OpenCode负责 |
+| `Windows软件桌面Agent.cmd` | 独立软件输入原型：打开允许的文件、填写中文/数字、点击控件；先启动 `scripts/windows-desktop.ps1`，详见 [桌面 skill](../docs/23-windows-desktop-skill.md) |
 | `测试桌面Agent.cmd` | 打开隔离测试窗口，实测 OCR、模型决策、USB 输入/Apply/关闭 |
 | `停止本地模型服务.cmd` | 释放常驻模型、内存和推理锁 |
 
@@ -59,13 +71,23 @@ RK_AGENT_CACHE_MODE=off bash scripts/start.sh
 RK_AGENT_CACHE_MODE=native bash scripts/start.sh
 ```
 
-单个 HTTP 请求也可加 `X-RK-Cache: off`。`/health` 返回 `cache_mode` 和 `worker_protocol=2`；启动器会核对模式和协议，旧 worker 需要重建。DeepSeek profile 继续默认关闭缓存。
+单个 HTTP 请求也可加 `X-RK-Cache: off`。当前 `/health` 返回 `cache_mode`、`profile_fingerprint` 和 `worker_protocol=3`；启动器核对实际配置与源码，旧 worker 或不匹配的头文件/运行库需要重建。历史协议 2 的测试记录保持原口径。DeepSeek profile 继续默认关闭缓存。
 
 `logs/requests.jsonl` 的 `input_tokens` 是 SDK 本轮实际预填充 token；复用时只计新增处理部分。`inference` 记录预填充/生成毫秒数、`kv_before`、`kv_after`、提交字节数和重置原因；HTTP `usage.prompt_tokens` 包含已缓存与新增 token，并单列 `prompt_tokens_details.cached_tokens`。
 
 运行模型 A/B 验证：`python3 scripts/benchmark-cache.py`。输入快照、原始结果及会话隔离检查保存在新的 `logs/kv-cache-*/` 目录；具体记录见 [VALIDATION.md](VALIDATION.md)。
 
 ## 电脑观察与 USB 输入
+
+HID 的主入口是 **RK 板端本地 Python API / JSON CLI**，说明见 [rk-hid-desktop skill](skills/rk-hid-desktop/SKILL.md)。实际链路为 `RK 决策 → DesktopTools → HIDController → /dev/hidg* → USB → Windows`，不要求 MCP 或 OpenCode 运行。电脑助手只提供截图、OCR/UIA、校验和结果回读，不发送键鼠输入。
+
+板端可用 `python3 ~/rk-opencode/scripts/hid-act.py --capabilities` 查看能力与 schema，用 `--observe` 获取当前观察；默认从 stdin 接收 JSON 动作，`--step < action.json` 在输入后自动回读。嵌入式调用使用 `DesktopTools(root).call(...)` / `.step(...)`，是本地函数调用。能力查询明确返回 `mcp_required=false`，不连接电脑助手或打开 HID，也不证明设备已就绪。
+
+优化入口：新任务用 `--observe --compact --reset-view`，随后 `--compact < request.json` 返回紧凑/增量观察；`--capabilities --compact` 发布包含 `fill_form` 的原生schema。嵌入式使用 `hid_workflow.HID_TOOL` / `HIDWorkflow.call`，不要求MCP。`fill_form` 可在RK一次编排1..4个UIA字段并逐项回读，失败停止；可选提交后仍需验证业务结果。真实USB表单已通过，初始2582→383字节、增量70字节，7个HID动作约13.969秒；本轮未验收模型自主规划，纯HID仍限US布局ASCII。详见 [优化调用与固定证据](../docs/24-rk-hid-input.md#紧凑观察与板端批量填写)。
+
+真实模型观察A/B另用 `scripts/bench-hid-observation.py`：同一六题快照各调用Qwen4B两次，关闭KV缓存。紧凑/增量表示把实际input token从9156降至2244，SDK输入处理168.088→41.082秒；严格JSON/内容核对为原始2/6、紧凑6/6（原始含三题围栏格式失败）。这是观察理解/规划JSON的小样本，未执行新一轮模型HID业务。完整题集、响应及复现入口见 [模型处理量A/B](../docs/24-rk-hid-input.md#真实模型处理量-ab)。
+
+安装/更新统一 skill：从 `D:\RK` 执行 `.\.venv\Scripts\python.exe rk-opencode/scripts/setup-hid-skill.py --install --output-dir logs/hid-skill-install-新时间戳`。默认只上传直接 HID 能力文件，备份并核对 SHA256，不读取或修改 OpenCode/MCP 配置，不重启模型或重配 USB。仅需要旧 OpenCode 兼容时额外加 `--opencode-compat`，才合并两个现有 HID agent 的 prompt；权限仍不扩大。`桌面Agent.cmd` / `轻量桌面Agent.cmd` 保留为这些可选适配，不是硬件输入的必经入口。完整记录见 [HID 专题](../docs/24-rk-hid-input.md#统一-skill-包装与调用入口)。
 
 第一版限定一个显示器、一个精确标题的前台窗口。助手只读取该窗口，实际键鼠报告由板端发出。截图和 UIA 坐标统一为桌面物理像素。
 
@@ -85,9 +107,11 @@ powershell -ExecutionPolicy Bypass -File rk-opencode/scripts/desktop.ps1 -Window
 
 保持助手进程运行，再打开 `桌面Agent.cmd` 下达任务，并把目标窗口切到前台。若窗口切到后台、位置变化、目标失效或观察过期，动作校验会拒绝输入。电脑助手进程退出后自动解除执行标记；关闭 OpenCode 界面不会自动关闭电脑助手。可用 `scripts/stop-desktop.ps1` 停止它。
 
-动作工具只支持 `observe` 和 `act`。`act` 可点击观察中的 `target_id`，发送支持的快捷键或输入最多 64 个 US 键盘布局 ASCII 字符。中文输入、输入法状态、多屏、拖拽和无文字图标尚未接入。桥接本轮只接收文本，没有将截图送给多模态模型。
+动作工具支持 `observe` 和 `act`。2026-10-30 已扩展 `act`：移动/悬停、左/右/中键单击与双击、完整拖拽、垂直滚轮，以及 Win/GUI、PageUp/PageDown、Delete 等组合键编码。指针动作仍必须引用观察中的 `target_id`；拖拽另需 `end_target_id`。可选 `point/end_point` 是截图像素，必须落在对应目标内。滚轮 `steps` 为有符号刻度（正上、负下，1..32），不是像素。不提供水平滚轮或跨调用按住/释放。详见 [HID 协议与本次实测](../docs/24-rk-hid-input.md)。
 
-动作前重新检查前台、窗口范围、控件状态、遮挡和键盘焦点；发送前消耗观察凭据，避免对同一观察重复执行。`planned` 表示仅生成计划；`input_sent` 只表示报告已发出，应用是否完成仍需重新观察。每次动作都尝试释放按键/按钮，I/O 失败记录为结果未知。
+`type` 输入最多 64 个 US 键盘布局 ASCII 字符，保留首尾空格、LF 换行与制表符，遇到未知字符整次拒绝。纯 HID 仍受 Windows 布局/输入法约束；中文需独立的电脑助手协作能力。多屏、视觉无文字图标定位尚未接入。桥接本轮只接收文本，没有将截图送给多模态模型。
+
+动作前重新检查前台、窗口范围、控件身份/状态、遮挡、屏幕/DPI 和键盘焦点；发送前消耗观察凭据，避免对同一观察重复执行。整个复合动作持有共享 `hid.lock`，每个非释放报告前通过会话与 `/guard` 核对窗口、路径遮挡或键盘焦点。停止、断连、SIGTERM/SIGHUP 或异常会尝试原位释放；USB 已断开时释放无法保证送达。`planned` 表示仅生成计划；`input_sent` 只表示报告已发出，应用是否完成仍需重新观察；失败/中断记为 `outcome_unknown`，不得自动重放。
 
 本次 HID 配置在当前系统运行期有效。重启后若厂家服务恢复为纯 RNDIS，重新执行 `hid-enable`。查看或恢复原 USB 配置：
 
@@ -144,10 +168,19 @@ python3 scripts/memoryctl.py maintain
 | `agent/compact.py` | 固定测试任务的三次决策循环，自动观察、业务校验和停止 |
 | `plugins/desktop-fast.mjs`、`agent/fast_desktop.py` | OpenCode 初始观察注入与自动观察 MCP 工具 |
 | `scripts/usb-hid.py` | 复合 USB 配置、备份、确认与定时回滚 |
-| `opencode-qwen.json` | 当前模型、MCP 与各 agent 的权限 |
+| `model_profiles.py`、`model-profiles/` | 模型资产、上下文/模板/缓存能力、构建校验与 OpenCode 配置生成 |
+| `opencode-qwen.json`、`opencode.json` | 权限、MCP、插件和 Agent 提示模板；启动时只替换模型路由及限制 |
 | `tests/`、`scripts/smoke-*.py` | 协议测试与真实任务验收 |
 
 模型服务只监听板端 `127.0.0.1:8088`；电脑观察服务只监听本机 `127.0.0.1:8091`，通过严格校验主机指纹的 SSH 转发到板端回环地址。两个服务均需本地密钥，并拒绝浏览器跨域请求。日志和截图保存在本机忽略目录。
+
+## Coloop 审批分析的日志保护（2026-10-29）
+
+模型 HTTP 接受 `X-RK-Privacy: metadata-only`，该类请求的 `requests.jsonl` 只保留数值、固定枚举和服务生成 ID，不保存原始模型输出、回答、工具名或错误反射。私密响应确认同名头；`/health` 的 `privacy_metadata_only` 表示当前服务支持此路径。Coloop 先核对能力与回执，旧服务不会被当作已支持保护。
+
+worker 默认 `--worker-log-mode metadata-only`，厂商诊断 stderr 丢弃，协议 stdout 仍由桥接层读取；已有 `worker.log` 不清理。显式 `raw` 可用于非私密调试，但健康能力为 false，私密请求被拒绝。普通聊天 HTTP 记录保持原行为，不能据此声称所有日志均脱敏。
+
+本次只备份更新桥接源码并正常重启，模型与运行库未变。真实 NPU 随机串及日志检查见 [VALIDATION.md](VALIDATION.md)。协调协议与权限边界见父项目 [协调说明](../docs/17-coloop-coordination.md)。当前适配器自动拒绝权限或回复安全单项选择；读取放行等待主 Agent 数据路径验收。
 
 ## 部署与复现
 
@@ -215,6 +248,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File rk-opencode/scripts/testbenc
 OCR 首次调用、OCR 初始化、模型冷启动和实时任务分开计量。表中存在包含关系（动作校验也会截图并 OCR），不能把所有阶段直接相加。只有随机输入正确、Apply 恰好一次、模型观察了结果、实际关闭且正常退出等检查全部通过，报告才为 PASS。单次结果不是通用 Agent 成功率。测试台只停止自身启动的进程与模型服务；已运行的健康模型服务会被复用并保留。
 
 插件只处理 `rk-desktop-fast` / `rk-testbench-fast` 的消息；普通聊天、读文件、记忆 agent 不触发读屏。实际 API 以固定版本的 [插件 Hooks](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/plugin/src/index.ts) 和 [会话循环](https://github.com/anomalyco/opencode/blob/v1.19.5/packages/opencode/src/session/prompt.ts) 为依据。SDK 依赖由 `plugins/package-lock.json` 固定，禁用安装脚本和可选原生模块，通过 USB SSH 部署到应用私有 `.runtime/config/opencode/node_modules`。本地插件本身仅导入 Node 内置模块；离线 SDK 缓存用于满足 OpenCode 初始化依赖检查，避免每次启动访问 npm。没有修改系统 npm 代理或模型运行库。
+
+## Coloop tag 目录与按需记忆（2026-11-03）
+
+Mem0 本机 `/call` 新增 `catalog(tags?,query?,limit<=5)` 与 `get_many(ids)`；目录只返回普通当前事实的编号、标签、摘要和来源，不包含正文。正文读取最多五个唯一 ID，每次重新校验项目、TTL、逻辑键最新版本及删除状态，不混入 `private_refs`。多个 tag 使用 AND 匹配；可结合现有 CPU 语义搜索排名。旧数据保持空标签、空目录摘要。
+
+`set` 新增可选 `tags`（最多八个、每个64字）、`summary`（160字）、`source_task_id`（128字），继续使用真实 Mem0 `infer=False`；来源为 agent、未核实。省略元数据时继承同键当前值，`revise` 支持标签和摘要，原有调用兼容。增量 sidecar 表保存在既有控制 SQLite 中，不重建向量库。健康接口声明 `tag_catalog_v1`。后台维护忙或查询锁等待超过50ms时，目录/正文查询返回 `deferred=true`，调用者可本轮不使用记忆；不会启动第二个 NPU 推理。
+
+`scripts/validate-memory-catalog.py --local` 使用本机缓存嵌入，省略 `--local` 则使用板端缓存；均在新建隔离数据目录验证真实 Mem0/BGE/Qdrant、重开持久 ID、旧版本不可读和删除失效，不调用 NPU/云端/HID。`scripts/deploy-memory-catalog.py` 按固定指纹连接，在没有前台任务或维护时短时停止记忆服务，备份整个存储、配置和旧源码，仅更新两个服务文件后恢复，再运行隔离验收；失败恢复旧服务源码，不改模型与凭据服务。部署清单、源码摘要及备份位置见各次 `logs/memory-catalog-deploy-*/report.json`。
+
+2026-11-03 源码、20项相关 Python 测试、本机及真实板端 CPU 存储验收通过；板端生产服务已公布新能力。固定报告为 `logs/memory-catalog-deploy-20261102-180828-105152/report.json`。目录名采用执行主机 UTC 时钟，板端墙钟另有偏差，不据此计算跨端延迟。本次没有测试端到端云任务、NPU 或 USB 输入。
 
 ## 上游
 

@@ -18,8 +18,10 @@ import {
   FileImage,
   History,
   LayoutDashboard,
+  KeyRound,
   LoaderCircle,
   Monitor,
+  MousePointer2,
   Plus,
   ScanLine,
   ScanText,
@@ -38,12 +40,29 @@ import { api, unwrap } from './api'
 import { BrandMark, DeviceRail, Logo, Status, TaskResult, time } from './components'
 import { DevicePage, ModelsPage } from './Settings'
 import { OcrPreview, OcrCoordinates } from './OcrPreview'
+import { CoordinatorPage } from './CoordinatorPage'
+import { MemoryPage } from './MemoryPage'
+import { DesktopPage } from './DesktopPage'
+import { ComputerAgentStatus } from './ComputerAgentStatus'
+import { proactivePhaseLabels } from '../../shared/proactive'
 
-type Page = 'workspace' | 'screen' | 'workflows' | 'models' | 'device' | 'history'
+type Page =
+  | 'workspace'
+  | 'desktop'
+  | 'screen'
+  | 'workflows'
+  | 'coordinator'
+  | 'credentials'
+  | 'models'
+  | 'device'
+  | 'history'
 const navigation: { id: Page; name: string; icon: LucideIcon }[] = [
   { id: 'workspace', name: '工作台', icon: LayoutDashboard },
+  { id: 'desktop', name: '电脑操作', icon: MousePointer2 },
   { id: 'screen', name: '屏幕理解', icon: ScanLine },
   { id: 'workflows', name: '工作流', icon: Workflow },
+  { id: 'coordinator', name: 'Agent 协调', icon: ShieldCheck },
+  { id: 'credentials', name: '记忆', icon: KeyRound },
   { id: 'models', name: '模型连接', icon: Cloud },
   { id: 'device', name: '设备管理', icon: Cable },
   { id: 'history', name: '运行历史', icon: History },
@@ -83,7 +102,7 @@ export function App() {
   const [toast, setToast] = useState<{ message: string; error: boolean }>()
   const [help, setHelp] = useState(false)
   const [prompt, setPrompt] = useState('')
-  const [target, setTarget] = useState<'cloud' | 'rk'>('cloud')
+  const target = 'cloud' as const
   const [useScreen, setUseScreen] = useState(false)
   const [context, setContext] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState<string>()
@@ -153,16 +172,18 @@ export function App() {
   const active = snapshot.tasks.find((task) => task.status === 'running')
   const selectedTask = snapshot.tasks.find((task) => task.id === selectedTaskId) || active
   const connected = snapshot.device.status === 'connected'
-  const rkUnavailable =
-    target !== 'rk'
-      ? ''
-      : !connected
-        ? '请先在「设备管理」连接 RK 设备'
-        : !snapshot.device.qwenReady
-          ? '端侧服务尚未就绪，请在「设备管理」启动或检查服务'
-          : ''
+  const computerBusy =
+    !!snapshot.proactive?.active || !!snapshot.desktop?.active || !!snapshot.violoop?.active
+  const showComputerStatus =
+    snapshot.proactive &&
+    (snapshot.proactive.active ||
+      snapshot.proactive.suggestion ||
+      snapshot.proactive.phase === 'input_unknown' ||
+      (snapshot.proactive.taskId &&
+        (!selectedTask || selectedTask.id === snapshot.proactive.taskId)))
+  const rkUnavailable = !connected ? '请先在「设备管理」连接 RK 设备' : ''
   async function run(text = prompt, source = useScreen ? ('screen' as const) : ('text' as const)) {
-    if (submitting || active) return
+    if (submitting || active || computerBusy) return
     if (rkUnavailable) {
       notify(rkUnavailable, true)
       return
@@ -173,8 +194,8 @@ export function App() {
     }
     setSubmitting(true)
     try {
-      const id = await unwrap(api.runTask({ prompt: text, target, context, source }))
-      setSelectedTaskId(id)
+      const result = await unwrap(api.dispatchTask({ prompt: text, target, context, source }))
+      setSelectedTaskId(result.id)
       setPage('workspace')
       setPrompt('')
     } catch (error) {
@@ -307,11 +328,7 @@ export function App() {
                     <label className="composer-title" htmlFor="task-prompt">
                       想让 Coloop 帮你处理什么？
                     </label>
-                    <span className="quiet-tag">
-                      {target === 'rk'
-                        ? snapshot.device.model || 'Qwen3.5-4B'
-                        : snapshot.settings.provider.name}
-                    </span>
+                    <span className="quiet-tag">云端理解 · RK 执行</span>
                   </div>
                   <textarea
                     id="task-prompt"
@@ -348,17 +365,18 @@ export function App() {
                       {useScreen ? <Check size={13} /> : <Plus size={13} />}
                     </button>
                     <div className="row">
-                      <select
-                        aria-label="选择推理位置"
-                        value={target}
-                        onChange={(e) => setTarget(e.target.value as 'cloud' | 'rk')}
-                      >
-                        <option value="cloud">云端模型</option>
-                        <option value="rk">RK 端侧模型</option>
+                      <select aria-label="选择推理位置" value={target} disabled>
+                        <option value="cloud">云端理解 · RK 执行</option>
                       </select>
                       <button
                         className="run-button"
-                        disabled={!prompt.trim() || submitting || !!active || !!rkUnavailable}
+                        disabled={
+                          !prompt.trim() ||
+                          submitting ||
+                          !!active ||
+                          computerBusy ||
+                          !!rkUnavailable
+                        }
                         onClick={() => void run()}
                         aria-label="运行任务"
                       >
@@ -375,28 +393,24 @@ export function App() {
                 <div className="composer-caption">
                   <span>
                     <ShieldCheck size={12} />
-                    {useScreen
-                      ? '将在本机识别屏幕文字；云端任务会发送识别文本'
-                      : '由你选择发送的内容，任务记录保存在本机'}
+                    问题与附加 OCR 交给云端理解，RK 负责执行和后台记忆整理
                   </span>
                   <span>Ctrl + Enter 运行</span>
                 </div>
-                {target === 'rk' && (
-                  <div className="info-line" role="status">
-                    <Cpu size={15} />
-                    <span>
-                      {rkUnavailable ||
-                        '任务由 RK 端侧服务处理，回答完成后返回。停止只结束上位机等待，板端共享推理会继续。'}
-                    </span>
-                    {rkUnavailable && (
-                      <button className="text-button" onClick={() => setPage('device')}>
-                        管理设备
-                        <ChevronRight size={14} />
-                      </button>
-                    )}
-                  </div>
-                )}
+                <div className="info-line" role="status">
+                  <Cpu size={15} />
+                  <span>
+                    {rkUnavailable || '云端直接回答问题；需要操作时，由 RK 执行并核验实际结果。'}
+                  </span>
+                  {rkUnavailable && (
+                    <button className="text-button" onClick={() => setPage('device')}>
+                      管理设备
+                      <ChevronRight size={14} />
+                    </button>
+                  )}
+                </div>
                 {selectedTask && <TaskResult task={selectedTask} notify={notify} />}
+                {showComputerStatus && <ComputerAgentStatus snapshot={snapshot} />}
                 <div className="section-bar section-space">
                   <h2>快捷操作</h2>
                   <button className="text-button" onClick={() => setPage('workflows')}>
@@ -467,7 +481,14 @@ export function App() {
                         <div>
                           <strong>{task.prompt}</strong>
                           <small>
-                            {time(task.createdAt)} · {task.target === 'rk' ? 'RK 端侧' : '云端模型'}
+                            {time(task.createdAt)} ·{' '}
+                            {task.target === 'rk'
+                              ? 'RK 端侧'
+                              : task.target === 'hybrid'
+                                ? 'RK + 云端协作'
+                                : task.execution === 'desktop'
+                                  ? 'TARS 电脑操作'
+                                  : '云端理解'}
                           </small>
                         </div>
                         <Status task={task} />
@@ -706,6 +727,9 @@ export function App() {
               </div>
             )}
 
+            {page === 'desktop' && <DesktopPage snapshot={snapshot} />}
+            {page === 'coordinator' && <CoordinatorPage snapshot={snapshot} />}
+            {page === 'credentials' && <MemoryPage snapshot={snapshot} />}
             {page === 'models' && (
               <ModelsPage
                 snapshot={snapshot}
@@ -832,8 +856,13 @@ export function App() {
         </div>
         <footer className="statusbar">
           <span>
-            <i className={`tiny-dot ${active ? 'busy' : 'online'}`} />
-            {active ? active.stage : '工作区已就绪'}
+            <i className={`tiny-dot ${active || computerBusy ? 'busy' : 'online'}`} />
+            {active?.stage ||
+              (computerBusy
+                ? proactivePhaseLabels[snapshot.proactive?.phase ?? ''] || '电脑操作进行中'
+                : snapshot.proactive?.phase === 'input_unknown'
+                  ? proactivePhaseLabels.input_unknown
+                  : '工作区已就绪')}
           </span>
           <span>
             {snapshot.ocrBusy ? 'OCR 正在运行' : 'RapidOCR 已接入'}
@@ -896,8 +925,8 @@ export function App() {
             <div className="info-line">
               <ShieldCheck size={16} />
               <span>
-                API Key 使用 Windows
-                加密存储；设备密码只用于当前连接。当前版本提供文本分析，尚未实现 HID 桌面操控。
+                API Key 使用 Windows 加密存储；设备密码只用于当前连接。「电脑操作」已接入 RK
+                HID，同页动作一次规划、统一验证。首版限单屏、单窗口和英文数字输入。
               </span>
             </div>
             <button

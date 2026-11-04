@@ -1,0 +1,150 @@
+.session-control-heading {
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.session-control-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.session-control-heading p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.session-control-paused {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-control);
+}
+.session-control-warning,
+.session-control-feedback {
+  margin-top: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.session-control-sessions {
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.session-control-session {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(110px, auto);
+  align-items: center;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.session-control-session > div {
+  min-width: 0;
+}
+.session-control-session strong,
+.session-control-session > div > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-control-session > div > span,
+.session-control-session > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.session-control-state {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.session-control-composer {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+.session-control-composer label {
+  font-weight: 500;
+}
+.session-control-composer textarea {
+  min-height: 88px;
+  max-height: 260px;
+  padding: 12px;
+  line-height: 1.8;
+}
+.session-control-composer select + label {
+  margin-top: 8px;
+}
+.session-control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+}
+.session-control-actions > span {
+  flex: 1 1 160px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.session-control-receipts {
+  margin-top: 20px;
+}
+.session-control-receipts > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.session-control-receipts time {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.session-control-receipts p,
+.session-control-residency {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.session-control-setup {
+  margin-top: 20px;
+}
+.session-control-setup summary {
+  cursor: pointer;
+  font-weight: 500;
+  width: fit-content;
+}
+.session-control-setup summary:focus-visible {
+  outline: 3px solid #666;
+  outline-offset: 3px;
+}
+.session-control-setup p {
+  margin: 12px 0 8px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.session-control-setup pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px 16px;
+  border-radius: var(--radius-control);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .session-control-session {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 16px;
+  }
+  .session-control-state {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}

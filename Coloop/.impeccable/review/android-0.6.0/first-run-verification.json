@@ -1,0 +1,9 @@
+{
+  "scope": "First-run and synthetic execution acceptance, dedicated emulator data reset only; no real RK/HID",
+  "checks": [
+    "Unpaired send offers direct connection recovery and Back preserves the first draft",
+    "First pairing retains the first draft until explicit send and gets an encrypted task receipt",
+    "Task with missing completion condition is clarified, supplemented explicitly, located during synthetic execution and returns verified result with next action"
+  ],
+  "passed": true
+}

@@ -298,7 +298,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
   const device = snapshot.device
   const connected = device.status === 'connected'
   const busy = connecting || device.status === 'connecting' || startingService
-  const rkRunning = snapshot.tasks.some((task) => task.status === 'running' && task.target === 'rk')
+  const rkRunning = snapshot.tasks.some((task) => task.status === 'running')
   async function save() {
     setSaving(true)
     try {
@@ -391,7 +391,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
         <div className="section-bar">
           <div>
             <h2>USB 连接设置</h2>
-            <p className="muted">沿用 RK 项目的 USB 网络连接，设备密码仅用于当前会话。</p>
+            <p className="muted">连接一次后自动重连，登录凭据由 Windows 加密保存在本机。</p>
           </div>
           <Cable size={21} className="muted" />
         </div>
@@ -503,7 +503,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                 }
               }}
             />
-            <small>连接后会清空输入，不保存到磁盘。</small>
+            <small>连接成功后由 Windows 加密保存，用于启动自动连接和断线重连。</small>
           </label>
         </div>
         <div className="settings-actions">
@@ -512,9 +512,20 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
               ? '请先保存修改，再连接设备'
               : connected
                 ? `最近更新：${device.updatedAt ? new Date(device.updatedAt).toLocaleTimeString('zh-CN') : '—'}`
-                : '需要设备正常供电，USB 线连接 OTG 口'}
+                : (snapshot.autoConnection?.message ?? '需要设备正常供电，USB 线连接 OTG 口')}
           </span>
           <div className="row">
+            {!connected && snapshot.autoConnection?.hasCredential && (
+              <button
+                className="button secondary"
+                disabled={busy || saving || rkRunning}
+                onClick={() =>
+                  void unwrap(api.retryRkConnection()).catch((error) => notify(error.message, true))
+                }
+              >
+                自动重新连接
+              </button>
+            )}
             {dirty && (
               <button
                 className="button secondary"

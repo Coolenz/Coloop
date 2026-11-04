@@ -4,13 +4,20 @@ import datetime
 import json
 from pathlib import Path
 import secrets
+import sys
 import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from model_profiles import running_model  # noqa: E402
 
 
 def main():
+    route = running_model(ROOT)
+    if route.get("cache_mode") != "native":
+        raise RuntimeError("Cache comparison requires a profile with native cache enabled")
+    model_id = route["model"]
     stamp = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).strftime(
         "%Y%m%d-%H%M%S"
     )
@@ -85,7 +92,7 @@ def main():
         ]
         for i, question in enumerate(questions):
             messages.append({"role": "user", "content": question})
-            body = {"model": "qwen35-4b-rkllm", "messages": messages, "max_tokens": 32}
+            body = {"model": model_id, "messages": messages, "max_tokens": 32}
             (folder / (mode + f"-{i + 1}-request.json")).write_text(json.dumps(body, indent=2))
             answer = query(
                 body,
@@ -96,7 +103,7 @@ def main():
             )
             messages.append(answer)
     independent = {
-        "model": "qwen35-4b-rkllm",
+        "model": model_id,
         "max_tokens": 32,
         "messages": [
             {
@@ -108,7 +115,7 @@ def main():
     }
     query(independent, "other-" + nonce, "auto", "new-session-isolation", "NONE")
     changed = {
-        "model": "qwen35-4b-rkllm",
+        "model": model_id,
         "max_tokens": 32,
         "messages": [
             {"role": "user", "content": "The verification word is RED. Return only that word."}

@@ -5,10 +5,14 @@ import json
 import os
 from pathlib import Path
 import time
+import sys
 import urllib.request
 
 from mem0.embeddings.base import EmbeddingBase
 from mem0.llms.base import LLMBase
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from model_profiles import running_model  # noqa: E402
 
 EXTRACTION = """Extract durable facts from the supplied conversation DATA. Return only JSON:
 {"memory":[{"text":"one concise fact","attributed_to":"user","linked_memory_ids":[]}]}
@@ -58,8 +62,11 @@ class RKMemoryLLM(LLMBase):
 
     def request(self, messages, tokens=256):
         root = Path(os.environ["RK_AGENT_ROOT"])
+        route = running_model(root)
+        if tokens > route.get("max_output", 2048):
+            raise ValueError("Memory output budget exceeds the active model profile")
         body = {
-            "model": "qwen35-4b-rkllm",
+            "model": route["model"],
             "messages": messages,
             "max_tokens": tokens,
             "response_format": {"type": "json_object"},

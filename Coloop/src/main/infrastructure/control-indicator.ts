@@ -1,0 +1,647 @@
+import { BrowserWindow, ipcMain, screen, session, type IpcMainInvokeEvent } from 'electron'
+import { pathToFileURL } from 'node:url'
+import {
+  controlIndicatorSnapshotSchema,
+  islandActionSchema,
+  islandAnswerSchema,
+  isActiveControlMode,
+  type IslandAnswer,
+  type ControlIndicatorSnapshot,
+  type ControlIndicatorView,
+} from '../../shared/control-indicator'
+import type { Result } from '../../shared/contracts'
+
+interface ControlIndicatorOptions {
+  preloadPath: string
+  rendererPath: string
+  developmentUrl?: string
+  /** Requests stopping; the owner must update(hidden) only after source confirmation. */
+  onStop: () => Promise<void>
+  onOpenMain: () => void
+  onUnavailable?: (reason: string) => void | Promise<void>
+  onAcceptSuggestion?: (id: string) => Promise<void>
+  onDismissSuggestion?: (id: string) => Promise<void>
+  onAnswerQuestion?: (answer: IslandAnswer) => Promise<void>
+  onPauseObservation?: (paused: boolean) => Promise<void>
+  onStartTask?: (goal: string) => Promise<void>
+  onRememberTarget?: () => Promise<void>
+  onRestoreTarget?: () => Promise<void>
+}
+
+interface PaintWaiter {
+  revision: number
+  resolve: () => void
+  reject: (error: Error) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+const CHANNELS = [
+  'control-indicator:get',
+  'control-indicator:stop',
+  'control-indicator:open',
+  'control-indicator:close-preview',
+  'control-indicator:accept',
+  'control-indicator:dismiss',
+  'control-indicator:answer',
+  'control-indicator:begin-answer',
+  'control-indicator:end-answer',
+  'control-indicator:expand',
+  'control-indicator:pause-observation',
+  'control-indicator:begin-task',
+  'control-indicator:start-task',
+  'control-indicator:reveal',
+  'control-indicator:drag',
+] as const
+
+/** Isolated, non-activating status surface. A real command must await update(). */
+export class ControlIndicatorWindow {
+  private window?: BrowserWindow
+  private opening?: Promise<BrowserWindow>
+  private current: ControlIndicatorView = { mode: 'hidden', revision: 0 }
+  private paintedRevision = 0
+  private paintWaiters = new Set<PaintWaiter>()
+  private previewTimer?: ReturnType<typeof setTimeout>
+  private stopPending?: Promise<void>
+  private disposed = false
+  private recovering = false
+  private hiding = false
+  private expectedUrl: string
+  private actionPending = false
+  private editingCommand = false
+  private revealed = false
+  private anchor?: { x: number; y: number }
+  private dragging?: { cursor: { x: number; y: number }; x: number; y: number }
+
+  private canStartTask(mode = this.current.mode) {
+    return ['idle', 'suggestion', 'completed', 'blocked', 'failed'].includes(mode)
+  }
+
+  constructor(private readonly options: ControlIndicatorOptions) {
+    const url = options.developmentUrl
+      ? new URL(options.developmentUrl)
+      : pathToFileURL(options.rendererPath)
+    url.searchParams.set('surface', 'control')
+    url.hash = ''
+    this.expectedUrl = url.href
+    this.handle('control-indicator:get', (_event, args) => {
+      if (args.length > 1) throw new Error('控制提示参数无效')
+      const revision = args[0]
+      if (revision !== undefined) {
+        if (
+          typeof revision !== 'number' ||
+          !Number.isSafeInteger(revision) ||
+          revision < 0 ||
+          revision > this.current.revision
+        )
+          throw new Error('控制提示参数无效')
+        if (this.window?.isVisible() && this.current.mode !== 'hidden') {
+          this.paintedRevision = Math.max(this.paintedRevision, revision)
+          for (const waiter of this.paintWaiters) {
+            if (waiter.revision <= this.paintedRevision) {
+              clearTimeout(waiter.timer)
+              this.paintWaiters.delete(waiter)
+              waiter.resolve()
+            }
+          }
+        }
+      }
+      return { ...this.current }
+    })
+    this.handle('control-indicator:stop', (_event, args) => {
+      this.noArguments(args)
+      return this.stop()
+    })
+    this.handle('control-indicator:open', (_event, args) => {
+      this.noArguments(args)
+      this.options.onOpenMain()
+    })
+    this.handle('control-indicator:close-preview', (_event, args) => {
+      this.noArguments(args)
+      if (this.current.mode !== 'preview') throw new Error('控制期间不能隐藏提示，请先停止控制')
+      return this.update({ mode: 'hidden' })
+    })
+    for (const channel of ['control-indicator:accept', 'control-indicator:dismiss'] as const) {
+      this.handle(channel, async (_event, args) => {
+        if (args.length !== 1 || this.actionPending) throw new Error('控制提示参数无效')
+        const input = islandActionSchema.parse(args[0])
+        if (
+          this.current.mode !== 'suggestion' ||
+          input.id !== this.current.suggestionId ||
+          input.revision !== this.current.revision
+        )
+          throw new Error('控制提示参数无效')
+        const action = channel.endsWith(':accept')
+          ? this.options.onAcceptSuggestion
+          : this.options.onDismissSuggestion
+        if (!action) throw new Error('控制提示参数无效')
+        this.actionPending = true
+        try {
+          if (channel.endsWith(':accept')) {
+            this.window?.setFocusable(false)
+            this.window?.blur()
+            await this.options.onRestoreTarget?.()
+          }
+          await action(input.id)
+        } finally {
+          this.actionPending = false
+        }
+      })
+    }
+    this.handle('control-indicator:answer', async (_event, args) => {
+      if (args.length !== 1 || this.actionPending) throw new Error('控制提示参数无效')
+      const input = islandAnswerSchema.parse(args[0])
+      if (
+        this.current.mode !== 'question' ||
+        input.taskId !== this.current.taskId ||
+        input.questionId !== this.current.questionId ||
+        !this.options.onAnswerQuestion
+      )
+        throw new Error('控制提示参数无效')
+      this.actionPending = true
+      try {
+        this.window?.setFocusable(false)
+        this.window?.blur()
+        await this.options.onRestoreTarget?.()
+        await this.options.onAnswerQuestion(input)
+      } finally {
+        this.actionPending = false
+        this.reposition()
+      }
+    })
+    this.handle('control-indicator:begin-answer', async (_event, args) => {
+      this.noArguments(args)
+      if (this.current.mode !== 'question') throw new Error('控制提示参数无效')
+      await this.options.onRememberTarget?.()
+      this.window?.setFocusable(true)
+      this.window?.focus()
+    })
+    this.handle('control-indicator:end-answer', async (_event, args) => {
+      this.noArguments(args)
+      this.editingCommand = false
+      this.window?.setFocusable(false)
+      this.window?.blur()
+      await this.options.onRestoreTarget?.()
+    })
+    this.handle('control-indicator:begin-task', async (_event, args) => {
+      this.noArguments(args)
+      if (!this.canStartTask() || this.actionPending) throw new Error('控制提示参数无效')
+      await this.options.onRememberTarget?.()
+      if (!this.canStartTask() || this.actionPending) throw new Error('控制提示参数无效')
+      this.editingCommand = true
+      this.window?.setFocusable(true)
+      this.window?.focus()
+    })
+    this.handle('control-indicator:start-task', async (_event, args) => {
+      if (
+        args.length !== 1 ||
+        typeof args[0] !== 'string' ||
+        !args[0].trim() ||
+        args[0].length > 4000 ||
+        this.actionPending ||
+        !this.canStartTask() ||
+        !this.options.onStartTask
+      )
+        throw new Error('控制提示参数无效')
+      this.actionPending = true
+      this.editingCommand = false
+      this.window?.setFocusable(false)
+      this.window?.blur()
+      try {
+        await this.options.onRestoreTarget?.()
+        await this.options.onStartTask(args[0].trim())
+      } finally {
+        this.actionPending = false
+        this.reposition()
+      }
+    })
+    this.handle('control-indicator:expand', (_event, args) => {
+      if (args.length !== 1 || typeof args[0] !== 'boolean') throw new Error('控制提示参数无效')
+      return this.update({ ...this.snapshot(), expanded: args[0] })
+    })
+    this.handle('control-indicator:reveal', (_event, args) => {
+      if (args.length !== 1 || typeof args[0] !== 'boolean') throw new Error('控制提示参数无效')
+      this.revealed = args[0]
+      if (!this.actionPending) this.reposition()
+    })
+    this.handle('control-indicator:drag', (_event, args) => {
+      if (args.length !== 2 || !['start', 'move', 'end'].includes(String(args[0])))
+        throw new Error('控制提示参数无效')
+      const window = this.window
+      if (!window || window.isDestroyed()) return
+      const point = args[1] as { x?: unknown; y?: unknown } | null
+      if (
+        !point ||
+        typeof point.x !== 'number' ||
+        typeof point.y !== 'number' ||
+        !Number.isFinite(point.x) ||
+        !Number.isFinite(point.y) ||
+        Math.abs(point.x) > 1000000 ||
+        Math.abs(point.y) > 1000000
+      )
+        throw new Error('控制提示参数无效')
+      const cursor = { x: point.x, y: point.y }
+      if (args[0] === 'start') {
+        const bounds = window.getBounds()
+        this.dragging = { cursor, x: bounds.x, y: bounds.y }
+      } else if (this.dragging) {
+        const area = screen.getDisplayNearestPoint(cursor).workArea
+        const bounds = window.getBounds()
+        const x = Math.max(
+          area.x,
+          Math.min(
+            this.dragging.x + cursor.x - this.dragging.cursor.x,
+            area.x + area.width - bounds.width,
+          ),
+        )
+        const y = Math.max(
+          area.y,
+          Math.min(
+            this.dragging.y + cursor.y - this.dragging.cursor.y,
+            area.y + area.height - bounds.height,
+          ),
+        )
+        window.setPosition(Math.round(x), Math.round(y), false)
+        if (args[0] === 'end') this.dragging = undefined
+      }
+    })
+    this.handle('control-indicator:pause-observation', async (_event, args) => {
+      if (args.length !== 1 || typeof args[0] !== 'boolean' || !this.options.onPauseObservation)
+        throw new Error('控制提示参数无效')
+      await this.options.onPauseObservation(args[0])
+    })
+    screen.on('display-added', this.reposition)
+    screen.on('display-removed', this.reposition)
+    screen.on('display-metrics-changed', this.reposition)
+  }
+
+  get visible() {
+    return Boolean(this.window && !this.window.isDestroyed() && this.window.isVisible())
+  }
+
+  get isInteracting() {
+    return this.revealed || this.actionPending || Boolean(this.dragging) || this.editingCommand
+  }
+
+  get id() {
+    return this.window && !this.window.isDestroyed() ? this.window.id : undefined
+  }
+
+  snapshot(): ControlIndicatorSnapshot {
+    const { revision: _revision, ...snapshot } = this.current
+    return snapshot
+  }
+
+  getBounds() {
+    return this.window?.getBounds()
+  }
+
+  private noArguments(args: unknown[]) {
+    if (args.length) throw new Error('控制提示参数无效')
+  }
+
+  private trusted(event: IpcMainInvokeEvent) {
+    const window = this.window
+    const frame = event.senderFrame
+    return (
+      !this.disposed &&
+      window &&
+      !window.isDestroyed() &&
+      event.sender === window.webContents &&
+      frame === window.webContents.mainFrame &&
+      frame.url === this.expectedUrl
+    )
+  }
+
+  private handle<T>(
+    channel: (typeof CHANNELS)[number],
+    action: (event: IpcMainInvokeEvent, args: unknown[]) => T | Promise<T>,
+  ) {
+    ipcMain.handle(channel, async (event, ...args): Promise<Result<T>> => {
+      if (!this.trusted(event)) return { ok: false, error: '控制提示调用来源无效' }
+      try {
+        return { ok: true, value: await action(event, args) }
+      } catch (error) {
+        // Only this class's fixed messages cross the boundary; source errors may contain secrets.
+        const message = error instanceof Error ? error.message : ''
+        return {
+          ok: false,
+          error: [
+            '控制提示参数无效',
+            '控制期间不能隐藏提示，请先停止控制',
+            '当前没有正在执行的控制',
+            'Could not restore the target window; select it and retry',
+            'No previous target window is available',
+          ].includes(message)
+            ? message
+            : '停止或更新控制未确认，请打开 Coloop 检查',
+        }
+      }
+    })
+  }
+
+  private bounds() {
+    const area = this.anchor
+      ? screen.getDisplayNearestPoint({
+          x: Math.round(this.anchor.x),
+          y: Math.round(this.anchor.y),
+        }).workArea
+      : screen.getPrimaryDisplay().bounds
+    const revealed = this.current.mode === 'preview' || this.revealed || this.actionPending
+    const expanded =
+      this.current.expanded ??
+      ['suggestion', 'question', 'completed', 'blocked', 'failed'].includes(this.current.mode)
+    const width = Math.max(
+      1,
+      Math.min(
+        this.current.mode === 'preview' ? 373 : revealed ? 480 : this.isActualControl() ? 320 : 280,
+        area.width - 16,
+      ),
+    )
+    const height = Math.max(
+      1,
+      Math.min(
+        !revealed ? 76 : expanded ? 344 : this.current.mode === 'preview' ? 76 : 128,
+        Math.floor(area.height * 0.65),
+      ),
+    )
+    return {
+      x: Math.round(
+        Math.max(
+          area.x,
+          Math.min(
+            this.anchor ? this.anchor.x - width / 2 : area.x + (area.width - width) / 2,
+            area.x + area.width - width,
+          ),
+        ),
+      ),
+      y: Math.round(
+        Math.max(area.y, Math.min(this.anchor?.y ?? area.y + 8, area.y + area.height - height)),
+      ),
+      width,
+      height,
+    }
+  }
+
+  private reposition = () => {
+    if (this.window && !this.window.isDestroyed()) this.window.setBounds(this.bounds(), false)
+  }
+
+  private async ensureWindow(): Promise<BrowserWindow> {
+    if (this.disposed) throw new Error('控制提示已关闭')
+    if (this.opening) return this.opening
+    if (this.window && !this.window.isDestroyed()) return this.window
+    const isolatedSession = session.fromPartition('coloop-control-indicator')
+    isolatedSession.setPermissionRequestHandler((_contents, _permission, callback) =>
+      callback(false),
+    )
+    isolatedSession.setPermissionCheckHandler(() => false)
+    isolatedSession.setDevicePermissionHandler(() => false)
+    const window = new BrowserWindow({
+      ...this.bounds(),
+      title: 'Coloop · Control status',
+      transparent: true,
+      backgroundColor: '#00000000',
+      frame: false,
+      hasShadow: false,
+      show: false,
+      alwaysOnTop: true,
+      focusable: false,
+      skipTaskbar: true,
+      resizable: false,
+      movable: true,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      closable: false,
+      autoHideMenuBar: true,
+      webPreferences: {
+        preload: this.options.preloadPath,
+        session: isolatedSession,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        backgroundThrottling: false,
+      },
+    })
+    this.window = window
+    window.on('move', () => {
+      const bounds = window.getBounds()
+      this.anchor = { x: bounds.x + bounds.width / 2, y: bounds.y }
+    })
+    window.on('blur', () => {
+      if (this.editingCommand) {
+        this.editingCommand = false
+        window.setFocusable(false)
+      }
+    })
+    window.setMenu(null)
+    window.setAlwaysOnTop(true, 'screen-saver')
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    window.webContents.on('will-navigate', (event) => event.preventDefault())
+    window.webContents.on('will-frame-navigate', (event) => event.preventDefault())
+    window.webContents.on('will-attach-webview', (event) => event.preventDefault())
+    window.webContents.on('render-process-gone', () => void this.unavailable('控制提示进程已退出'))
+    window.webContents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
+      if (mainFrame && code !== -3) void this.unavailable('控制提示加载失败')
+    })
+    window.on('unresponsive', () => void this.unavailable('控制提示无响应'))
+    window.on('hide', () => {
+      if (!this.hiding && this.isActualControl()) void this.unavailable('控制提示已不可见')
+    })
+    window.on('close', (event) => {
+      if (this.disposed) return
+      event.preventDefault()
+      if (this.current.mode === 'preview') void this.update({ mode: 'hidden' })
+      else if (this.isActualControl()) void this.stop().catch(() => {})
+    })
+    window.on('closed', () => {
+      if (this.window === window) this.window = undefined
+      if (this.isActualControl()) void this.unavailable('控制提示窗口已关闭')
+    })
+    const loading = (async () => {
+      if (this.options.developmentUrl) await window.loadURL(this.expectedUrl)
+      else await window.loadFile(this.options.rendererPath, { query: { surface: 'control' } })
+      if (window.isDestroyed() || this.window !== window) throw new Error('控制提示窗口不可用')
+      return window
+    })()
+    this.opening = loading
+    try {
+      return await loading
+    } finally {
+      if (this.opening === loading) this.opening = undefined
+    }
+  }
+
+  private isActualControl() {
+    return !this.disposed && isActiveControlMode(this.current.mode)
+  }
+
+  private assign(snapshot: ControlIndicatorSnapshot) {
+    this.current = { ...snapshot, revision: this.current.revision + 1 }
+    this.window?.webContents.send('control-indicator:snapshot', { ...this.current })
+    return this.current.revision
+  }
+
+  private waitForPaint(revision: number) {
+    if (this.paintedRevision >= revision) return Promise.resolve()
+    return new Promise<void>((resolve, reject) => {
+      const waiter: PaintWaiter = {
+        revision,
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.paintWaiters.delete(waiter)
+          reject(new Error('控制提示未能确认显示'))
+        }, 6000),
+      }
+      this.paintWaiters.add(waiter)
+    })
+  }
+
+  private rejectPaints(message: string) {
+    for (const waiter of this.paintWaiters) {
+      clearTimeout(waiter.timer)
+      waiter.reject(new Error(message))
+    }
+    this.paintWaiters.clear()
+  }
+
+  private clearPreviewTimer() {
+    if (this.previewTimer) clearTimeout(this.previewTimer)
+    this.previewTimer = undefined
+  }
+
+  async update(input: ControlIndicatorSnapshot): Promise<void> {
+    if (this.disposed) throw new Error('控制提示已关闭')
+    const snapshot = controlIndicatorSnapshotSchema.parse(input)
+    if (!this.canStartTask(snapshot.mode)) this.editingCommand = false
+    if (
+      !this.editingCommand &&
+      (snapshot.mode !== 'question' || snapshot.questionId !== this.current.questionId)
+    )
+      this.window?.setFocusable(false)
+    this.clearPreviewTimer()
+    const revision = this.assign(snapshot)
+    if (snapshot.mode === 'hidden') {
+      this.rejectPaints('控制显示已取消')
+      this.hiding = true
+      try {
+        if (this.window && !this.window.isDestroyed()) this.window.hide()
+      } finally {
+        this.hiding = false
+      }
+      return
+    }
+    try {
+      const window = await this.ensureWindow()
+      if (this.current.mode === 'hidden') throw new Error('控制显示已取消')
+      this.reposition()
+      window.webContents.send('control-indicator:snapshot', { ...this.current })
+      if (!window.isVisible()) window.showInactive()
+      if (!window.isVisible()) throw new Error('控制提示未能显示')
+      await this.waitForPaint(revision)
+    } catch (error) {
+      if (this.isActualControl()) void this.unavailable('控制提示未能确认显示')
+      throw error
+    }
+  }
+
+  async preview(): Promise<void> {
+    if (this.isActualControl()) throw new Error('控制期间不能替换为预览')
+    await this.update({ mode: 'preview', detail: 'Preview · No actions running', sessionCount: 0 })
+    if (this.current.mode === 'preview')
+      this.previewTimer = setTimeout(() => {
+        if (this.current.mode === 'preview') void this.update({ mode: 'hidden' }).catch(() => {})
+      }, 30_000)
+  }
+
+  private stop(): Promise<void> {
+    if (this.stopPending) return this.stopPending
+    if (!this.isActualControl()) return Promise.reject(new Error('当前没有正在执行的控制'))
+    this.stopPending = Promise.resolve()
+      .then(async () => {
+        const previous = this.current
+        // Stopping sources never waits for rendering, the NPU, or an animation acknowledgment.
+        void this.update({
+          mode: 'stopping',
+          startedAt: previous.startedAt,
+          sessionCount: previous.sessionCount,
+        }).catch(() => {})
+        try {
+          await this.options.onStop()
+        } catch {
+          await this.update({
+            mode: 'unconfirmed',
+            startedAt: previous.startedAt,
+            sessionCount: previous.sessionCount,
+            error: '停止控制未确认，请打开 Coloop 检查',
+          }).catch(() => {})
+          throw new Error('停止控制未确认')
+        }
+      })
+      .finally(() => {
+        this.stopPending = undefined
+      })
+    return this.stopPending
+  }
+
+  private async unavailable(reason: string) {
+    if (this.disposed || this.recovering) return
+    this.recovering = true
+    this.clearPreviewTimer()
+    this.rejectPaints(reason)
+    const actualControl = this.isActualControl()
+    const window = this.window
+    this.window = undefined
+    this.opening = undefined
+    this.paintedRevision = 0
+    if (actualControl)
+      this.assign({
+        mode: 'unconfirmed',
+        startedAt: this.current.startedAt,
+        sessionCount: this.current.sessionCount,
+        error: '控制提示中断，正在停止控制；请打开 Coloop 检查',
+      })
+    else this.assign({ mode: 'hidden' })
+    if (window && !window.isDestroyed()) window.destroy()
+    try {
+      if (actualControl) {
+        try {
+          if (this.options.onUnavailable) await this.options.onUnavailable(reason)
+          else if (this.stopPending) await this.stopPending
+          else {
+            await this.options.onStop()
+          }
+        } catch {
+          // Unknown remains visible after recovery; failure is never converted to success.
+        }
+        if (this.isActualControl()) {
+          try {
+            const recovered = await this.ensureWindow()
+            recovered.webContents.send('control-indicator:snapshot', { ...this.current })
+            recovered.showInactive()
+          } catch {
+            // The stop callback has already been invoked even when recovery cannot display.
+          }
+        }
+      }
+    } finally {
+      this.recovering = false
+    }
+  }
+
+  dispose() {
+    if (this.disposed) return
+    this.disposed = true
+    this.clearPreviewTimer()
+    this.rejectPaints('控制提示已关闭')
+    screen.removeListener('display-added', this.reposition)
+    screen.removeListener('display-removed', this.reposition)
+    screen.removeListener('display-metrics-changed', this.reposition)
+    for (const channel of CHANNELS) ipcMain.removeHandler(channel)
+    const window = this.window
+    this.window = undefined
+    if (window && !window.isDestroyed()) window.destroy()
+  }
+}

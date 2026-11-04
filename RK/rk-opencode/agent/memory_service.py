@@ -37,7 +37,8 @@ class Service:
 
     def call(self, path, body):
         if path == "/health":
-            return {"ready": True, "provider": "mem0", "version": "2.2.1", "busy": self.busy}
+            return {"ready": True, "provider": "mem0", "version": "2.2.1", "busy": self.busy,
+                    "capabilities": ["tag_catalog_v1"]}
         if path == "/activity":
             session = body.get("session_id")
             if not isinstance(session, str) or len(session) > 128:
@@ -60,6 +61,15 @@ class Service:
             return {"context": "", "deferred": True, "reason": "memory maintenance in progress"}
         if path == "/enqueue":
             return self.engine.enqueue(body["text"], independent=True)
+        if path == "/call" and body.get("op") in ("catalog", "get_many"):
+            # Foreground lookups must not queue behind an uninterruptible NPU maintenance run.
+            if self.busy or not self.lock.acquire(timeout=0.05):
+                return {"memories": [], "deferred": True,
+                        "reason": "memory maintenance in progress"}
+            try:
+                return self.engine.call(body)
+            finally:
+                self.lock.release()
         with self.lock:
             if path == "/call":
                 return self.engine.call(body)

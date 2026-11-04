@@ -90,8 +90,12 @@ export function TaskResult({
           <span>{task.error}</span>
         </div>
       )}
-      {task.target === 'rk' && task.status === 'running' && (
-        <p className="muted">回答完成后返回。停止只结束上位机等待，不会终止板端共享推理。</p>
+      {task.status === 'running' && (
+        <p className="muted">
+          {task.execution === 'desktop'
+            ? '单步操作和结果核验由 TARS 驱动，停止后等待 RK 释放确认。'
+            : '回答完成后返回。停止只结束上位机等待，不会终止板端共享推理。'}
+        </p>
       )}
       <div className="result-footer">
         <span>
@@ -119,14 +123,22 @@ export function TaskResult({
               onClick={() =>
                 void unwrap(api.cancelTask(task.id))
                   .then(() => {
-                    if (task.target === 'rk') notify('已停止等待，板端共享推理可能仍在运行')
+                    notify(
+                      task.execution === 'desktop'
+                        ? '停止请求已发送，请查看操作状态'
+                        : '已停止等待，板端共享推理可能仍在运行',
+                    )
                   })
                   .catch((e) => notify(e.message, true))
               }
-              title={task.target === 'rk' ? '停止等待，板端共享推理会继续' : undefined}
+              title={
+                task.execution === 'desktop'
+                  ? '停止操作并等待 RK 确认'
+                  : '停止等待，板端共享推理可能仍在运行'
+              }
             >
               <Square size={12} />
-              {task.target === 'rk' ? '停止等待' : '停止'}
+              {task.execution === 'desktop' ? '停止操作' : '停止等待'}
             </button>
           )}
         </div>
@@ -244,8 +256,8 @@ export function DeviceRail({
             <Cpu size={18} />
           </span>
           <div>
-            <strong>端侧模型</strong>
-            <p>{device.model || 'Qwen3.5-4B'}</p>
+            <strong>后台记忆模型</strong>
+            <p>{device.model || 'Qwen3.5-4B'} · 整理已验证任务</p>
           </div>
           <span className={`capability-state ${connected && device.qwenReady ? 'green' : ''}`}>
             {connected
@@ -261,8 +273,8 @@ export function DeviceRail({
       <div className="local-note">
         <ShieldCheck size={16} />
         <div>
-          <strong>本地优先</strong>
-          <p>图像在本机识别。仅当你运行云端任务时，相关文本才会发送至所选模型。</p>
+          <strong>观察与执行</strong>
+          <p>图像在本机识别，页面文字交给云端理解。RK 执行键鼠并在后台整理记忆。</p>
         </div>
       </div>
     </aside>

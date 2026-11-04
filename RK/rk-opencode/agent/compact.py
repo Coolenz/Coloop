@@ -11,7 +11,7 @@ from desktop import DESKTOP_TOOL
 STEP_TOOL = copy.deepcopy(DESKTOP_TOOL)
 STEP_TOOL["name"] = "desktop_step"
 STEP_TOOL["description"] = (
-    "Type uses text; click uses target_id; hotkey uses keys. Each action returns a fresh observation."
+    DESKTOP_TOOL["description"] + " Each action returns a fresh observation automatically."
 )
 STEP_TOOL["inputSchema"]["properties"].pop("op")
 STEP_TOOL["inputSchema"]["required"] = ["observation_id", "action"]
@@ -25,7 +25,7 @@ def compact_observation(observation):
         if key in observation
     }
     result["targets"] = [
-        {key: target[key] for key in ("id", "name", "type", "source") if key in target}
+        {key: target[key] for key in ("id", "name", "type", "source", "value") if key in target}
         for target in observation.get("targets", [])
     ]
     return result

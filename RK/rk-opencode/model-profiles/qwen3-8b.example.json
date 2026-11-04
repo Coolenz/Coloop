@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "model_id": "qwen3-8b-rkllm",
+  "name": "Qwen3-8B on RK3588 (unverified example)",
+  "app": "~/rk-edge-ai/qwen3-8b",
+  "model": "REPLACE_WITH_VERIFIED_MODEL_FILENAME.rkllm",
+  "runtime_version": "REPLACE_WITH_MATCHING_RUNTIME_VERSION",
+  "lock": "../.qwen3-8b-inference.lock",
+  "context_limit": 4096,
+  "context": 4096,
+  "max_output": 2048,
+  "default_output": 256,
+  "prompt_format": "embedded",
+  "thinking": false,
+  "native_cache": false,
+  "cache_mode": "off",
+  "embed_flash": 0,
+  "base_domain_id": 0,
+  "n_keep": 0,
+  "agent_config": "opencode-qwen.json"
+}

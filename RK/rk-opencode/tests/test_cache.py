@@ -112,6 +112,7 @@ class CacheTests(unittest.TestCase):
         worker.timeout = 3
         worker.context = 16384
         worker.model_id = QWEN_MODEL_ID
+        worker.prompt_format = "embedded"
         worker.cache_mode = "native"
         worker.cache = ConversationCache()
         worker.process = SimpleNamespace(poll=lambda: None)

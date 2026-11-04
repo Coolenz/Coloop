@@ -20,17 +20,17 @@ const defaultSettings: SettingsInput = {
     model: 'gpt-4.1-mini',
   },
   board: {
-    host: '192.0.2.2',
+    host: '169.254.207.141',
     port: 22,
     username: 'cat',
-    fingerprint: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    fingerprint: '80g5a9IosBsdRKzq2QzobK+Q0mLvpKkdPHUJE2U8LnI',
   },
   ocrWorkspace: 'D:/RK',
 }
 const taskSchema = z.object({
   id: z.string(),
   prompt: z.string(),
-  target: z.enum(['cloud', 'rk']),
+  target: z.enum(['hybrid', 'cloud', 'rk']),
   source: z.enum(['text', 'screen']),
   status: z.enum(['running', 'completed', 'failed', 'cancelled']),
   createdAt: z.string(),
@@ -39,6 +39,7 @@ const taskSchema = z.object({
   error: z.string().optional(),
   stage: z.string(),
   model: z.string(),
+  execution: z.literal('desktop').optional(),
 })
 export class AppStore {
   private settings: SettingsInput = structuredClone(defaultSettings)

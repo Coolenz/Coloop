@@ -1,0 +1,439 @@
+html:has(body.control-surface),
+body.control-surface,
+body.control-surface #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color: #ffffff;
+  color-scheme: dark;
+}
+
+body.control-surface {
+  font-family: 'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+body.control-surface #root {
+  padding: 5px 8px 11px;
+}
+
+body.control-surface .control-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 60px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: #202124;
+  box-shadow: 0 5px 10px #00000030;
+  -webkit-app-region: no-drag;
+}
+
+body.control-surface button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  transition: background 120ms ease-out;
+  -webkit-app-region: no-drag;
+}
+
+body.control-surface button:hover {
+  background: #383c43;
+}
+
+body.control-surface button:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+body.control-surface .control-brand {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+body.control-surface .control-brand img {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+
+body.control-surface .control-warning {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-sizing: content-box;
+  padding: 2px;
+  border-radius: 4px;
+  color: #ffffff;
+  background: #202124;
+}
+
+body.control-surface .control-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+body.control-surface .control-title,
+body.control-surface .control-detail {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.control-surface .control-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+body.control-surface .control-detail {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #c7c9cd;
+}
+
+body.control-surface .control-timer {
+  flex: 0 0 auto;
+  min-width: 37px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #c7c9cd;
+}
+
+body.control-surface .control-stop {
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #202124;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body.control-surface .control-stop:hover {
+  background: #e4e5e7;
+}
+
+body.control-surface .control-stop:disabled {
+  cursor: wait;
+  opacity: 1;
+  background: #383c43;
+  color: #d8dade;
+}
+
+body.control-surface .control-preview-open,
+body.control-surface .control-preview-close {
+  color: #c7c9cd;
+}
+
+body.control-surface .control-spinner {
+  animation: control-spin 1s linear infinite;
+}
+
+@keyframes control-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 430px) {
+  body.control-surface .control-indicator {
+    gap: 8px;
+    padding: 0 10px;
+  }
+  body.control-surface .control-stop {
+    gap: 5px;
+    padding: 0 9px;
+  }
+}
+
+@media (max-width: 330px) {
+  body.control-surface .control-timer {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.control-surface button {
+    transition: none;
+  }
+  body.control-surface .control-spinner {
+    animation: none;
+  }
+}
+
+body.control-surface .control-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  height: 100%;
+  max-height: 100%;
+  padding: 0 12px;
+  overflow: hidden;
+}
+body.control-surface .island-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 60px;
+  flex: 0 0 60px;
+}
+body.control-surface .island-panel {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 3px 4px 16px;
+  user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: #72767c #202124;
+}
+body.control-surface .island-panel h1 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+body.control-surface .island-content {
+  color: #e2e3e5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+body.control-surface .island-actions,
+body.control-surface .island-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+body.control-surface .island-choices {
+  margin-bottom: 10px;
+}
+body.control-surface .island-primary,
+body.control-surface .island-secondary,
+body.control-surface .island-text-button {
+  padding: 7px 12px;
+  height: auto;
+}
+body.control-surface .island-primary {
+  color: #202124;
+  background: #fff;
+  font-weight: 600;
+}
+body.control-surface .island-primary:hover {
+  background: #e4e5e7;
+}
+body.control-surface .island-secondary {
+  background: #383c43;
+  text-align: left;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+body.control-surface button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+body.control-surface .island-error {
+  color: #fff;
+  margin: 10px 0;
+}
+body.control-surface label {
+  display: block;
+  margin: 12px 0 6px;
+  color: #d8dade;
+}
+body.control-surface textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  max-height: 130px;
+  padding: 9px 10px;
+  border: 1px solid #72767c;
+  border-radius: 8px;
+  background: #2a2c30;
+  color: #fff;
+  font: inherit;
+  line-height: 1.5;
+  caret-color: #fff;
+}
+body.control-surface textarea:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+body.control-surface ::selection {
+  background: #d8dade;
+  color: #202124;
+}
+@media (max-width: 330px) {
+  body.control-surface .island-header {
+    gap: 5px;
+  }
+}
+
+body.control-surface .island-command {
+  display: flex;
+  align-items: center;
+  flex: 0 0 42px;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 3px 4px 3px 12px;
+  border: 1px solid #72767c;
+  border-radius: 10px;
+  background: #2a2c30;
+}
+body.control-surface .island-command:focus-within {
+  border-color: #fff;
+}
+body.control-surface .island-command input {
+  width: 0;
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  line-height: 1.5;
+  caret-color: #fff;
+  user-select: text;
+}
+body.control-surface .island-command input::placeholder {
+  color: #c7c9cd;
+  opacity: 1;
+}
+body.control-surface .island-command input:disabled {
+  color: #c7c9cd;
+}
+body.control-surface .island-command-send {
+  min-width: 32px;
+  min-height: 32px;
+  background: #fff;
+  color: #202124;
+  border-radius: 8px;
+}
+body.control-surface .island-command-send:hover {
+  background: #e4e5e7;
+}
+body.control-surface .island-command-send:disabled {
+  background: #383c43;
+  color: #c7c9cd;
+  opacity: 1;
+}
+
+body.control-surface .island-command[hidden] {
+  display: none;
+}
+body.control-surface .island-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 20px;
+  align-self: stretch;
+  color: #c7c9cd;
+  cursor: grab;
+  -webkit-app-region: no-drag;
+  touch-action: none;
+}
+body.control-surface .control-copy {
+  -webkit-app-region: no-drag;
+}
+body.control-surface .control-indicator[data-revealed='false'] .island-header {
+  gap: 6px;
+}
+body.control-surface .control-indicator[data-revealed='false'] {
+  border-radius: 24px;
+}
+
+/* Liquid glass: a translucent body, refracted edge and one continuous highlight. */
+body.control-surface .control-indicator {
+  border: 1px solid #ffffff50;
+  background:
+    radial-gradient(ellipse at 8% 0%, #ffffff36 0%, transparent 56%),
+    linear-gradient(145deg, #353c49c9, #151b25d9 58%, #3b4350c9);
+  backdrop-filter: blur(28px) saturate(155%);
+  box-shadow:
+    inset 0 1px 0 #ffffff6b,
+    inset 0 -1px 0 #ffffff16,
+    0 5px 12px #08101c38;
+  border-radius: 22px;
+}
+body.control-surface .control-detail,
+body.control-surface .control-timer,
+body.control-surface .island-drag-handle {
+  color: #e1e6ed;
+}
+body.control-surface .control-warning {
+  background: #343e4c;
+}
+body.control-surface button:hover {
+  background: #ffffff20;
+}
+body.control-surface .island-command {
+  border-color: #ffffff47;
+  background: #090f193b;
+  box-shadow:
+    inset 0 1px 3px #0000001f,
+    0 1px 0 #ffffff0f;
+  border-radius: 13px;
+}
+body.control-surface .island-command:focus-within {
+  border-color: #ffffffad;
+}
+body.control-surface .island-command input::placeholder {
+  color: #e1e6ed;
+}
+body.control-surface .island-command-send,
+body.control-surface .control-stop,
+body.control-surface .island-primary {
+  background: #f5f8fff0;
+  color: #192331;
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 1px 3px #00000018;
+}
+body.control-surface .island-command-send:hover,
+body.control-surface .control-stop:hover,
+body.control-surface .island-primary:hover {
+  background: #fff;
+}
+body.control-surface .island-command-send:disabled,
+body.control-surface .island-secondary {
+  background: #ffffff20;
+  color: #edf1f7;
+}
+body.control-surface .island-content {
+  color: #f0f3f8;
+}
+body.control-surface textarea {
+  background: #090f1959;
+  border-color: #ffffff69;
+}

@@ -1,0 +1,2 @@
+# Independent Windows sidecar; never install into RKLLM/OCR/host environments.
+browser-use==0.13.14

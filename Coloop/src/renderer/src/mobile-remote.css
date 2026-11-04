@@ -1,0 +1,111 @@
+.mobile-remote {
+  margin-top: 28px;
+  padding: 24px 0;
+  border-block: 1px solid var(--line);
+}
+.mobile-remote-heading {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.mobile-remote h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 7px;
+}
+.mobile-remote p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.mobile-remote-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.mobile-remote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+.mobile-remote-address {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+  font-size: 12px;
+}
+.mobile-remote-address > span {
+  overflow-wrap: anywhere;
+}
+.mobile-remote-error {
+  margin-top: 12px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.mobile-pairing {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: var(--radius-control);
+  background: var(--inspector, #f7f7f7);
+}
+.mobile-pairing > img {
+  width: 208px;
+  max-width: 100%;
+  height: auto;
+}
+.mobile-pairing > div {
+  min-width: 0;
+}
+.mobile-pairing h3 {
+  font-size: 16px;
+}
+.mobile-pairing p {
+  margin: 10px 0 12px;
+}
+.mobile-pairing .mobile-pairing-note {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+.mobile-remote-devices {
+  margin-top: 20px;
+}
+.mobile-remote-devices > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.mobile-remote-devices > div > div {
+  flex: 1;
+  min-width: 0;
+}
+.mobile-remote-devices strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.mobile-remote-devices span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.mobile-remote-note {
+  margin-top: 14px;
+  font-size: 12px;
+  max-width: 72ch;
+}
+@media (max-width: 760px) {
+  .mobile-pairing {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .mobile-pairing > img {
+    justify-self: center;
+  }
+}

@@ -1,14 +1,18 @@
 # Windows 本地 OCR 与桌面操作
 
+2026-10-30 后续：模型输入整理已进入RK端侧桌面Agent默认流程；Windows只观察/校验，前台获取和键鼠动作由RK USB HID完成。新入口、真实模型业务闭环与边界见 [端侧桌面Agent](25-rk-desktop-agent.md)。
+
 调研、安装、测试日期：2026-10-28。目标：为 VioLoop 风格的桌面助手提供文字、坐标、标准控件信息与键鼠执行基础。
 
 ## 已选方案
 
-**RapidOCR 3.10.0 + PP-OCRv5 mobile 中英文模型 + ONNX Runtime CPU**。用 `mss` 截图，`pywinauto` 读取 Windows UI Automation 控件树、执行鼠标点击与键盘输入。正常识别完全在本机进行，不需要 API Key。
+**RapidOCR 3.10.0 + PP-OCRv5 mobile 中英文模型 + ONNX Runtime CPU**。观察部分用 `mss` 截图、`pywinauto` 读取 Windows UI Automation 控件树。历史软件执行示例使用电脑端键鼠输入；后续HID主链路的输入由RK发出。正常识别完全在本机进行，不需要 API Key。
 
 OCR 输出的是文字区域，不等于按钮边界，也不能证明某个区域可点击。文字按钮可用文字区域中心定位；标准窗口优先通过 UIA 获取 Button、Edit 等控件类型、边界和 enabled 状态。无文字图标、Canvas、自绘控件、远程桌面等情况，需要视觉检测、模板匹配或多模态模型补充。
 
-建议接入链路：**窗口信息/UIA → 必要区域 OCR → 任务规划器 → 一次动作 → 再次观察验证**。图像中的文字作为任务数据处理，不能直接作为可执行指令。
+按2026-10-30用户确认的HID方向，目标链路为：**电脑窗口/UIA → 必要区域OCR → RK任务规划 → RK本地执行器 → USB HID键鼠 → 电脑再次观察验证**。电脑侧在该主链路承担观察与校验；RK直接发送硬件报告，MCP作为可选调用适配。图像中的文字作为任务数据处理，不能直接作为可执行指令。硬件能力与直接入口见 [HID专题](24-rk-hid-input.md)。
+
+2026-10-30：紧凑控件表、增量回传和逐步校验的批量填写，先在Windows软件通道实验，现已接入RK本地HID主接口。`hid-act.py --observe --compact --reset-view` 生成首帧，`--compact` 接收本地动作/批填并返回增量。复用现有RapidOCR+UIA的真实USB验收通过：初始观察2582→383字节，无变化增量70字节；一条请求经RK完成7个HID动作及逐项实值核对。随后独立六题真实Qwen4B观察A/B已测得input token 9156→2244、SDK prefill 168.088→41.082秒，均约减少75.5%；不调用HID，未验收模型自主跨应用业务。中文识别不等于纯HID中文输入。`tools/screen_ocr.py` 和单次 `scripts/screen-ocr.ps1` 的接口保持原有形式。源码、固定日志和限制见 [HID优化验收](24-rk-hid-input.md#紧凑观察与板端批量填写) 与 [真实模型A/B](24-rk-hid-input.md#真实模型处理量-ab)；历史软件通道证据仍见 [桌面skill专题](23-windows-desktop-skill.md)。
 
 ## 候选比较
 

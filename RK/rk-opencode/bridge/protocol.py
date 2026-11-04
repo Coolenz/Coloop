@@ -85,7 +85,12 @@ def validate(value, schema):
             validate(item, schema["items"])
 
 
-def prepare(body, model_id=MODEL_ID):
+def prepare(body, model_id=MODEL_ID, prompt_format=None):
+    # Direct legacy callers retain their default; production passes the profile format.
+    if prompt_format is None:
+        prompt_format = "deepseek-r1" if model_id == MODEL_ID else "embedded"
+    if prompt_format not in ("embedded", "deepseek-r1"):
+        raise InvalidRequest("Unsupported model prompt format")
     if body.get("model") != model_id:
         raise InvalidRequest(f"Unknown model; use {model_id}")
     messages = body.get("messages")
@@ -168,7 +173,7 @@ def prepare(body, model_id=MODEL_ID):
             )
         if choice == "required" or isinstance(choice, dict):
             instructions.append("You MUST call one of the listed tools in this turn.")
-    if model_id == QWEN_MODEL_ID:
+    if prompt_format == "embedded":
         # The worker keeps the model's embedded Qwen template and disables thinking.
         # This is a transcript inside ONE user input, never a second chat template.
         transcript = "\n\n".join(instructions)

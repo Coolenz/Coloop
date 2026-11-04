@@ -136,21 +136,23 @@ def hid_action(action):
     )
 
 
-def upload(client, binary):
+def upload(client, binary, profile="qwen35-4b"):
     command(
         client, "mkdir -p " + REMOTE + "/{src,bridge,scripts,tests,workspace,logs,.runtime,bin}"
     )
-    # A running worker uses the executable being rebuilt and may hold the model lock.
-    command(
-        client,
-        f"if [ -f {REMOTE}/scripts/stop-model.sh ]; then bash {REMOTE}/scripts/stop-model.sh; fi",
-    )
+    # build.sh writes a pending binary and archives/renames it atomically. Keep the
+    # current service alive; start.sh validates new assets before switching it.
     with client.open_sftp() as sftp:
         paths = list(ROOT.glob("opencode*.json")) + [
             ROOT / name
-            for name in ("host.py", "desktop_host.py", "testbench.py", "bench_report.py", "requirements-memory.txt")
+            for name in (
+                "host.py", "desktop_host.py", "testbench.py", "bench_report.py",
+                "requirements-memory.txt", "model_profiles.py",
+            )
         ]
-        for folder in ("src", "bridge", "scripts", "tests", "agent", "pc", "plugins"):
+        for folder in (
+            "src", "bridge", "scripts", "tests", "agent", "pc", "plugins", "model-profiles", "skills",
+        ):
             if (ROOT / folder).exists():
                 paths.extend(
                     p
@@ -206,7 +208,10 @@ def upload(client, binary):
         installer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(installer)
         installer.install(client)
-    command(client, f"cd {REMOTE} && bash scripts/build.sh && bin/opencode --version")
+    command(
+        client, f"cd {REMOTE} && RK_AGENT_PROFILE={shlex.quote(profile)} "
+        "bash scripts/build.sh && bin/opencode --version",
+    )
 
 
 def main():
@@ -225,6 +230,9 @@ def main():
     )
     parser.add_argument("--binary", action="store_true")
     parser.add_argument("--script", type=Path)
+    parser.add_argument(
+        "--profile", default="qwen35-4b", help="Model profile to build on deployment"
+    )
     args = parser.parse_args()
     if args.action == "download":
         download()
@@ -234,7 +242,10 @@ def main():
         return
     with connect() as client:
         if args.action == "deploy":
-            upload(client, args.binary)
+            from model_profiles import load_profile
+
+            load_profile(args.profile)  # Validate the name/description before remote mutation.
+            upload(client, args.binary, args.profile)
         elif args.action == "exec":
             if not args.script:
                 parser.error("--script is required")

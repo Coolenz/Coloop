@@ -6,9 +6,11 @@
 
 ## 前端 skill
 
-按要求从 GitHub 安装 [anthropics/skills 的 frontend-design](https://github.com/anthropics/skills/tree/main/skills/frontend-design)。本机路径为 `C:\Users\<USER>\.codex\skills\frontend-design\SKILL.md`，安装日期 2026-10-28。先制定 `design.md` 中的视觉 token 与布局，再实现并用真实 Electron 截图复核。skill 本身及许可证保留在安装目录，不作为程序运行依赖。
+按要求从 GitHub 安装 [anthropics/skills 的 frontend-design](https://github.com/anthropics/skills/tree/main/skills/frontend-design)。本机路径为 `C:\Users\52760\.codex\skills\frontend-design\SKILL.md`，安装日期 2026-10-28。先制定 `design.md` 中的视觉 token 与布局，再实现并用真实 Electron 截图复核。skill 本身及许可证保留在安装目录，不作为程序运行依赖。
 
 ## 工程依赖
+
+原生 Agent Hook 采用 [OpenCode 1.19.5 / MIT](https://github.com/anomalyco/opencode/tree/810c0eba1a7348036f8bdf61e6632d0c36c6876c) 的插件与 SDK API，固定源码提交 `810c0eba1a7348036f8bdf61e6632d0c36c6876c`。参考 [HumanLayer / Apache-2.0](https://github.com/humanlayer/humanlayer/tree/316e74ef9af0b7b3d64ac45b5eb93415b3ed2204) 的会话镜像设计；其 OpenCode 2.x 插件和运行库没有安装或打包。适配器、固定版本差异与真实 pending 等待方式见 [原生 Hook 说明](native-agent-hooks.md)。
 
 | 组件                 | 用途                             | 来源                                          |
 | -------------------- | -------------------------------- | --------------------------------------------- |

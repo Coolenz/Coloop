@@ -32,11 +32,22 @@ static int callback(RKLLMResult* result, void* data, LLMCallState state) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 5) { std::fprintf(stderr, "worker MODEL CONTEXT LOCK PROFILE\n"); return 2; }
-    const bool qwen = std::string(argv[4]) == "qwen35-4b";
-    if (!qwen && std::string(argv[4]) != "deepseek") return 2;
+    if (argc != 11) {
+        std::fprintf(stderr, "worker MODEL CONTEXT LOCK FORMAT THINKING EMBED_FLASH "
+                             "DOMAIN KEEP CACHE MAX_OUTPUT\n");
+        return 2;
+    }
+    const bool embedded = std::string(argv[4]) == "embedded";
+    if (!embedded && std::string(argv[4]) != "deepseek-r1") return 2;
     const int context = std::atoi(argv[2]);
-    if (context < 1024 || context > 16384) return 2;
+    const int thinking = std::atoi(argv[5]), embed_flash = std::atoi(argv[6]);
+    const int domain = std::atoi(argv[7]), keep = std::atoi(argv[8]);
+    const int native_cache = std::atoi(argv[9]), max_output = std::atoi(argv[10]);
+    if (context < 512 || context > 262144 || thinking < 0 || thinking > 1
+        || embed_flash < 0 || embed_flash > 1 || domain < 0 || domain > 255
+        || keep < 0 || keep >= context || native_cache < 0 || native_cache > 1
+        || (!embedded && native_cache) || max_output < 1 || max_output > 2048
+        || max_output >= context) return 2;
     int lock_fd = open(argv[3], O_CREAT | O_RDWR, 0600);
     if (lock_fd < 0 || flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
         std::fprintf(stderr, "Model is already in use. Close its existing chat first.\n");
@@ -49,39 +60,37 @@ int main(int argc, char** argv) {
     RKLLMParam param = rkllm_createDefaultParam();
     param.model_path = argv[1];
     param.max_context_len = context;
-    param.max_new_tokens = 512;
+    param.max_new_tokens = max_output;
     param.top_k = 1;
     param.top_p = 0.95;
     param.temperature = 0.1;
     param.repeat_penalty = 1.1;
     param.skip_special_token = true;
     param.is_async = false;
-    param.extend_param.embed_flash = qwen ? 0 : 1;
-    if (qwen) {
-        param.extend_param.base_domain_id = 1;
-        param.n_keep = context > 2048 ? 2048 : context / 2;
-    }
+    param.extend_param.embed_flash = embed_flash;
+    param.extend_param.base_domain_id = domain;
+    param.n_keep = keep;
     RKLLMCallback callbacks = {};
     callbacks.result_callback = callback;
     LLMHandle handle = nullptr;
     if (rkllm_init(&handle, &param, &callbacks) != 0) return 3;
     // Python supplies the complete DeepSeek transcript. Do not wrap it a second time.
-    if (!qwen && rkllm_set_chat_template(handle, "", "", "") != 0) {
+    if (!embedded && rkllm_set_chat_template(handle, "", "", "") != 0) {
         rkllm_destroy(handle); return 3;
     }
-    std::fprintf(channel, "READY 2\n");
+    std::fprintf(channel, "READY 3\n");
     size_t length = 0;
     int tokens = 0, mode = 0;
     // mode 0: independent request; 1: new native conversation; 2: append native turn.
     while (std::scanf("%zu %d %d", &length, &tokens, &mode) == 3) {
         if (getchar() != '\n' || length == 0 || length > 262144 || tokens < 1
-            || tokens > 2048 || mode < 0 || mode > 2 || (!qwen && mode != 0)) break;
+            || tokens > max_output || mode < 0 || mode > 2 || (!native_cache && mode != 0)) break;
         std::string prompt(length, '\0');
         if (std::fread(&prompt[0], 1, length, stdin) != length) break;
         Result output;
         RKLLMInput input = {};
         input.role = "user";
-        input.enable_thinking = !qwen;
+        input.enable_thinking = thinking;
         input.input_type = RKLLM_INPUT_PROMPT;
         input.prompt_input = prompt.c_str();
         RKLLMInferParam inference = {};

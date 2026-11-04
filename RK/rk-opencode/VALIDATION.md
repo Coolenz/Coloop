@@ -1,5 +1,109 @@
 # 验证记录
 
+## 2026-10-30：RK 端侧 Agent 默认策略与全 RK HID 闭环
+
+新增 `agent/hid_agent.py` / `scripts/hid-agent.py` / `RK桌面Agent.cmd`：原生模型循环默认紧凑/增量观察、实际composed-prompt预算、超预算任务/真实回执/当前全视图重建及冷KV会话、失败停止；业务条件独立核验，缺条件时不宣称程序验证成功。可选FastDesktop默认复用HIDWorkflow及短Agent引用，保持原OpenCode记忆权限与历史benchmark协议；原生入口不调用记忆内容工具。
+
+用户明确要求全部操作由RK完成后，新增只读caption身份查询/一次性reservation，由RK硬件点击获取前台；不再使用computer-use或PC输入来操作测试窗。最终父项目 `logs/hid-agent-layer-20261030-224152/e2e-5/`：被动窗口预置后，RK自己获取前台 → 两次真实Qwen4B请求 → 模型生成fill_form参数原样派发 → USB键鼠 → UIA回读与Windows独立业务 → 完整最终值回答，通过。Text首尾空格、数字负号/前导零/尾零和未知Code均准确，Apply恰好1次，无按键残留；约66.548秒、最高53.615℃。第一轮新增980 token，第二轮新增218 token及1061缓存token分开记账。没有MCP、软件输入、模型/库替换或USB重绑。
+
+主机相关73项（2项Linux锁跳过）、板端73项通过，安装源码SHA256一致，租约和执行会话解除。真实OpenCode debug config短引用/权限检查通过，尚非新一轮完整OpenCode任务验收。首版422、用户中止等待、较弱收尾样例、fixture共享冲突及最终通过分别保留，不能汇总为通用准确率。原生上下文rebase与只读收尾澄清只有边界单测，本次短任务未触发。完整实现、启动和边界见 [端侧Agent报告](../docs/25-rk-desktop-agent.md)。
+
+## 2026-10-30：真实 NPU 观察数据量 A/B
+
+新增 `scripts/bench-hid-observation.py`，使用固定真实HID初末快照及一项明确合成的禁用按钮干扰，六题分别以原始JSON和现有 `ObservationView` 紧凑/增量视图送入常驻Qwen4B W8A8 / RKLLM 1.3.0。相同提示/160输出上限，独立请求cache off、12次cached token均0，按题交替先后，metadata-only，独立前台租约不读写记忆内容，无工具注册/HID/MCP/OpenCode动作。固定目录 `logs/hid-observation-ab-20261030-221053/` 在父项目：实际input token 9156→2244（少75.49%），SDK prefill 168.088→41.082秒（少75.56%），output 200→149 token；HTTP212.649→72.860秒包含输出差异，不能作为纯输入加速倍数。最高56.384℃，lease释放，没有重启模型或更新生产执行器。
+
+严格JSON及内容得分原始2/6、紧凑6/6。原始三题内容正确但有Markdown围栏，另一题JSON不完整；未剥围栏、补输出或重试，不称为通用准确率/模型HID任务成功率。两个新增主机评分/答案隔离单测、Ruff与Python语法检查通过，12项实际NPU响应/计时及源码SHA256完整核对。详见 [协议、逐题结果与边界](../docs/24-rk-hid-input.md#真实模型处理量-ab)。
+
+## 2026-10-30：原生 HID 紧凑观察与批量填写
+
+`agent/hid_workflow.py` 与 `hid-act.py --compact` 已接入完整本地缓存、紧凑控件数组/带base增量、原生JSON Schema和1..4字段的板端批填。全批共用HID锁，每步重新观察、检查焦点和真实UIA value，末尾统一核对才可选提交；错误/中断持久化阻断，未知结果不自动重放。PC仅增加只读窗口/控件身份及客户区标记，未注入输入；默认CLI与可选MCP继续保持旧协议。
+
+父项目 `logs/hid-workflow-final-20261030/summary.json`：现有RapidOCR+UIA → 板端本地CLI → USB HID → Windows字段及随机Applied状态，通过。初始原始2582→紧凑383字节，增量70字节；1请求执行7动作，约13.969秒；文本首尾空格、负号/前导零/小数尾零一致，Apply恰好一次，修饰键/鼠标释放。含中文的后字段整批拒绝且窗口未变。主机相关51项中49通过、2个Linux锁测试跳过，板端51项通过；Ruff/Python/skill/C#及独立OCR离线/空白/坐标回归通过，源码SHA256及安装前副本留档，会话解除。没有调用模型、MCP、OpenCode或记忆；不代表模型自主填表或NPU速度验收。首轮通过日志另留 `logs/hid-workflow-20261030-2145/`。详见 [优化报告](../docs/24-rk-hid-input.md#紧凑观察与板端批量填写)。
+
+## 2026-10-30：直接 USB HID 主接口与进度对齐
+
+按用户明确要求，skill改为板端本地Python/JSON CLI优先，能力声明 `mcp_required=false`；MCP只保留旧OpenCode适配。专项安装默认不读/改OpenCode配置，仅显式 `--opencode-compat` 才更新兼容prompt。与「为 RK 添加 Windows 操控 Skill」已对齐：电脑负责OCR/UIA观察、校验与回读，RK通过USB发报告；软件通道的Unicode/文件关联/批填结果不当作HID证据。该阶段尚未迁入增量观察/批填，后续独立硬件验收见上节。
+
+父项目 `logs/hid-direct-priority-20261030-174233/direct/`：无MCP、无OpenCode、无模型的板端CLI `hid-act.py --step` → USB HID → Windows随机串输入 → 实值回读通过；computer-use仅用于激活测试窗。主机143项（9平台跳过）、板端当时已部署102项通过，能力文件SHA256一致，安装未修改OpenCode配置，会话已解除。保留此前模型规划未完成最终复验的边界；此轮不是新的通用模型任务质量验收。详见 [直接接口与证据](../docs/24-rk-hid-input.md#直接-hid-定位修正与另一聊天对齐)。
+
+## 2026-10-30：HID 统一 skill 与能力查询
+
+新增 `skills/rk-hid-desktop/SKILL.md`，日常 `rk-desktop` / `rk-desktop-fast` 通过 OpenCode 原生文件引用加载同一说明。保持原 MCP 名称、普通 observe/act 和轻量 step 兼容；CLI增加capabilities/observe/step，能力声明、动作列表与限额共用执行器常量。skill不授予执行权限。专项安装器只合并两个既有HID agent prompt并部署相关文件，保留其他agent/模型/权限及配置；未来完整host打包包含skills。compact观察补回真实Edit value，缺失时不编造，供模型核对文字。
+
+父项目 `logs/hid-skill-20261030-164656/`：主机最终141项（9平台跳过）、板端当时已部署101项通过，Ruff/Python/skill/C#编译验证通过；真实OpenCode确认两个agent加载同一skill。`protocol-final/` 真实MCP→USB→Windows随机串→compact实值核对通过，明确无NPU推理。`model-2/` 旧验收的真实NPU输入/最终串通过，但当时精简结果缺value；补齐value后的严格完整模型复验仍未通过：模型多带target_id、失去前台或同名窗口都被拒绝。错误/失败均保留，没有修补模型参数或自动重放。Computer-use只用于激活隔离窗口，文本输入仍由RK发出。未停止已有模型/凭据服务或重配USB，详见 [本轮协议与证据](../docs/24-rk-hid-input.md#统一-skill-包装与调用入口)。
+
+## 2026-10-30：USB HID 完整动作与停止释放
+
+扩展 `agent/hid.py` / `desktop.py`、PC观察校验与普通/fast MCP schema：移动/悬停、三键点击/双击、持锁插值拖拽、明确刻度的垂直滚轮、Win/GUI及常用键组合。指针始终绑定目标ID，可选截图像素不能越过对应目标；屏幕/DPI、UIA身份、焦点、一次消费及逐报告会话/窗口guard继续校验。取消/异常/进程信号尝试在最后位置释放，释放不受焦点变更阻挡；未知结果不自动重放。未提供跨调用按住、水平滚轮或纯HID中文。
+
+父项目 `logs/hid-input-hardware-20261030-6/` 最终16次动作按预期通过：15次真实输入与Windows效果核对，另1次真实按下后停止并确认释放；三键/双击/拖拽/+2及-3滚轮、文本首尾空格和LF、Home/End/PageUp/PageDown/Delete事件分别留档。主机相关50项（1项Linux锁跳过）、板端当时已部署全套96项通过，Ruff/Python语法/C#编译通过，板端源码SHA256与本地一致。主机同期全套126项另有私密记忆测试 `no such table: jobs` 错误，9项平台跳过，未处理该并行任务。报告完整保留各轮失败、处理耗时与名义拖拽时长偏差，见 [协议与证据](../docs/24-rk-hid-input.md)。
+
+这次由测试程序构造动作，通过真实观察HTTP、板端执行器及USB报告完成；没有运行NPU规划回归，Win键仅编码测试。没有停止原常驻模型/凭据服务、重配RNDIS或更换模型/库；本次测试窗与观察执行会话已停止。
+
+## 2026-10-30：私密记忆统一目录
+
+后续完整OpenCode/NPU严格验收通过，父项目 `logs/private-memory-final-20261030-155915/report.json` 25项，1次真实memory工具查询，整段未知locator与resolver精确匹配，退出0，约39.96秒。此前超时／422／SDK ID混淆均保留；`155332` 原报告的子串误验收由同目录audit撤销，最终改为整段严格检查。
+
+管理入口已进一步统一为Coloop单一「记忆」页和原Mem0管理API：普通／私密共用搜索、分类、列表、新建和删除，普通内容编辑保留历史与TTL，按逻辑键删除避免复活旧版本。私密正文仍只交受保护提供方，browse只有引用，MCP不开放新增管理操作。`scripts/setup-memory-management.py` 已部署；真实SDK 27项管理／目录检查通过于 `logs/unified-memory-sdk-20261030-164144/report.json`，实际32个存储文件无合成秘密。电脑相关14项Python测试和Coloop全量502项通过；早前并行全量中的 `no such table: jobs` 是本任务新增单测漏建jobs表，现已补齐，不改写旧测试记录。真实界面／打包验收与失败记录见 [专题](../docs/22-private-credentials.md)，本阶段未重跑USB输入或公网登录。
+
+最终电脑子仓库全量131项：122通过、9项按平台跳过。Coloop统一记忆包 `release/memory-20261030165137/` 已实际启动并通过真实板端管理16项，`.qa/memory-management-1793350369301/report.json`；16个Mem0文件与70个Coloop配置文件无合成秘密，cloud0且模型日志无增量。包内编译／资源／依赖校验通过。没有覆盖原安装版或改变默认启动器，USB／公网登录仍沿用各自独立验收边界。
+
+凭据成为现有Mem0系统的私密分区：独立 `private_refs` 集合保存元数据引用，普通memory search/get/recall及lookup_private可定位到编号、rk-vault位置和Coloop执行器。正文仍在受保护后端，引用不授予读取明文或执行HID权限，不进入facts/capsules的提取与压缩。按user/project绑定，查询核对权威目录，普通set/delete不能改写私密项，失效或不可用时不返回旧引用。
+
+电脑侧 `logs/private-memory-acceptance-20261030-150409/report.json`（父项目）20项真实SDK/CPU/HTTP/MCP与生命周期检查通过；32个Mem0文件中未出现合成账号/密码，原2条普通事实及队列状态保持。`logs/private-memory-model-20261030-150717/report.json` 的真实Qwen4B消费召回引用通过：精确未知ID、完整位置、Coloop调用方式，metadata-only确认、cache off、worker新增0字节，约19.23秒，不调用云端。完整OpenCode首轮240秒超时单列，不用上述分层通过替代完整Agent验收。11项相关Python单测、1项Node插件回归通过；模型/库/嵌入未更换，本轮不重跑HID输入。详细数据流、配置、失败及信任边界见父项目 [私密记忆](../docs/22-private-credentials.md)。
+
+## 2026-10-30：RKLLM 多模型结构
+
+源码新增 `model_profiles.py` 和 `model-profiles/*.json`，把模型 ID、资产目录、匹配 Runtime/Header、上下文/输出、模板、思考和缓存能力集中声明。启动、构建、HTTP、OpenCode 配置和常驻 Mem0 请求共用这些信息；worker 协议升级为 3，不再按 4B/DeepSeek 名称选择 C++ 参数。默认模型与原权重/运行库保持原配置。
+
+原始证据位于父项目 `logs/rk-agent-model-profiles-20261030-134153/`：`manifest.json`、`summary.json`、`final-source/`、各阶段退出码、输入/响应、OpenCode 原始事件和资源采样。目录按电脑时间命名；板端墙钟明显有偏差，未修改时间，单次耗时用板端 monotonic。初轮与最终源码的 profile 指纹分别为 `84eed447…`、`8bb8bfb8…`；最终轮补充了配置类型校验与格式整理，分别保存各轮结果，不能把初轮全部通过当成最终轮结果。
+
+| 检查 | 本次实际结果 |
+| --- | --- |
+| Windows Python | 最终发现 90 项，82 通过、8 项按环境跳过。过程中工作区另有并行模块新增测试，本次未部署那些模块 |
+| Node 插件 | 90/90，通过自定义受控模型 ID 后仍拒绝改 endpoint、权限、隐私头与旧 small_model |
+| 板端已部署测试集 | 72/72；与 Windows 当前测试文件范围不同，不能当作相同全量集对照 |
+| 静态/启动器 | 修改的 Python 语法与 Ruff、Bash 与内嵌 Python 语法通过；PowerShell 语法及 `-Profile`/UTF-8 编码恢复通过模拟 SSH 验证，没有打开交互控制台或执行桌面 HID |
+| 构建与真实不同模型 | 用各自应用内的 Header/Runtime 编译 Qwen 4B 1.3.0、DeepSeek 1.3.1 worker；两者真实初始化、生成、正常切换及退出通过。DeepSeek 单题 HTTP 200，生成 145 token，最终算术值为 5，回答较冗长；没有重测其工具成功率，也不改写历史失败 |
+| 默认 4B 初轮 | 算术、中文原样输出、错误模型 ID/输出上限拒绝通过。OpenCode 实际 read 后返回完整 `RK_MODEL_a502e6c9955f0ca7`，退出 0，完整文件任务通过 |
+| 原生缓存 | 上述文件任务收尾 `cache_reset=false`、`kv_before=630`，新增 prefill 120 token、提交 269 字节；不是把已有 630 token 算作本轮新增量 |
+| 独立 profile 切换 | 临时 `validation-alt-4b` 使用同一份真实 4B 权重，HTTP ID 为 `validation-4b-rkllm`、上下文 8192、缓存 off；配置与实际请求吻合。它不是另一个 8B 模型 |
+| Mem0 实际模型路由 | 在该独立 ID 服务运行时，真实 `RKMemoryLLM.request()` 返回 `{"memory":[]}`，无旧 4B ID 错误。只验证适配器/NPU 路由，没有重新验收完整跨会话提取、压缩或召回质量 |
+| 切换预检 | 指向不存在权重的临时 profile 返回 2，原 bridge PID 不变；错误在释放现有模型前被发现 |
+| 最终状态 | 已恢复 `qwen35-4b`、16384、native、Runtime 1.3.0、协议 3，健康检查通过；临时 profile、对应 worker/stamp、测试窗口文件和自有活动租约已清理，原日志保留 |
+
+**两次文件任务质量失败必须保留**：独立 8K/off profile 成功执行 read，但原始模型 action JSON 把 `RK_MODEL_1af5a0cc4cb279d3` 抄为 `RK_1af5a0cc4cb279d3`；最终 16K/native 复查同样把 `RK_MODEL_46c3087a7b8653d3` 抄为 `RK_46c3087a7b8653d3`。两次 OpenCode 退出码都是 0，验证器仍正确判失败；分别见 `capability-2/result.json`、`capability-final/result.json` 及对应事件。桥接输出与原始模型 JSON 一致。这是当前 4B 的逐字抄写可靠性限制，不能把读取成功或合法 JSON 等同于任务完成；没有删除失败或据此宣称通用 Agent 质量通过。
+
+最后一轮采样的温度、worker RSS、完整 34 条单秒观察见 `resource-samples.json` 与 `summary.json`，没有触发 80℃策略。RSS 是进程采样，不能代替全部 NPU/系统内存或长期耐久性指标。源码回退保存在板端 `.runtime/model-profiles-backup-20261030-134153/`，构建旧文件在 `build/archive/`；不涉及权重或全局库替换。
+
+Qwen 8B 目前只有 `qwen3-8b.example.json`，没有下载/上传权重或实机推理结论。普通 RK Agent 的接入方法见 [多模型说明](model-profiles/README.md)。外部 `D:\Coloop` 的登记/连接协议仍固定 4B，本次未扩权；受控插件现在从主机摘要登记过的配置固定模型，启动器遇到 live 模型/限制不符时拒绝，其他模型需该主机适配并重新登记。本次未重跑受控签名端到端或桌面 HID。
+
+首次板端 CPU 测试发现未部署 `opencode-coloop-managed.json`，11 项测试准备失败；补齐模板后 72/72 通过。失败原文 `board-unit-tests.txt` 与修正结果分别保存。其余旧实验结论继续以各自固定目录、参数和原始证据为准。
+
+## 2026-10-30：最终受控后端修订与分层结果
+
+应用0.10.1完整native40批次：36/36支持题完成真实闸门（20签名读取/16拒绝），另4路由题未支持；20许可离线验签，审批P95 2702.595ms，最终任务34/36。原始目录 `logs/coloop-managed-native-final-20261030-040600/`。
+
+最终core `f269f5bf...` / entry `bf3c981f...` 只把已批准结果在局部模型输入中展示为简洁原文，原JSON/字节/Hook不变。76项Node、当前core Linux fd27/27和策略127/128通过。失败2题首次定向复测2/2成功，但扩展22题回归仅21闸门/20任务通过，另有误抄与422；19个消费样本P95/max3547.726ms、缺1项，不满足原3500ms目标，未补造结果或放宽JSON。目录 `logs/coloop-managed-projection-regression-20261030-100700/`。
+
+各轮模型请求metadata-only、worker新增0字节，Mem0状态未变；reviewer实际输入未含nonce/canary。primary wire及全Mem0存储观察不完整，strict仍未通过；不把计数相同当作全量存储/物理擦除证明。详见 [固定评测](../docs/19-coloop-managed-approval-evaluation.md)。
+
+## 2026-10-30：Coloop 0.10 真实 RK 一次性读取
+
+`logs/coloop-managed-read-1793302073936/summary.json`：生产受控 profile，非脚本化 Qwen primary 与真实 RK reviewer；实际 `coloop_read` 完成，原 pending 只回复一次并消耗，Ed25519 permit、来源/会话/任务绑定、双 SHA 及最终未知随机串全部核对通过。asked→consumed 2501.376ms，整任务41.937s，三次私密请求，worker新增0字节，Mem0计数不变，自有来源已回收。主机合成请求 observer 未发现文件 nonce 进入审批模型。单例不计为固定40题全部通过。
+
+固定128题最终Linux CPU策略126/128，2题许可消费重放未由策略层支持；36个Hook与26个managed核心Node测试、73个Python测试（Windows3项Linux-only跳过）、Coloop173项测试通过。CPU测试不替代NPU或Linux文件内核验收。固定题集及后续批量真实记录见 [评测报告](../docs/19-coloop-managed-approval-evaluation.md)，入口/权限/记忆与软件信任边界见 [受控审批](../docs/20-coloop-managed-approvals.md)。
+
+## 2026-10-30：Coloop 原生 Hook 与 RK 快审
+
+固定OpenCode1.19.5的SDK进程内fetch与serve路径均已接入，插件36项、父应用144项及本仓库60项Python测试通过。原pending全摘要、单次回复与消费核验、隔离上下文、限额/取消/过期和记忆前台租约保持边界；Hook不写长期事实，正常聊天MemoryPlugin仍按原策略工作。
+
+`logs/coloop-internal-hook-1793295194567/`：无受控源/阶段fixture的真实Qwen主Agent＋真实RK审批＋stock `--mini`，审批2957.743ms、整任务53.047s，工具完成、原请求消费和最终文本精确，无源TCP监听，3次模型调用metadata-only。
+
+`logs/coloop-hooks-benchmark-1793296894702/`：源provider仅脚本化发题/回显真实结果，真实OpenCode/native pending、生产插件、RK判断及SDK消费保持真实；**不代表20次主模型开发成功率**。100事件P95 22.200ms、10规则拒绝P95 28.279ms、20审批20/20成功，P95 3008.326ms、最大3029.731ms；预热单列3124.880ms。21次RK请求均metadata-only、worker新增0字节，Mem0各计数未变。自有会话/进程/活动/连接清理通过，最终部署SHA与本地一致。
+
+全NPU源端失败和单条非私密合成诊断保留；主模型括号错误被严格拒绝，没有补造工具调用。详细输入、源码/产物摘要与限制见父项目 [Hook报告](../docs/18-coloop-hooks.md)。模型、Runtime1.3.0、Header及权重未变。
+
 ## 2026-10-29：轻量方式移入真实 OpenCode
 
 新增 `plugins/desktop-fast.mjs`（`chat.message` 初始观察钩子）、`agent/fast_desktop.py`（MCP 自动观察步骤），以及 `rk-desktop-fast` / `rk-testbench-fast` 两个 agent。日常入口为 `轻量桌面Agent.cmd`，testbench 默认改为 `opencode-fast`；独立 compact 和原 opencode 模式继续保留。
@@ -275,3 +379,23 @@ USB 配置保留原 RNDIS 函数和属性备份，启用时先启动两分钟回
 前台仅CPU召回/排队；空闲120秒且模型已就绪时批量维护，每批最多两条原文，再按八条阈值尝试压缩。新任务设置活动状态并等待当前不可抢占的一次推理，后续整理让路。仍共享NPU和唯一原生KV槽，整理可能增加下一任务等待并使缓存重建，未做负载压力下的延迟上界测试。当前部署仅稠密语义检索，未安装可选spaCy/BM25；SDK启动日志的对应资源缺失告警与语义查询通过分别记录。原始数据/SDK历史/备份保留，删除/TTL不是物理安全擦除；自然语言冲突自动裁决未完成。
 
 本轮没有修改模型权重、运行库或USB/HID；未重跑桌面窗口动作基准，原64.9秒样例仍属此前记录。新Mem0回归不能作为跨应用桌面成功率或新桌面耗时证明。
+
+## 2026-10-29：Coloop 请求级隐私与本地协调
+
+新增 `X-RK-Privacy: metadata-only`、健康能力及响应回执，私密审计仅存白名单元数据。默认 native stderr 送 DEVNULL，原日志不清除；`--worker-log-mode raw` 禁用私密能力并拒绝私密请求。普通 HTTP 聊天仍保留原日志行为。
+
+电脑执行完整60项Python单元测试通过，其中9项新增隐私测试；语法和Ruff通过。实机仅备份并原子替换 `bridge/server.py`，正常重启已确认的服务进程，未构建或替换权重/库。预检约34.23℃、8.66GiB可用内存；Qwen4B/Runtime1.3.0/16384/protocol2/native/隐私能力就绪。
+
+证据 `D:\RK\logs\coloop-coordination-20261029-225344/`：随机串真实NPU精确回显，HTTP200、私密回执正确，约4.686秒，57 prefill/17 completion/cached0。新 `requests.jsonl` 仅一条362字节元数据；验证串出现0次，worker/bridge日志新增0字节。保留输入/输出SHA与匹配结果，不保存秘密正文。
+
+Coloop真实Electron/SSH/NPU安全选项测试亦通过，具体接口来源（模拟或真实OpenCode）、适配器消费和限制见父项目 [协调报告](../docs/17-coloop-coordination.md)。该能力不是通用DLP，也未接入Codex桌面原生审批。
+
+## 2026-10-30：Windows 软件桌面 skill 原型
+
+新增独立8093回环鉴权软件输入服务、MCP windows模式、短skill预载及专用入口。复用窗口观察，保持旧HID入口；此入口只登记前台租约，没有记忆召回/写入工具。打开文件限启动时显式列出的文档/图片，键鼠使用SendInput；fill复合操作点击、核实焦点、替换并精确读回UIA value。
+
+11项新增Python测试、既有桌面/fast/观察14项回归和4项相关Node插件检查通过。Windows真实六操作约5.393秒，包含中文追加及 `-00123.4500` 原样保留，应用独立记录Apply一次。真实Qwen4B/OpenCode在已激活测试窗口完成fill/fill/click与最终随机码 `97f30e7d8f` 返回；四次模型请求合计96.697秒、首末模型请求跨度99.761秒。原始记录 `logs/windows-desktop-20261030-145240-8137/`，默认Notepad关联打开另见 `logs/windows-association-20261030-150113/`。
+
+首次接线、JSON、前台和观察过期失败全部保留，未修补/代造模型动作。真实RK成功样例使用测试工具先打开文件和Computer Use显式激活窗口，不能描述为跨应用自主打开到提交全流程，不能将工具层5.393秒当作模型整体延迟。使用、全部失败目录及范围详见 [Windows桌面skill报告](../docs/23-windows-desktop-skill.md)。
+
+2026-10-30 后续：Windows OCR/UIA链路新增紧凑数组、去重、窗口身份绑定的增量视图及fill_form。`logs/windows-desktop-20261030-171730-35b5/` 真实Qwen＋OCR两轮通过（一次批量填写/提交＋最终随机码回答）；中文与 `-00123.4500` 正确、Apply一次、最终码 `4d85cfdebb`。模型请求合计46.547秒，新增1397 token，两个请求输出92 token；初始窗口投影1247→315字节的独立Windows记录见 `171208-437e`。42项相关Python检查中41通过、1项Linux锁检查跳过，4项相关Node插件通过。旧反向转发5秒读取超时导致已执行但回执丢失的失败 `171350-0bba` 保留；修正后新会话通过，未重放输入。旧四轮96.697秒与新两轮46.547秒是不同配置的单样例对照，不是严格A/B。父项目OCR脚本、旧HID入口和原始历史结果保持各自范围；完整参数、失败和限制见上述专题报告。

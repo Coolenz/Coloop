@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from model_profiles import running_model  # noqa: E402
 sys.path.insert(0, str(ROOT / "agent"))
 sys.path.insert(0, str(ROOT / "scripts"))
 from compact import run_task  # noqa: E402
@@ -31,6 +33,7 @@ def main():
     folder = ROOT / "logs" / ("testbench-" + args.run_id)
     config = json.loads((folder / "agent-input.json").read_text())
     key = (ROOT / ".runtime/api-key").read_text().strip()
+    route = running_model(ROOT)
     session = "compact-" + args.run_id
     status = {"run_id": args.run_id, "runner": "compact", "timed_out": False, "session_id": session}
     started = time.perf_counter()
@@ -47,7 +50,7 @@ def main():
         nonlocal request_count
         request_count += 1
         body = {
-            "model": "qwen35-4b-rkllm",
+            "model": route["model"],
             "messages": messages,
             "tools": [
                 {

@@ -11,13 +11,14 @@ from memory_client import memory_backend
 
 MEMORY_TOOL = {
     "name": "memory",
-    "description": "Durable local memory. get/search before reuse; set stores an unverified agent claim.",
+    "description": "Unified memory. For private credentials use arguments op=lookup_private and query=website; lookup_private is an operation, not a tool name. Returns protected record IDs, locators and Coloop resolver, never plaintext or execution permission. search/get also discover references. set stores ordinary unverified claims.",
     "inputSchema": {
         "type": "object",
         "properties": {
             "op": {
                 "type": "string",
-                "enum": ["set", "get", "search", "delete", "ingest", "compact", "status"],
+                "enum": ["set", "get", "search", "delete", "ingest", "compact", "status",
+                         "lookup_private", "sync_private"],
             },
             "key": {"type": "string"},
             "value": {"type": "string"},
@@ -32,9 +33,41 @@ MEMORY_TOOL = {
 }
 
 
+def compact_private_reference(row):
+    """Keep SDK indexing IDs out of the planner's executable record namespace."""
+    private = row.get("private") if isinstance(row, dict) else None
+    if (
+        not isinstance(private, dict)
+        or private.get("provider") != "credential_vault"
+        or private.get("resolver") != "coloop_private_login"
+        or private.get("plaintext_readable") is not False
+        or private.get("requires_target_validation") is not True
+        or not isinstance(private.get("record_id"), str)
+        or private.get("locator") != "rk-vault://" + private["record_id"]
+    ):
+        raise ValueError("Invalid protected memory reference")
+    return {"kind": "credential_reference", "record_id": private["record_id"],
+            "origin": private["origin"], "locator": private["locator"],
+            "resolver": private["resolver"], "plaintext_readable": False,
+            "requires_target_validation": True}
+
+
+def memory_tool_result(value, operation):
+    if operation in ("lookup_private", "search"):
+        return {**value, "memories": [
+            compact_private_reference(row)
+            if operation == "lookup_private" or row.get("kind") == "credential_reference"
+            else row for row in value["memories"]
+        ]}
+    row = value.get("memory")
+    if operation == "get" and isinstance(row, dict) and row.get("kind") == "credential_reference":
+        return {"memory": compact_private_reference(value["memory"])}
+    return value
+
+
 class MCPServer:
     def __init__(self, root, mode):
-        self.memory = memory_backend(root)
+        self.memory = memory_backend(root) if mode == "memory" else None
         self.mode = mode
         self.tools = [MEMORY_TOOL] if mode == "memory" else []
         if mode == "desktop":
@@ -47,6 +80,11 @@ class MCPServer:
 
             self.desktop = FastDesktop(root)
             self.tools = [FAST_TOOL]
+        if mode == "windows":
+            from windows_desktop import WindowsDesktopTools, WINDOWS_TOOL
+
+            self.desktop = WindowsDesktopTools(root, model_view=True)
+            self.tools = [WINDOWS_TOOL]
 
     def dispatch(self, request):
         method, params = request.get("method"), request.get("params", {})
@@ -79,6 +117,8 @@ class MCPServer:
                     if name == "memory"
                     else self.desktop.call(arguments)
                 )
+                if name == "memory":
+                    value = memory_tool_result(value, arguments.get("op"))
                 return {
                     "content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}]
                 }
@@ -89,7 +129,9 @@ class MCPServer:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=["memory", "desktop", "desktop-fast"], default="memory")
+    parser.add_argument(
+        "--mode", choices=["memory", "desktop", "desktop-fast", "windows"], default="memory"
+    )
     args = parser.parse_args()
     os.umask(0o077)
     root = Path(os.environ.get("RK_AGENT_ROOT", Path(__file__).resolve().parents[1]))

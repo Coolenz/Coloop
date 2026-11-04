@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
 
 const root = resolve(import.meta.dirname, '..')
-const qaDirectory = resolve(root, '.qa')
+const qaDirectory = resolve(root, '.qa', `e2e-${Date.now()}`)
 await mkdir(qaDirectory, { recursive: true })
 const results = []
 let boardTasks = 0
@@ -66,6 +66,7 @@ try {
   const pageNames = {
     屏幕理解: 'screen',
     工作流: 'workflows',
+    'Agent 协调': 'coordination',
     模型连接: 'models',
     设备管理: 'device',
     运行历史: 'history',
@@ -78,7 +79,7 @@ try {
       path: resolve(qaDirectory, `page-${pageNames[name]}.png`),
     })
   }
-  results.push({ check: 'all six navigation pages render', passed: true })
+  results.push({ check: 'all seven navigation pages render', passed: true })
   await page.getByRole('button', { name: '模型连接', exact: true }).first().click()
   await page.getByLabel('连接名称', { exact: true }).fill('本地联调服务')
   await page.getByLabel('模型名称', { exact: true }).fill('mock-model')
@@ -98,20 +99,26 @@ try {
   await page.getByRole('button', { name: '测试连接', exact: true }).click()
   await page.getByText(/连接成功：/).waitFor()
   await page.getByRole('button', { name: '工作台', exact: true }).first().click()
+  assert.equal(await page.getByLabel('选择推理位置').inputValue(), 'cloud')
   await page.getByLabel('任务内容').fill('请测试任务执行')
-  await page.getByLabel('运行任务', { exact: true }).click()
-  await page.locator('.result-panel .status.completed').waitFor()
-  assert.match(await page.locator('.answer').innerText(), /本地接口联调结果/)
+  assert.equal(await page.getByLabel('运行任务', { exact: true }).isDisabled(), true)
+  const guarded = await page.evaluate(() =>
+    window.coloop.runTask({ prompt: '旧入口也不能绕过 RK', target: 'cloud', source: 'text' }),
+  )
+  assert.equal(guarded.ok, false)
+  assert.match(guarded.error, /连接 RK/)
   results.push({
-    check: 'settings save, provider test, HTTP SSE task completes through UI',
+    check: 'fixed cloud routing and legacy cloud requests require RK before dispatch',
     passed: true,
   })
-  await page.getByLabel('任务内容').fill('CANCEL_TEST')
-  await page.getByLabel('运行任务', { exact: true }).click()
-  await page.locator('.result-panel .status.running').waitFor()
-  await page.getByRole('button', { name: '停止', exact: true }).click()
-  await page.locator('.result-panel .status.cancelled').waitFor()
-  results.push({ check: 'cancellation remains cancelled', passed: true })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1060, 720))
+  await page.screenshot({
+    animations: 'disabled',
+    path: resolve(qaDirectory, 'cooperative-minimum.png'),
+  })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
+  await page.getByLabel('任务内容').fill('')
 
   const fixture = resolve(root, 'tests/fixtures/ocr-sample.png')
   await app.evaluate(({ dialog }, fixturePath) => {
@@ -228,14 +235,14 @@ try {
   assert.deepEqual(pageErrors, [])
   results.push({ check: 'no renderer runtime errors', passed: true })
   const history = await page.evaluate(() => window.coloop.snapshot())
-  assert.equal(history.value.tasks.length, 2 + boardTasks)
+  assert.equal(history.value.tasks.length, boardTasks)
   const filename = resolve(qaDirectory, 'history.json')
   await app.evaluate(({ dialog }, filePath) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath })
   }, filename)
   const exported = await page.evaluate(() => window.coloop.exportHistory())
   assert.equal(exported.value, true)
-  assert.equal(JSON.parse(await readFile(filename, 'utf8')).length, 2 + boardTasks)
+  assert.equal(JSON.parse(await readFile(filename, 'utf8')).length, boardTasks)
   results.push({ check: 'history export writes actual task records', passed: true })
   await writeFile(resolve(qaDirectory, 'e2e-results.json'), JSON.stringify(results, null, 2))
   console.log(
