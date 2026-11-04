@@ -1,0 +1,655 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-01T08:36:28.173922+00:00",
+  "title": "Design System: Coloop Android",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "primary",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "on-primary": {
+        "role": "primary",
+        "displayName": "on primary",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "canvas",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "surface",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "ink",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "supporting-ink": {
+        "role": "neutral",
+        "displayName": "supporting ink",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "container": {
+        "role": "neutral",
+        "displayName": "container",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "message-surface": {
+        "role": "neutral",
+        "displayName": "message surface",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "tonal-container": {
+        "role": "neutral",
+        "displayName": "tonal container",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "line",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "outline": {
+        "role": "neutral",
+        "displayName": "outline",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-primary": {
+        "role": "primary",
+        "displayName": "dark primary",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-on-primary": {
+        "role": "primary",
+        "displayName": "dark on primary",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-canvas": {
+        "role": "neutral",
+        "displayName": "dark canvas",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-surface": {
+        "role": "neutral",
+        "displayName": "dark surface",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-ink": {
+        "role": "neutral",
+        "displayName": "dark ink",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-supporting-ink": {
+        "role": "neutral",
+        "displayName": "dark supporting ink",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-container": {
+        "role": "neutral",
+        "displayName": "dark container",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-message-surface": {
+        "role": "neutral",
+        "displayName": "dark message surface",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-tonal-container": {
+        "role": "neutral",
+        "displayName": "dark tonal container",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-line": {
+        "role": "neutral",
+        "displayName": "dark line",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "dark-outline": {
+        "role": "neutral",
+        "displayName": "dark outline",
+        "tonalRamp": [
+          "#101113",
+          "#17181A",
+          "#222326",
+          "#34363A",
+          "#55585E",
+          "#909197",
+          "#D3D5D9",
+          "#F7F7F8"
+        ]
+      },
+      "connected": {
+        "role": "secondary",
+        "displayName": "connected",
+        "tonalRamp": [
+          "#08291D",
+          "#10402E",
+          "#195A42",
+          "#28775B",
+          "#459777",
+          "#64B798",
+          "#84D6B1",
+          "#DEF8EB"
+        ]
+      },
+      "dark-connected": {
+        "role": "secondary",
+        "displayName": "dark connected",
+        "tonalRamp": [
+          "#08291D",
+          "#10402E",
+          "#195A42",
+          "#28775B",
+          "#459777",
+          "#64B798",
+          "#84D6B1",
+          "#DEF8EB"
+        ]
+      },
+      "waiting-surface": {
+        "role": "tertiary",
+        "displayName": "waiting surface",
+        "tonalRamp": [
+          "#2A210D",
+          "#3C3013",
+          "#594315",
+          "#715000",
+          "#9B762C",
+          "#C49D51",
+          "#F2D080",
+          "#FFF1CC"
+        ]
+      },
+      "waiting-ink": {
+        "role": "tertiary",
+        "displayName": "waiting ink",
+        "tonalRamp": [
+          "#2A210D",
+          "#3C3013",
+          "#594315",
+          "#715000",
+          "#9B762C",
+          "#C49D51",
+          "#F2D080",
+          "#FFF1CC"
+        ]
+      },
+      "dark-waiting-surface": {
+        "role": "tertiary",
+        "displayName": "dark waiting surface",
+        "tonalRamp": [
+          "#2A210D",
+          "#3C3013",
+          "#594315",
+          "#715000",
+          "#9B762C",
+          "#C49D51",
+          "#F2D080",
+          "#FFF1CC"
+        ]
+      },
+      "dark-waiting-ink": {
+        "role": "tertiary",
+        "displayName": "dark waiting ink",
+        "tonalRamp": [
+          "#2A210D",
+          "#3C3013",
+          "#594315",
+          "#715000",
+          "#9B762C",
+          "#C49D51",
+          "#F2D080",
+          "#FFF1CC"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "purpose": "Native headlineMedium, with sp sizing and system font scaling.",
+        "displayName": "Empty-state headline"
+      },
+      "title": {
+        "purpose": "Native titleLarge; source implementation supersedes provisional brief sizing.",
+        "displayName": "App and sheet title"
+      },
+      "body": {
+        "purpose": "User goals and Coloop replies.",
+        "displayName": "Conversation body"
+      },
+      "body-medium": {
+        "purpose": "Setup, settings, and task-options explanations.",
+        "displayName": "Supporting body"
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "reply-content-size",
+        "purpose": "Native size changes as real replies update; no custom timing token.",
+        "value": "Compose animateContentSize()"
+      },
+      {
+        "name": "new-task-scroll",
+        "purpose": "New tasks and explicit Latest action scroll to the independently keyed latest reply row.",
+        "value": "LazyListState.animateScrollToItem(tasks.size * 2 - 1)"
+      }
+    ],
+    "breakpoints": [],
+    "native": {
+      "platform": "android",
+      "toolkit": "Jetpack Compose Material 3",
+      "scope": "phone-first",
+      "sourceFiles": [
+        "app/src/main/java/ai/coloop/mobile/MainActivity.kt",
+        "app/src/main/java/ai/coloop/mobile/ColoopChat.kt",
+        "app/src/main/java/ai/coloop/mobile/ColoopModels.kt",
+        "app/src/main/java/ai/coloop/mobile/RemoteViewModel.kt",
+        "app/src/main/java/ai/coloop/mobile/RemoteRepository.kt"
+      ],
+      "nativeTypography": "Frontmatter retains native sp and dp units; unoverridden Material type roles remain platform defaults.",
+      "theme": "Static native light and dark schemes; no Dynamic Color implementation is claimed.",
+      "insets": "Scaffold safeDrawing consumed once; chat/pairing IME padding. Task-options uses rememberModalBottomSheetState(skipPartiallyExpanded = true), vertical scrolling and IME padding. Its bottom clearance is the host ViewCompat.getRootWindowInsets(hostView).getInsetsIgnoringVisibility(WindowInsetsCompat.Type.navigationBars()).bottom converted to dp, plus 32dp; the parent has already consumed Compose insets.",
+      "accessibility": "Native Material focus/pressed/disabled behavior; labeled icon controls; SelectionContainer for goals/replies; polite live-region reply updates; 48dp action targets including Latest and removable constraints; FlowRow metadata; font scale 1.3 emulator evidence.",
+      "status": "Expected RK/model startup uses amber notice; actual failures use native Material error roles. Current online paused state is distinct from offline retained snapshots; offline connection repair remains available. Completed replies use the existing semantic green plus a native check-circle and verified wording.",
+      "previewNote": "Self-contained HTML/CSS are illustrative translations for the design panel only; native Compose code, shapes, text measurement, insets and state behavior are authoritative. Preview text is sample content, never shipping task evidence.",
+      "tonalRampNote": "Neutral ramp samples existing native scheme levels; green and amber intermediate shades are panel-only visualizations, not additional shipping tokens.",
+      "evidence": [
+        "../.impeccable/review/android-0.5.0/capture-index.json",
+        "../.qa/android-0.5.0-r2/verification.json",
+        "../.qa/android-0.5.0-r2/secondary-verification.json",
+        "../.qa/android-0.5.0-r2/reading-verification.json",
+        "../.qa/android-0.5.0-r2/polish-verification.json",
+        "../.qa/violoop-rk-live-1793386785409/verification.json",
+        "../.qa/android-0.5.0-r2/verdict-verification.json",
+        "../.qa/android-0.5.0-r2/restart-stop-verification.json",
+        "../.impeccable/review/android-0.5.0/verdict-pass-1.md"
+      ],
+      "verificationBoundary": "Actual Android Emulator 0.5.0 synthetic RK/HID: original verification, secondary, reading and polish reports passed 9, 4, 2 and 4 checks. Final correction report passes four automated continuation checks: online-paused guidance; offline landscape IME send/draft retention; non-IME history measuring 344px in the capture and full 48dp Latest target; offline cached-stopped Reconnect in light and dark/font1.3. The separate restart-stop report passes two checks: automated force-stop/relaunch retains the selected second computer; landscape Stop is confirmed stepwise via native text semantics after stable layout, with stopped=true and the next draft retained. Complete serial-flow rotation/IME timing failures remain in QA history; this is not six uninterrupted automated checks. No new 0.5 real RK/HID result is claimed. The prior real hardware report applies only to Android 0.4.0 plus companion 0.13.0 within its single-window ASCII route; broader task flows and tablet support remain outside evidence.",
+      "assets": "Existing ic_coloop vector preserved; no new shipping raster.",
+      "release": "Android 0.5.0, version code 5",
+      "responsiveLayout": "Phone portrait retains chat app bar, constraint chips, footer hint and up-to-four-line composer. Landscape uses the compact connection header, explicit Resume or repair, inline Stop beside Send, up-to-two-line composer or one line with IME, and options count instead of chip/hint rows. Latest appears only while away from the final lazy row with at least 56 dp weighted history height; 48 dp action plus 8 dp bottom clearance. Main width cap 840 dp is not tablet verification.",
+      "conversation": "Independently keyed goal/reply lazy rows; goal width min(88% available row,560dp); list20dp padding/gaps, goal8dp top/reply8dp bottom; sender/status and source/time wrap independently. Initial pairing retains unsent text and constraints; switching computers clears prior draft, window/completion constraints and reply context.",
+      "connectionFlows": "Devices uses current-computer wording, host-only ordinary address and overflow for secondary destinations. Pairing has three scanner steps, disclosed manual link and compact invitation confirmation. Ordinary Settings prioritizes state and repair; endpoint/identity editing is separate. Explicit removal dialog supports Cancel, online revocation or local-only deletion, and offline local deletion wording. The last selected computer remains preferred on relaunch; polling, sequence reservation and pending-receipt updates replace its stored connection in place, preserving host order.",
+      "unitEvidence": {
+        "reportDirectory": "app/build/test-results/testDebugUnitTest/",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "hostOrderTests": 2,
+        "boundary": "Unit coverage for preferred host order and receipt/sequence updates; native acceptance modes and reports recorded separately."
+      },
+      "finalAcceptance": {
+        "captureIndex": "../.impeccable/review/android-0.5.0/capture-index.json",
+        "captureCount": 35,
+        "apkSha256": "aed6f693e356f0fbdb9660cac03b6204dca9a770265ee609befd20474d929892",
+        "automatedCorrectionChecks": 4,
+        "separateRestartStopChecks": 2,
+        "mode": "Four automated correction checks continued from independently confirmed native landscape Stop. Restart was automated; Stop was completed stepwise via native semantics after automatic full-flow rotation/IME timing failures. No production code changed for timing failures.",
+        "dataBoundary": "Real Android Emulator/AES-GCM/Keystore; explicitly synthetic model and HID. No new real RK/HID hardware pass.",
+        "scopedReview": {
+          "report": "../.impeccable/review/android-0.5.0/verdict-pass-1.md",
+          "disposition": "ship",
+          "materialFixes": "Both resolved: readable landscape history/full Latest target; offline cached-stopped Settings repair.",
+          "scope": "Scored correction checklist only; no whole-surface certification. Preferred-host correction and automated-continuation/stepwise-Stop limitations recorded as linked evidence; no new hardware claim."
+        }
+      },
+      "composer051": {
+        "version": "0.5.1",
+        "versionCode": 6,
+        "message": "Keep full in-memory input; 2000 UTF-16 wire limit. Show portrait counter from 1800, field error beyond limit, actionable send validation before connection/admission. No process-death draft persistence.",
+        "options": "Sheet-local edits; Done commits both values, Cancel/Back/outside discards. Rotation retains open edits. Overflow validation at 250 window /128 condition; Done disabled until valid. Fields show at most three lines with internal text scrolling.",
+        "status": "Only online non-paused RK-connecting snapshots animate, or initial link CONNECTING. Offline cached snapshots do not animate.",
+        "evidence": ".impeccable/review/android-0.5.1/verification.json",
+        "reviewScope": "0.5.0 scoped independent verdict retained as history; no new independent verdict claimed.",
+        "verification": {
+          "jvmTests": 16,
+          "composerChecks": 8,
+          "type": "Local native composer/options interactions; no model/HID calls",
+          "optionFontScaleChecks": 2
+        }
+      },
+      "taskJourney060": {
+        "version": "0.6.0",
+        "versionCode": 7,
+        "recentTasks": "Native sheet capped at 85% of current window; 24dp horizontal padding, weighted lazy list, 48dp All/Unfinished chips. Unfinished excludes only completed/answered; includes awaiting_input, active and unsuccessful outcomes. Last-synced offline wording; select locates original reply. Computer public snapshot is capped at 20, not a persistent full archive.",
+        "compose": "Portrait current task offers Supplement or View task. Supplement names original goal, focuses composer/IME and can be cancelled without deleting typed text. Combined original/separator/addition validates against 2000 UTF-16 units. Terminal reuse prepares editable goal; nonblank draft replacement requires Keep/Replace dialog. Preparation clears old options and never sends.",
+        "reconciliation": "pendingCheckedId must match current pending UUID for idle-check eligibility. Every confirmation invalidates cached check and requests fresh encrypted snapshot. Failed refresh, host/pending change, active/unconfirmed control, active Coloop or unresolved receipt retains marker. Original task/resolved receipt reconciles without replay; otherwise fresh idle/no receipt enables local acknowledgement only.",
+        "recovery": "Inline error actions derive from pairing, link, pending, stopped, active-task and RK availability; preserve draft. Initial unpaired action opens native pair guide.",
+        "evidence": {
+          "directory": "../.impeccable/review/android-0.6.0/",
+          "firstRoundChecks": 8,
+          "firstRunChecks": 3,
+          "firstRoundPhoneCaptures": 15,
+          "jvmTests": 20,
+          "jvmFailures": 0,
+          "jvmErrors": 0,
+          "jvmSkips": 0,
+          "correctionStatus": "passed",
+          "reviewStatus": "Both material findings resolved; verdict-pass-1.md disposition ship; no visible regression attributable to repair batch. Only two scored fixes, not whole-surface certification.",
+          "captureCount": 21,
+          "finalCorrectionChecks": 5,
+          "correctionReport": "../.impeccable/review/android-0.6.0/correction-verification.json",
+          "correctionScope": "One final-APK automated five-check run: cached idle/failed snapshots, newly active snapshot, failed confirmation refresh, fresh idle/no replay, unfinished filter through supplement. First 8+3 checks are separate first-round runs, not one sixteen-check final-APK run. Earlier harness incorrectly waited for activity-hidden action; revised to assert pending footer, no production change for harness timing.",
+          "captureReview": "All 15 initial captures reviewed independently; builder opened all changed captures; scoped reviewer independently reopened all eight changed/correction captures. Updated index has 21 valid PNGs.",
+          "scopedReview": {
+            "report": "../.impeccable/review/android-0.6.0/verdict-pass-1.md",
+            "disposition": "ship",
+            "resolvedFindings": 2,
+            "independentlyReopenedCorrectionCaptures": 8,
+            "scope": "Fresh admission-uncertainty confirmation and unfinished discovery/selection through supplement only; no whole-surface or new hardware/capability certification."
+          }
+        },
+        "boundary": "Actual Android Keystore/encrypted gateway/task admission with explicitly synthetic models/HID. No new hardware, QQ Mail, cloud-planning, tablet, durable archive, process-death draft recovery or background-send claim."
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled Material action; native runtime shapes and interactions remain authoritative.",
+      "html": "<button class=\"ds-primary\">连接电脑</button>",
+      "css": ".ds-primary{min-height:48px;padding:0 24px;border:0;border-radius:28px;background:#202124;color:#fff;font:500 14px/20px Roboto,Arial,sans-serif;cursor:pointer}.ds-primary:hover{background:#35373b}.ds-primary:active{background:#47494e}.ds-primary:focus-visible{outline:3px solid #74777d;outline-offset:3px}.ds-primary:disabled{background:#e5e6e8;color:#74777d;cursor:default}"
+    },
+    {
+      "name": "Stop action",
+      "kind": "button",
+      "description": "Visible outlined action during active or unconfirmed work; waits for source confirmation.",
+      "html": "<button class=\"ds-stop\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M6 6h12v12H6z\"/></svg>停止任务</button>",
+      "css": ".ds-stop{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 24px;border:1px solid #74777d;border-radius:28px;background:#fefefe;color:#202124;font:500 14px/20px Roboto,Arial,sans-serif;cursor:pointer}.ds-stop:hover{background:#f2f2f3}.ds-stop:active{background:#ecedef}.ds-stop:focus-visible{outline:3px solid #74777d;outline-offset:3px}.ds-stop:disabled{color:#909197;border-color:#d3d5d9;cursor:default}"
+    },
+    {
+      "name": "Chat composer",
+      "kind": "input",
+      "refersTo": "composer",
+      "description": "Outlined draft: portrait one-to-four lines, landscape up to two or one with IME; optional constraints use a neutral count badge and native sheet.",
+      "html": "<label class=\"ds-composer\"><textarea rows=\"2\" aria-label=\"给 Coloop 发消息\" placeholder=\"给 Coloop 发消息…\"></textarea><button aria-label=\"任务选项\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z\"/></svg></button></label>",
+      "css": ".ds-composer{display:flex;align-items:end;border:1px solid #74777d;border-radius:24px;background:#fefefe;max-width:420px;padding-left:16px}.ds-composer textarea{min-width:0;flex:1;resize:vertical;border:0;border-radius:24px;background:transparent;color:#24262a;font:400 16px/25px Roboto,Arial,sans-serif;padding:12px 0;outline:none}.ds-composer textarea::placeholder{color:#55585e}.ds-composer:hover{border-color:#24262a}.ds-composer:focus-within{outline:2px solid #202124;outline-offset:-2px}.ds-composer button{display:grid;place-items:center;width:48px;height:48px;border:0;border-radius:50%;background:transparent;color:#55585e;cursor:pointer}.ds-composer button:hover{background:#f2f2f3}.ds-composer button:active{background:#ecedef}.ds-composer button:focus-visible{outline:3px solid #74777d;outline-offset:-3px}"
+    },
+    {
+      "name": "Connection strip",
+      "kind": "nav",
+      "refersTo": "connection-strip",
+      "description": "Current connection state and Devices navigation; landscape header retains explicit Resume or labeled repair. Offline retained stopped snapshots still expose repair.",
+      "html": "<button class=\"ds-connection\"><span class=\"ds-ready\" aria-hidden=\"true\"></span><span class=\"ds-connection-copy\"><strong>电脑与 RK 已就绪</strong><small>我的电脑</small></span><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m9 6 6 6-6 6-1.4-1.4 4.6-4.6-4.6-4.6z\"/></svg></button>",
+      "css": ".ds-connection{display:flex;align-items:center;gap:10px;width:100%;min-height:56px;padding:10px 20px;border:0;border-bottom:1px solid #d3d5d9;background:#fefefe;text-align:left;color:#55585e;cursor:pointer}.ds-ready{width:7px;height:7px;border-radius:50%;background:#28775b}.ds-connection-copy{display:flex;flex:1;flex-direction:column;gap:2px}.ds-connection-copy strong{color:#28775b;font:500 14px/20px Roboto,Arial,sans-serif}.ds-connection-copy small{font:500 11px/16px Roboto,Arial,sans-serif}.ds-connection:hover{background:#f7f7f8}.ds-connection:active{background:#ecedef}.ds-connection:focus-visible{outline:3px solid #74777d;outline-offset:-3px}"
+    },
+    {
+      "name": "User message",
+      "kind": "card",
+      "refersTo": "user-message",
+      "description": "Selectable right-aligned goal, capped at 88% of its available row and 560 dp; bottom-right corner tightens to 4 dp.",
+      "html": "<div class=\"ds-user-row\"><p class=\"ds-user-message\">打开记事本，输入这段文字并保存。</p></div>",
+      "css": ".ds-user-row{display:flex;justify-content:flex-end}.ds-user-message{max-width:min(88%,560px);user-select:text;margin:0;padding:12px 16px;border-radius:16px 16px 4px 16px;background:#ecedee;color:#24262a;font:400 16px/25px Roboto,Arial,sans-serif;overflow-wrap:anywhere}"
+    },
+    {
+      "name": "Coloop reply",
+      "kind": "custom",
+      "description": "Selectable reply body with independently wrapping sender/state and source/time; verified completion uses existing green plus check-circle. Actual vector mark omitted instead of redrawn.",
+      "html": "<section class=\"ds-reply\" aria-label=\"Coloop 回复\"><header><strong>Coloop</strong><span><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 15-5-5 1.4-1.4L10 14.2l7.6-7.6L19 8z\"/></svg>结果已验证</span></header><p>已观察到本次任务的完成文字。</p><footer><span>RK 本地处理</span><span>10-31 16:20:00</span></footer></section>",
+      "css": ".ds-reply{display:flex;flex-direction:column;gap:10px;background:#fefefe;color:#24262a;font:400 16px/25px Roboto,Arial,sans-serif}.ds-reply header{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}.ds-reply strong{font:600 14px/20px Roboto,Arial,sans-serif}.ds-reply header>span{display:flex;align-items:center;gap:4px;color:#28775b;font:500 12px/16px Roboto,Arial,sans-serif}.ds-reply p{margin:0;user-select:text;overflow-wrap:anywhere}.ds-reply footer{display:flex;flex-wrap:wrap;gap:4px 12px;color:#55585e;font:500 11px/16px Roboto,Arial,sans-serif}"
+    },
+    {
+      "name": "Task constraint",
+      "kind": "chip",
+      "description": "Native removable InputChip translation; visible in portrait, with neutral options count retained in landscape.",
+      "html": "<button class=\"ds-constraint\" aria-label=\"清除窗口限制\">窗口：记事本<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"m18.3 5.7-1.4-1.4L12 9.2 7.1 4.3 5.7 5.7l4.9 4.9-4.9 4.9 1.4 1.4 4.9-4.9 4.9 4.9 1.4-1.4-4.9-4.9z\"/></svg></button>",
+      "css": ".ds-constraint{display:inline-flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;border:1px solid #74777d;border-radius:8px;background:#fefefe;color:#24262a;font:500 14px/20px Roboto,Arial,sans-serif;cursor:pointer}.ds-constraint:hover{background:#f2f2f3}.ds-constraint:active{background:#ecedef}.ds-constraint:focus-visible{outline:3px solid #74777d;outline-offset:3px}"
+    },
+    {
+      "name": "Return to latest",
+      "kind": "button",
+      "description": "Native tonal action inside the history bounds; appears only away from the last lazy row when at least 56 dp history height is available.",
+      "html": "<button class=\"ds-latest\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"currentColor\" aria-hidden=\"true\"><path d=\"M11 4h2v12l5-5 1.4 1.4L12 20l-7.4-7.6L6 11l5 5z\"/></svg>最新消息</button>",
+      "css": ".ds-latest{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 24px;border:0;border-radius:28px;background:#ecedef;color:#24262a;font:500 14px/20px Roboto,Arial,sans-serif;cursor:pointer}.ds-latest:hover{background:#e5e6e8}.ds-latest:active{background:#d3d5d9}.ds-latest:focus-visible{outline:3px solid #74777d;outline-offset:3px}"
+    },
+    {
+      "name": "Recent task row",
+      "kind": "custom",
+      "description": "Native sheet translation: two-line goal, wrapping state/time and 48dp minimum selectable target; selection locates associated reply. Runtime snapshot/filter behavior belongs to Compose.",
+      "html": "<button class=\"ds-task-row\"><span>打开记事本并保存文字。</span><small>需要补充 · 11-01 16:20</small></button>",
+      "css": ".ds-task-row{display:flex;flex-direction:column;gap:8px;width:100%;min-height:48px;padding:16px 0;border:0;border-bottom:1px solid #d3d5d9;background:#fefefe;color:#24262a;text-align:left;cursor:pointer}.ds-task-row>span{font:400 16px/25px Roboto,Arial,sans-serif;overflow-wrap:anywhere}.ds-task-row small{font:500 12px/16px Roboto,Arial,sans-serif}.ds-task-row:hover{background:#f2f2f3}.ds-task-row:active{background:#ecedef}.ds-task-row:focus-visible{outline:3px solid #74777d;outline-offset:-3px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Connected Conversation",
+    "overview": "Coloop's graphite, white, and paired closed-arc mark carry into a native Material 3 phone interface. Typography, touch behavior, fields, dialogs, and sheets follow Android expectations. Brand expression comes from the quiet neutral surfaces and existing vector mark; no new shipping raster asset was added.\n\nThis system is extracted from `app/src/main/java/ai/coloop/mobile/MainActivity.kt`, `ColoopChat.kt`, `TaskHistorySheet.kt`, `ColoopModels.kt`, `RemoteViewModel.kt`, and `RemoteRepository.kt`. It is scoped to Android; repository-root `DESIGN.md` and `.impeccable/design.json` describe desktop identity. The user-selected composition and Mode: Operate live in `../docs/android-chat-brief.md`.",
+    "keyCharacteristics": [
+      "Native system sans typography, font scaling, Material controls, and system Back.",
+      "Graphite primary actions, tonal neutral surfaces, and restrained semantic status color.",
+      "User messages and Coloop replies with distinct alignment and real task state.",
+      "Connection repair and safe task controls that preserve the user's draft."
+    ],
+    "rules": [
+      {
+        "name": "The Status Has Words Rule",
+        "body": "Color accompanies connection and task-state wording; it never substitutes for that wording. Transport readiness, RK connection, local-model startup, and verified task completion remain distinct states.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Type Rule",
+        "body": "Extend Material text roles and preserve system scaling; do not copy desktop Windows text metrics into Android controls.",
+        "section": "typography"
+      },
+      {
+        "name": "The Native Surface Rule",
+        "body": "Use Material surfaces and native overlay behavior; preserve the distinction between a persistent message and an interrupting sheet or dialog.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Deliberate Next Action Rule",
+        "body": "Locate preserves task identity; supplement names its original goal; reuse prepares editable text. Sending always remains a separate user action.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "**Do** preserve the paired-arc vector mark and graphite/white identity through native light and dark roles.",
+      "**Do** use sp text, native Material focus/pressed states, and at least 48dp action targets.",
+      "**Do** keep connection/startup state readable independently of task execution and completion.",
+      "**Do** preserve drafts when sending is blocked and keep Stop, explicit Resume, and reconciliation reachable.",
+      "**Do** verify phone layouts with system bars, IME, dark theme, and enlarged text using emulator/device captures."
+    ],
+    "donts": [
+      "**Don't** treat a receipt or ready connection as proof that a computer task succeeded.",
+      "**Don't** replay an old task after reconnection, Resume, or an uncertain response.",
+      "**Don't** hide the sheet's final action beneath the keyboard or system navigation area.",
+      "**Don't** promote a phone content-width cap into a tablet-support claim.",
+      "**Don't** overwrite desktop design artifacts or copy their Windows typography into Android."
+    ]
+  }
+}

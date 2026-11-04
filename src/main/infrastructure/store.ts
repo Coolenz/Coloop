@@ -30,7 +30,7 @@ const defaultSettings: SettingsInput = {
 const taskSchema = z.object({
   id: z.string(),
   prompt: z.string(),
-  target: z.enum(['cloud', 'rk']),
+  target: z.enum(['hybrid', 'cloud', 'rk']),
   source: z.enum(['text', 'screen']),
   status: z.enum(['running', 'completed', 'failed', 'cancelled']),
   createdAt: z.string(),

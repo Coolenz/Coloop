@@ -18,6 +18,10 @@ import {
   Unplug,
   Wifi,
   Zap,
+  Network,
+  BrainCircuit,
+  Sparkle,
+  type LucideIcon,
 } from 'lucide-react'
 import type { AppSnapshot, ProviderConfig, Settings, SettingsInput } from '../../shared/contracts'
 import { BoardIllustration } from './components'
@@ -38,7 +42,7 @@ const presets: {
   baseUrl: string
   model: string
   description: string
-  mark: string
+  mark: LucideIcon
 }[] = [
   {
     protocol: 'openai',
@@ -46,7 +50,7 @@ const presets: {
     baseUrl: 'https://api.openai.com/v1',
     model: 'gpt-4.1-mini',
     description: 'OpenAI、DeepSeek、Qwen 等',
-    mark: '◎',
+    mark: Network,
   },
   {
     protocol: 'anthropic',
@@ -54,7 +58,7 @@ const presets: {
     baseUrl: 'https://api.anthropic.com/v1',
     model: 'claude-sonnet-4-5',
     description: 'Claude Messages API',
-    mark: 'A',
+    mark: BrainCircuit,
   },
   {
     protocol: 'gemini',
@@ -62,7 +66,7 @@ const presets: {
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     model: 'gemini-2.5-flash',
     description: 'Gemini GenerateContent API',
-    mark: '✧',
+    mark: Sparkle,
   },
 ]
 export function ModelsPage({ snapshot, notify, onSaved }: Props) {
@@ -120,7 +124,9 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
               setKey('')
             }}
           >
-            <span className={`provider-mark ${preset.protocol}`}>{preset.mark}</span>
+            <span className={`provider-mark ${preset.protocol}`}>
+              <preset.mark size={22} />
+            </span>
             <strong>{preset.name}</strong>
             <small>{preset.description}</small>
             {form.provider.protocol === preset.protocol && (
@@ -287,10 +293,12 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [startingService, setStartingService] = useState(false)
   const [dirty, setDirty] = useState(false)
   const device = snapshot.device
   const connected = device.status === 'connected'
-  const busy = connecting || device.status === 'connecting'
+  const busy = connecting || device.status === 'connecting' || startingService
+  const rkRunning = snapshot.tasks.some((task) => task.status === 'running')
   async function save() {
     setSaving(true)
     try {
@@ -313,7 +321,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
         </div>
         <button
           className="button secondary"
-          disabled={saving || busy}
+          disabled={saving || busy || rkRunning}
           onClick={() => {
             setSaving(true)
             void unwrap(api.importRk())
@@ -383,7 +391,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
         <div className="section-bar">
           <div>
             <h2>USB 连接设置</h2>
-            <p className="muted">沿用 RK 项目的 USB 网络连接，设备密码仅用于当前会话。</p>
+            <p className="muted">连接一次后自动重连，登录凭据由 Windows 加密保存在本机。</p>
           </div>
           <Cable size={21} className="muted" />
         </div>
@@ -391,7 +399,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
           <label>
             设备地址
             <input
-              disabled={busy}
+              disabled={busy || rkRunning}
               value={form.board.host}
               onChange={(e) => {
                 setForm((v) => ({ ...v, board: { ...v.board, host: e.target.value } }))
@@ -403,6 +411,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
             <label>
               SSH 端口
               <input
+                disabled={busy || rkRunning}
                 type="number"
                 min={1}
                 max={65535}
@@ -416,6 +425,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
             <label>
               用户名
               <input
+                disabled={busy || rkRunning}
                 value={form.board.username}
                 onChange={(e) => {
                   setForm((v) => ({ ...v, board: { ...v.board, username: e.target.value } }))
@@ -425,9 +435,44 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
             </label>
           </div>
           <label className="span-two">
+            端侧服务目录
+            <input
+              disabled={busy || rkRunning}
+              value={form.board.serviceDirectory ?? '~/rk-opencode'}
+              onChange={(e) => {
+                setForm((v) => ({
+                  ...v,
+                  board: { ...v.board, serviceDirectory: e.target.value },
+                }))
+                setDirty(true)
+              }}
+              spellCheck={false}
+            />
+            <small>开发板上已部署的 RK 模型服务目录。</small>
+          </label>
+          <label>
+            端侧服务端口
+            <input
+              disabled={busy || rkRunning}
+              type="number"
+              min={1}
+              max={65535}
+              value={form.board.servicePort ?? 8088}
+              onChange={(e) => {
+                setForm((v) => ({
+                  ...v,
+                  board: { ...v.board, servicePort: Number(e.target.value) },
+                }))
+                setDirty(true)
+              }}
+            />
+            <small>经当前 SSH 连接访问开发板本机服务。</small>
+          </label>
+          <label className="span-two">
             设备 SHA256 指纹
             <input
               className="mono"
+              disabled={busy || rkRunning}
               value={form.board.fingerprint}
               onChange={(e) => {
                 setForm((v) => ({ ...v, board: { ...v.board, fingerprint: e.target.value } }))
@@ -441,12 +486,13 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
             SSH 密码
             <input
               type="password"
+              disabled={busy || rkRunning}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="off"
               placeholder="输入开发板的 SSH 登录密码"
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !dirty && !busy && !connected) {
+                if (e.key === 'Enter' && !dirty && !busy && !connected && !saving && !rkRunning) {
                   setConnecting(true)
                   const value = password
                   setPassword('')
@@ -457,7 +503,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                 }
               }}
             />
-            <small>连接后会清空输入，不保存到磁盘。</small>
+            <small>连接成功后由 Windows 加密保存，用于启动自动连接和断线重连。</small>
           </label>
         </div>
         <div className="settings-actions">
@@ -466,13 +512,24 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
               ? '请先保存修改，再连接设备'
               : connected
                 ? `最近更新：${device.updatedAt ? new Date(device.updatedAt).toLocaleTimeString('zh-CN') : '—'}`
-                : '需要设备正常供电，USB 线连接 OTG 口'}
+                : (snapshot.autoConnection?.message ?? '需要设备正常供电，USB 线连接 OTG 口')}
           </span>
           <div className="row">
+            {!connected && snapshot.autoConnection?.hasCredential && (
+              <button
+                className="button secondary"
+                disabled={busy || saving || rkRunning}
+                onClick={() =>
+                  void unwrap(api.retryRkConnection()).catch((error) => notify(error.message, true))
+                }
+              >
+                自动重新连接
+              </button>
+            )}
             {dirty && (
               <button
                 className="button secondary"
-                disabled={saving || busy}
+                disabled={saving || busy || rkRunning}
                 onClick={() => void save()}
               >
                 <Save size={15} />
@@ -484,7 +541,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                 <button
                   className="icon-button"
                   aria-label="刷新设备状态"
-                  disabled={refreshing}
+                  disabled={refreshing || busy}
                   onClick={() => {
                     setRefreshing(true)
                     void unwrap(api.refreshDevice())
@@ -496,6 +553,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                 </button>
                 <button
                   className="button secondary"
+                  disabled={busy || rkRunning}
                   onClick={() =>
                     void unwrap(api.disconnect())
                       .then(() => notify('设备已断开'))
@@ -509,7 +567,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
             ) : (
               <button
                 className="button primary"
-                disabled={busy || dirty || saving}
+                disabled={busy || dirty || saving || rkRunning}
                 onClick={() => {
                   setConnecting(true)
                   const value = password
@@ -532,19 +590,54 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
           <div className="device-cap-row">
             <Cpu size={19} />
             <div>
-              <strong>Qwen3.5-9B</strong>
+              <strong>{device.model || 'Qwen3.5-4B'}</strong>
               <p>
                 {connected
                   ? device.qwenReady
-                    ? '板端文件已就绪，可在工作台选择 RK 端侧模型'
-                    : '请先在 RK 项目完成模型部署'
-                  : '连接设备后自动检查部署文件'}
+                    ? '端侧服务已就绪，可在工作台选择 RK 端侧模型'
+                    : device.modelServiceStatus === 'error'
+                      ? '端侧服务异常，请检查下方提示后重试'
+                      : 'SSH 已连接，端侧服务尚未启动'
+                  : '连接设备后自动检查端侧服务'}
               </p>
+              {connected && (device.modelContext || device.modelRuntime) && (
+                <p className="muted">
+                  {[
+                    device.modelContext ? `上下文 ${device.modelContext} tokens` : '',
+                    device.modelRuntime ? `运行库 ${device.modelRuntime}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              )}
             </div>
           </div>
-          <div className="inline-warning">
-            当前 RK 验收日志中存在回答准确性问题。端侧输出需要核对，文件就绪不等于模型质量已验收。
-          </div>
+          {connected && device.modelServiceError && (
+            <div className="inline-error" role="alert">
+              {device.modelServiceError}
+            </div>
+          )}
+          {connected && !device.qwenReady && (
+            <button
+              className="button primary"
+              disabled={busy || dirty || saving || rkRunning}
+              onClick={() => {
+                setStartingService(true)
+                void unwrap(api.startRkService())
+                  .then((result) => {
+                    if (!result.qwenReady)
+                      throw new Error(result.modelServiceError || '端侧服务尚未就绪，请刷新后重试')
+                    notify('端侧服务已就绪')
+                  })
+                  .catch((error) => notify(error.message, true))
+                  .finally(() => setStartingService(false))
+              }}
+            >
+              {startingService ? <LoaderCircle size={15} className="spin" /> : <Cpu size={15} />}
+              {startingService ? '正在启动端侧服务' : '启动端侧服务'}
+            </button>
+          )}
+          <p className="muted">模型回答完成后返回。停止等待不会终止板端共享推理。</p>
         </section>
         <section className="panel">
           <h3>连接检查</h3>

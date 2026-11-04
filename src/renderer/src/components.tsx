@@ -12,6 +12,8 @@ import {
   ScanText,
   Cloud,
   ShieldCheck,
+  Monitor,
+  ChevronRight,
 } from 'lucide-react'
 import type { DeviceState, Task } from '../../shared/contracts'
 import { api, unwrap } from './api'
@@ -88,6 +90,9 @@ export function TaskResult({
           <span>{task.error}</span>
         </div>
       )}
+      {task.status === 'running' && (
+        <p className="muted">回答完成后返回。停止只结束上位机等待，不会终止板端共享推理。</p>
+      )}
       <div className="result-footer">
         <span>
           {time(task.createdAt)}
@@ -112,11 +117,16 @@ export function TaskResult({
             <button
               className="text-button danger"
               onClick={() =>
-                void unwrap(api.cancelTask(task.id)).catch((e) => notify(e.message, true))
+                void unwrap(api.cancelTask(task.id))
+                  .then(() => {
+                    notify('已停止等待，板端共享推理可能仍在运行')
+                  })
+                  .catch((e) => notify(e.message, true))
               }
+              title="停止等待，板端共享推理可能仍在运行"
             >
               <Square size={12} />
-              停止
+              停止等待
             </button>
           )}
         </div>
@@ -142,8 +152,29 @@ export function DeviceRail({
   return (
     <aside className="inspector">
       <section className="inspector-section">
+        <h3>连接概览</h3>
+        <div className="connection-map" aria-label="本机通过 Coloop 连接 RK 设备">
+          <div>
+            <span>
+              <Monitor size={21} />
+            </span>
+            <small>本机</small>
+          </div>
+          <i />
+          <div>
+            <BrandMark />
+            <small>Coloop</small>
+          </div>
+          <i className={connected ? 'connected' : ''} />
+          <div>
+            <span className={connected ? 'connected' : ''}>
+              <Cpu size={21} />
+            </span>
+            <small>RK 设备</small>
+          </div>
+        </div>
         <div className="section-bar">
-          <h3>设备连接</h3>
+          <h3>RK 设备</h3>
           <span className={`connection-pill ${connected ? 'online' : ''}`}>
             <i />
             {connected
@@ -156,9 +187,6 @@ export function DeviceRail({
           </span>
         </div>
         <div className="device-identity">
-          <span className="device-glyph">
-            <Cpu size={24} />
-          </span>
           <div>
             <h3>LubanCat 4</h3>
             <p>RK3588 · USB 网络</p>
@@ -183,6 +211,7 @@ export function DeviceRail({
         <button className="button secondary full" onClick={onDevice}>
           <Cable size={15} />
           {connected ? '管理设备' : '连接设备'}
+          <ChevronRight size={14} />
         </button>
       </section>
       <section className="inspector-section">
@@ -207,6 +236,7 @@ export function DeviceRail({
           </div>
           <span className={`capability-state ${hasKey ? 'green' : ''}`}>
             {hasKey ? '已配置' : '待配置'}
+            <ChevronRight size={12} />
           </span>
         </button>
         <div className="capability">
@@ -215,10 +245,16 @@ export function DeviceRail({
           </span>
           <div>
             <strong>端侧模型</strong>
-            <p>Qwen3.5-9B</p>
+            <p>{device.model || 'Qwen3.5-4B'}</p>
           </div>
           <span className={`capability-state ${connected && device.qwenReady ? 'green' : ''}`}>
-            {connected ? (device.qwenReady ? '已部署' : '未部署') : '待连接'}
+            {connected
+              ? device.qwenReady
+                ? '已就绪'
+                : device.modelServiceStatus === 'error'
+                  ? '异常'
+                  : '待启动'
+              : '待连接'}
           </span>
         </div>
       </section>
@@ -226,7 +262,7 @@ export function DeviceRail({
         <ShieldCheck size={16} />
         <div>
           <strong>本地优先</strong>
-          <p>图像在本机识别。仅当你运行云端任务时，相关文本才会发送至所选模型。</p>
+          <p>图像在本机识别。协作模式由 RK 先检查，复杂任务仅发送必要的脱敏摘要。</p>
         </div>
       </div>
     </aside>

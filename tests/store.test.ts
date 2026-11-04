@@ -73,4 +73,26 @@ describe('local persistence and credential boundary', () => {
     expect(new AppStore(directory, codec).tasks).toEqual([])
     expect(readdirSync(directory).some((file) => file.startsWith('state.recovery-'))).toBe(true)
   })
+  it('keeps cooperative task history readable across restarts', () => {
+    const { store, directory, codec } = create()
+    store.tasks.push({
+      id: 'hybrid-task',
+      prompt: 'synthetic',
+      target: 'hybrid',
+      source: 'text',
+      status: 'completed',
+      createdAt: new Date().toISOString(),
+      answer: '完成',
+      stage: '已完成',
+      model: 'RK + cloud',
+    })
+    store.persist()
+    expect(new AppStore(directory, codec).tasks[0]).toMatchObject({
+      id: 'hybrid-task',
+      target: 'hybrid',
+      status: 'completed',
+      answer: '完成',
+    })
+    expect(readdirSync(directory).some((file) => file.startsWith('state.recovery-'))).toBe(false)
+  })
 })

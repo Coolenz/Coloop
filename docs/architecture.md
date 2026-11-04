@@ -1,5 +1,7 @@
 # 架构与工程约束
 
+本文记录当前实现。2026-10-30 调整后的产品主线是电脑操作 AI；RK 执行端、Windows 观察助手和云端规划分工见 [开发方向](development-direction.md)。开发源码已新增单窗口桌面任务，采用同页整组规划和执行，详见 [电脑操作](desktop-operation.md)；跨应用仍未交付。
+
 ## 分层
 
 ```text
@@ -9,12 +11,15 @@ Sandboxed preload
    │  contextBridge + IPC allowlist
 Electron main composition root
    ├── TaskService：串行任务、状态转换、取消、恢复与审计
+   ├── DesktopTaskService：私有观察管道／规划适配 → SSH RK Runtime → 同页动作组／HID → 组后结果回读
+   ├── CooperativeAgent：RK 路由／脱敏／复核 → 必要摘要上云 → RK 本地核查
+   ├── PrivacyVault：任务内占位符、凭据移除、确定性出口检查
    ├── CloudGateway：OpenAI compatible / Anthropic / Gemini
-   ├── BoardGateway：SSH host-key pinning + USB RNDIS
+   ├── BoardGateway：USB RNDIS + 固定指纹 SSH + 私有 HTTP 转发
    ├── OcrEngine：私有 JSON Lines + 常驻 Python OCR 子进程
    └── AppStore：原子 JSON snapshot + Windows DPAPI secret codec
                │
-               └── 已安装 RK 环境 / 下位机现有模型入口
+               └── 已安装 RK OCR 环境 / 板端 RK OpenCode 模型服务
 ```
 
 渲染层只负责交互和显示，不能直接连接网络、访问文件或运行程序。`src/shared/contracts.ts` 同时定义公共 TypeScript 类型和 Zod 输入边界。主进程校验调用窗口、顶层 frame 与确切页面地址，然后校验参数。
@@ -23,16 +28,29 @@ Electron main composition root
 
 ## 设备协议决策
 
-现有 `D:\RK` 是 LubanCat-4 / RK3588 项目：USB 提供 Windows RNDIS 网络，设备通过 SSH 管理；没有公开的上位机串口/HID RPC。因此使用现有通道，不发明与固件不匹配的串口帧。
+现有 `D:\RK` 是 LubanCat-4 / RK3588 项目：USB 提供 Windows RNDIS 网络，设备通过 SSH 管理；板端 `~/rk-opencode` 已有鉴权模型桥接服务。Coloop 0.7.0 复用该服务的 Qwen3.5-4B 推理接口。
 
-- 从 `D:\RK\config\board.json` 导入 host、port、user 和 SHA256 指纹。
+- 从 `D:\RK\config\board.json` 导入 host、port、user 和 SHA256 指纹，以及可选 `agent_dir` / `agent_port`。服务目录、端口缺省为 `~/rk-opencode` / `8088`，可在设备页保存修改。
 - SSH 在认证前校验主机指纹，不采用首次连接自动信任。
-- 只暴露健康查询与 Qwen 文本推理，没有通用 shell 入口。
-- 健康读取是固定 Python 脚本，返回结构化 JSON，并再次验证类型。
-- 模型 prompt 用 POSIX 单引号转义。最大上下文 3000 字，输出 256 tokens，板端 context 2048，外层 `timeout` 180 秒、TERM 后 5 秒 KILL。
-- 取消时发 SSH TERM 并关闭 channel；若服务端没有处理 signal，板端 timeout 仍提供上限。下位机现有 `flock` 防止相同模型重入。
+- 温度、内存、运行时长通过固定 Python 脚本读取，返回结构化 JSON 并验证类型。连接会话绑定刷新结果，旧请求不能恢复已断开的状态或断开新连接；同会话并发刷新合并。
+- 主进程通过 `ssh2.forwardOut` 为 HTTP 请求建立私有通道，目标固定为开发板的 `127.0.0.1` 与配置端口，不在 Windows 另开监听端口。鉴权 Key 通过 SSH 从服务目录的 `.runtime/api-key` 读取，只保留在主进程内存，不回传界面或写入 Coloop 配置。
+- `/health` 必须返回 `ready: true`、模型 `qwen35-4b-rkllm`、worker protocol 2 和有效上下文等信息，才能令 `qwenReady` 为真；文件存在不再代表模型可用。设备页显示响应中的实际模型、上下文与运行库。
+- 「启动端侧服务」调用已部署目录中的 `scripts/start.sh`，使用 `qwen35-4b` profile、16384 上下文；检查已有桥接进程、端口占用和安装文件后才启动。存在活跃服务或端口被占用时拒绝替换，不重装环境、权重或运行库。已有启动脚本只支持端口 `8088`；自定义端口用于连接已按相同协议启动的服务。
+- 文本推理调用 `/v1/chat/completions`，设置 `tools: []`、`tool_choice: 'none'`、`stream: false`，关闭请求缓存，输出上限 512 tokens。上下文以服务上报预算为准，发送前保守按 UTF-8 字节检查并预留开销；参考文本使用独立标签包裹。请求最长等待 190 秒，响应上限 2 MB。
+- 板端完成后一次返回回答，不把一次性结果伪装成逐 token 流式输出。HTTP 429 明确表示模型忙碌；鉴权失败、模型不可用、超时或输出截断分别反馈。
+- 「停止等待」取消本次 HTTP 等待，不强杀共享 worker，也不证明板端推理已停止。后续任务可能仍收到 HTTP 429；界面保留这一语义。修改配置或断开连接前需先停止当前 Coloop 端侧任务。
 
-本版只读健康测试不修改板卡系统。Qwen 是可选能力，不将端侧失败悄悄回退云端。
+设备网关只暴露健康查询、启动已有服务和文本分析，没有通用 shell、HID、工具执行或记忆召回入口。端侧失败不会自动回退云端。电脑 AI 会话通过独立的受限控制服务接入，见下文。
+
+若已部署 Mem0，推理前只登记前台活动并等待正在进行的记忆维护排空，结束或停止等待后释放本次活动登记；不读取、写入或召回用户记忆。模型服务与其他 RK 会话共享，Coloop 的单任务约束不能代替板端忙碌检测。
+
+## 电脑会话控制与可见性
+
+`SessionControlService` 管理稳定会话注册表、受限命令 outbox、回执和持久去重账本。桌面入口只提交 `send_message` / `abort_turn`，来源插件通过原生进程内 SDK 执行；不把本应用 `runTask/cancelTask` 当成外部会话控制。当前仅允许 Windows OpenCode 空闲会话发消息，RK 注册仅观察，不增加任意 shell 或桌面输入接口。
+
+`ControlIndicatorWindow` 使用独立 sandbox preload 和最小状态快照，主屏顶部显示真实控制状态。首次派发前必须等待窗口可见及渲染确认；显示异常会撤销待发消息并请求停止。HTTP accepted、送达 confirmed 和原生任务结束分别处理。停止锁、来源/实例绑定、原生 message ID 与任务归属检查避免重连补发和旧事件误关提示。
+
+控制插件的 register/poll/report 继续沿鉴权回环服务，保持浏览器拒绝与输入限制；Android 手机通过独立的 `RemoteGatewayService` 接同一控制服务，使用单次配对、每设备密钥、AES-GCM 帧、epoch/序号/到期校验。网关仅监听回环，`RemoteTunnel` 主动建立临时 HTTPS 公网路径；不把 Hook 服务、Electron IPC 或 SSH 公开。手机快照仅投影公共会话字段和净化后的内容摘要，私密输入保护继续约束手机读取与控制。主窗口关闭改为托盘驻留，明确退出时停止服务并做有界清理。详见 [会话控制](session-control.md) 与 [Android 首版](android.md)。
 
 ## OCR 决策
 
@@ -45,15 +63,17 @@ Electron main composition root
 ## 模型与凭据
 
 - 云端网关仅做协议适配和有限的 SSE/JSON 解析，使用 Electron `net.fetch`，请求直达配置端点。
+- 协作任务使用独立 `analyze()` 与固定云 Agent 策略，完整 JSON 校验后交 RK，不发布云中间结果。旧 `target: cloud` 也经本地隐私流程；普通 `generate()` 只保留连接测试等固定文本用途。详见 [隐私协作](cloud-cooperation.md)。
 - 请求超时 120 秒，输出上限 4 MB；不跟随重定向转发凭据；不回显服务商错误响应正文。
 - Key 只在主进程解密，使用 `safeStorage`（Windows DPAPI）持久化，界面只获得 `hasKey`。
 - 地址或协议改变时清除旧凭据，防止旧 Key 发到新端点。
 - 本地环回 HTTP 可无 Key；其余地址必须 HTTPS，禁止 URL 内嵌账号、密码或 query 参数。
 - OCR 文字作为不可信上下文包裹，不作为应用指令。模型输出仅显示为文本，不渲染 HTML、不执行代码。
+- 选择 RK 时，OCR 文本作为上述参考内容发送到板端模型，原始图片和 OCR 坐标不进入 HID 或工具调用链路。
 
 ## 状态与持久化
 
-任务状态为 `running → completed | failed | cancelled`。应用同一时间只有一个任务，避免板端模型竞争和并发屏幕上下文错配。任务开始与结束保存快照，输出过程中在内存更新，IPC 通知按 70ms 合并。
+任务状态为 `running → completed | failed | cancelled`。应用同一时间只有一个任务，避免本应用内的板端模型竞争和并发屏幕上下文错配。任务开始与结束保存快照，云端流式输出过程中在内存更新，RK 回答完成后更新；IPC 通知按 70ms 合并。RK 的 `cancelled` 表示用户停止等待，不表示已终止板端共享推理。
 
 `state.json.tmp → rename → state.json` 提供同目录原子替换。最多 200 条任务，损坏的文件重命名为 `state.recovery-*.json` 供恢复；上次未结束的运行在重启后标记中断。原始图像与 SSH 密码不持久化。历史文本不加密，云端发送行为由用户主动发起任务决定。
 

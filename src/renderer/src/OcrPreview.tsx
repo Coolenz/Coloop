@@ -22,15 +22,15 @@ export function OcrPreview({ capture, result }: { capture: Capture; result?: Ocr
                   y={item.rect[1]}
                   width={item.rect[2] - item.rect[0]}
                   height={item.rect[3] - item.rect[1]}
-                  fill="#4169e110"
-                  stroke="#4169e1"
+                  fill="#69696910"
+                  stroke="#696969"
                   strokeWidth={Math.max(1, capture.width / 600)}
                 />
                 <circle
                   cx={item.center[0]}
                   cy={item.center[1]}
                   r={Math.max(2, capture.width / 400)}
-                  fill="#4169e1"
+                  fill="#696969"
                 />
                 <title>{`${index + 1}. ${item.text}`}</title>
               </g>

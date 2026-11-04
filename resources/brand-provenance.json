@@ -1,0 +1,23 @@
+{
+  "creator": "Coloop project, original authored vector geometry",
+  "source": "resources/brand.svg",
+  "mark": "Mirror-symmetric closed semicircular loops, rotated together -35 degrees; nominal outer arc weight 9.5 and straight chord weight 7.3 with smoothly blended shoulders; graphite #202124 and white; no independent offsets",
+  "rasters": {
+    "icon.png": "Canonical SVG rasterized by scripts/render-brand.mjs in Chromium; Source metadata embedded",
+    "icon.ico": "resources/icon.png converted by scripts/make-assets.py; 16, 24, 32, 48, 64, 128 and 256px",
+    "logo-preview.png": "Original brand presentation authored in scripts/render-brand.mjs; Source metadata embedded"
+  },
+  "wordmark": {
+    "family": "Sora",
+    "font": "resources/fonts/Sora-Variable.ttf",
+    "license": "resources/fonts/OFL-Sora.txt",
+    "source": "https://github.com/google/fonts/tree/main/ofl/sora"
+  },
+  "inverse": "resources/brand-inverse.svg, generated from canonical SVG with black/white swapped",
+  "palette": {
+    "graphite": "#202124",
+    "raised": "#2b2e33",
+    "hover": "#383c43",
+    "white": "#FFFFFF"
+  }
+}

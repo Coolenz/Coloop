@@ -1,0 +1,8 @@
+{
+  "scope": "Native dark/font1.3 task-options validation and keyboard controls",
+  "checks": [
+    "Completion condition keeps 129 characters and shows its limit in dark/font1.3",
+    "Correcting condition enables Done and applies it at font1.3"
+  ],
+  "passed": true
+}

@@ -5,9 +5,10 @@ import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
 
 const root = resolve(import.meta.dirname, '..')
-const qaDirectory = resolve(root, '.qa')
+const qaDirectory = resolve(root, '.qa', `e2e-${Date.now()}`)
 await mkdir(qaDirectory, { recursive: true })
 const results = []
+let boardTasks = 0
 const profileDirectory = resolve(qaDirectory, `profile-${Date.now()}`)
 const server = createServer(async (request, response) => {
   let body = ''
@@ -65,6 +66,7 @@ try {
   const pageNames = {
     屏幕理解: 'screen',
     工作流: 'workflows',
+    'Agent 协调': 'coordination',
     模型连接: 'models',
     设备管理: 'device',
     运行历史: 'history',
@@ -77,7 +79,7 @@ try {
       path: resolve(qaDirectory, `page-${pageNames[name]}.png`),
     })
   }
-  results.push({ check: 'all six navigation pages render', passed: true })
+  results.push({ check: 'all seven navigation pages render', passed: true })
   await page.getByRole('button', { name: '模型连接', exact: true }).first().click()
   await page.getByLabel('连接名称', { exact: true }).fill('本地联调服务')
   await page.getByLabel('模型名称', { exact: true }).fill('mock-model')
@@ -97,20 +99,26 @@ try {
   await page.getByRole('button', { name: '测试连接', exact: true }).click()
   await page.getByText(/连接成功：/).waitFor()
   await page.getByRole('button', { name: '工作台', exact: true }).first().click()
+  assert.equal(await page.getByLabel('选择推理位置').inputValue(), 'hybrid')
   await page.getByLabel('任务内容').fill('请测试任务执行')
-  await page.getByLabel('运行任务', { exact: true }).click()
-  await page.locator('.result-panel .status.completed').waitFor()
-  assert.match(await page.locator('.answer').innerText(), /本地接口联调结果/)
+  assert.equal(await page.getByLabel('运行任务', { exact: true }).isDisabled(), true)
+  const guarded = await page.evaluate(() =>
+    window.coloop.runTask({ prompt: '旧入口也不能绕过 RK', target: 'cloud', source: 'text' }),
+  )
+  assert.equal(guarded.ok, false)
+  assert.match(guarded.error, /连接 RK/)
   results.push({
-    check: 'settings save, provider test, HTTP SSE task completes through UI',
+    check: 'default cooperative mode and legacy cloud requests require RK before dispatch',
     passed: true,
   })
-  await page.getByLabel('任务内容').fill('CANCEL_TEST')
-  await page.getByLabel('运行任务', { exact: true }).click()
-  await page.locator('.result-panel .status.running').waitFor()
-  await page.getByRole('button', { name: '停止', exact: true }).click()
-  await page.locator('.result-panel .status.cancelled').waitFor()
-  results.push({ check: 'cancellation remains cancelled', passed: true })
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1060, 720))
+  await page.screenshot({
+    animations: 'disabled',
+    path: resolve(qaDirectory, 'cooperative-minimum.png'),
+  })
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
+  await page.getByLabel('任务内容').fill('')
 
   const fixture = resolve(root, 'tests/fixtures/ocr-sample.png')
   await app.evaluate(({ dialog }, fixturePath) => {
@@ -149,6 +157,8 @@ try {
   })
 
   if (process.env.COLOOP_TEST_BOARD_PASSWORD) {
+    const imported = await page.evaluate(() => window.coloop.importRk())
+    assert.equal(imported.ok, true, imported.error)
     const boardResult = await page.evaluate(
       (password) => window.coloop.connect(password),
       process.env.COLOOP_TEST_BOARD_PASSWORD,
@@ -159,9 +169,65 @@ try {
       device: boardResult.ok ? boardResult.value : undefined,
       error: boardResult.ok ? undefined : boardResult.error,
     })
+    assert.equal(boardResult.ok, true, boardResult.error)
     if (boardResult.ok) {
       await page.getByRole('button', { name: '设备管理', exact: true }).first().click()
       await page.getByText('设备已连接', { exact: true }).waitFor()
+      if (process.env.COLOOP_TEST_BOARD_INFERENCE === '1') {
+        if (!boardResult.value.qwenReady) {
+          await page.getByRole('button', { name: '启动端侧服务', exact: true }).click()
+          await page
+            .getByText('端侧服务已就绪，可在工作台选择 RK 端侧模型', { exact: true })
+            .waitFor({ timeout: 110000 })
+        }
+        const health = await page.evaluate(() => window.coloop.snapshot())
+        assert.equal(health.value.device.model, 'qwen35-4b-rkllm')
+        assert.equal(health.value.device.modelContext, 16384)
+        results.push({
+          check: 'real RK model service ready over private SSH tunnel',
+          passed: true,
+          device: health.value.device,
+        })
+        async function runRk(prompt, context = '') {
+          const started = Date.now()
+          const task = await page.evaluate(
+            ({ prompt, context }) =>
+              window.coloop.runTask({ prompt, context, target: 'rk', source: 'text' }),
+            { prompt, context },
+          )
+          assert.equal(task.ok, true, task.error)
+          boardTasks++
+          let completed
+          while (Date.now() - started < 230000) {
+            const state = await page.evaluate(() => window.coloop.snapshot())
+            completed = state.value.tasks.find((item) => item.id === task.value)
+            if (completed && completed.status !== 'running') break
+            await new Promise((resolve) => setTimeout(resolve, 250))
+          }
+          assert.ok(completed, 'RK task was not recorded')
+          assert.equal(completed.status, 'completed', completed.error)
+          assert.match(completed.model, /qwen35-4b-rkllm/)
+          return { ...completed, elapsedMs: Date.now() - started }
+        }
+        const arithmetic = await runRk('What is 2+3? Reply with only the digit.')
+        assert.equal(arithmetic.answer.trim(), '5')
+        results.push({
+          check: 'real RK NPU task through Electron IPC returns correct arithmetic',
+          passed: true,
+          task: arithmetic,
+        })
+        const ocrTask = await runRk(
+          '请从参考文本中提取英文品牌名和金额，只回复这两项。',
+          recognized,
+        )
+        assert.match(ocrTask.answer, /COLOOP/i)
+        assert.match(ocrTask.answer, /128\.50/)
+        results.push({
+          check: 'real RapidOCR context reaches RK NPU and returns brand and amount',
+          passed: true,
+          task: ocrTask,
+        })
+      }
       await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'device.png') })
       await page.evaluate(() => window.coloop.disconnect())
     }
@@ -169,14 +235,14 @@ try {
   assert.deepEqual(pageErrors, [])
   results.push({ check: 'no renderer runtime errors', passed: true })
   const history = await page.evaluate(() => window.coloop.snapshot())
-  assert.equal(history.value.tasks.length, 2)
+  assert.equal(history.value.tasks.length, boardTasks)
   const filename = resolve(qaDirectory, 'history.json')
   await app.evaluate(({ dialog }, filePath) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath })
   }, filename)
   const exported = await page.evaluate(() => window.coloop.exportHistory())
   assert.equal(exported.value, true)
-  assert.equal(JSON.parse(await readFile(filename, 'utf8')).length, 2)
+  assert.equal(JSON.parse(await readFile(filename, 'utf8')).length, boardTasks)
   results.push({ check: 'history export writes actual task records', passed: true })
   await writeFile(resolve(qaDirectory, 'e2e-results.json'), JSON.stringify(results, null, 2))
   console.log(

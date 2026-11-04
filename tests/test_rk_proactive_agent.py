@@ -40,6 +40,8 @@ class AgentTests(unittest.TestCase):
         self.agent.latest = view()
 
     def tearDown(self):
+        for thread in self.agent.review_threads:
+            thread.join(2)
         self.temp.cleanup()
 
     def start(self):
@@ -338,15 +340,63 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.events[-1]['type'], 'suggestion')
         self.assertEqual(self.agent.hid.commands, [])
 
-    def test_digit_gate_forwards_original_ocr_without_local_rewrite(self):
-        calls = []
-        self.agent.model = lambda system, payload, tokens: calls.append((payload, tokens)) or 1
-        self.agent.cloud = lambda _, payload: {'type': 'suggestion', 'title': 'Outline',
-            'text': payload['ocr_items'][0]['text'], 'goal': 'Append'}
+    def test_memory_review_does_not_block_task_and_keeps_original_identity(self):
+        self.start()
+        release = threading.Event()
+        entered = threading.Event()
+        def model(*_):
+            entered.set()
+            release.wait(2)
+            return {'type': 'memory.set', 'key': 'procedure:test', 'value': 'verified'}
+        self.agent.model = model
+        writes = []
+        self.agent.mem = lambda op, body: writes.append(body) or True
+        original = self.agent.task
+        original['verified'] = True
+        self.agent.queue_memory_review(original, {'summary': 'done'})
+        self.assertTrue(entered.wait(1))
+        self.assertFalse(writes)
+        self.agent.task = None
+        self.agent.start({'task_id': 'task2', 'goal': 'next'})
+        release.set()
+        self.agent.review_threads[0].join(2)
+        self.assertEqual(writes[0]['source_task_id'], 'task1')
+        self.assertEqual(self.agent.task['task_id'], 'task2')
+
+    def test_unavailable_script_executor_clears_unstarted_step(self):
+        self.start()
+        def emit(packet):
+            if packet['type'] == 'request':
+                self.agent.accept({'type': 'reply', 'id': packet['id'],
+                                   'error': 'SCRIPT_EXECUTOR_UNAVAILABLE'})
+        self.agent.emit = emit
+        with self.assertRaisesRegex(ValueError, '^SCRIPT_EXECUTOR_UNAVAILABLE$'):
+            self.agent.execute_script({'runtime': 'node', 'code': 'console.log(1)',
+                                       'verify_code': 'console.log(1)'})
+        self.assertNotIn('pending_script', self.agent.task)
+        self.assertEqual(self.agent.task['receipts'], [])
+
+    def test_ocr_goes_directly_to_cloud_without_local_inference(self):
+        forwarded = []
+        self.agent.cloud = lambda _, payload: forwarded.append(payload) or {
+            'type': 'suggestion', 'title': 'Outline', 'text': 'Title', 'goal': 'Append'}
         self.agent.classify(self.agent.latest)
-        self.assertEqual(calls[0][1], 16)
-        self.assertEqual(calls[0][0], {'ocr_items': [{'id': 2, 'text': 'Title'}], 'is_editing': False})
+        self.assertEqual(forwarded[0]['observation'], self.agent.latest)
         self.assertEqual(self.agent.suggestion['text'], 'Title')
+        self.assertFalse(any(e['type'] == 'model.timing' for e in self.events))
+
+    def test_stale_cloud_recommendation_is_discarded(self):
+        def cloud(*_):
+            self.agent.latest = view('new')
+            return {'type': 'suggestion', 'title': 'Old', 'text': 'Old', 'goal': 'Old'}
+        self.agent.cloud = cloud
+        self.agent.classify(self.agent.latest)
+        self.assertIsNone(self.agent.suggestion)
+
+    def test_cloud_defer_can_be_retried(self):
+        self.agent.cloud = lambda *_: {'type': 'defer'}
+        self.agent.classify(self.agent.latest)
+        self.assertFalse(self.agent.seen)
 
     def test_text_reference_preserves_unicode_without_regeneration(self):
         self.start()
@@ -365,7 +415,7 @@ class AgentTests(unittest.TestCase):
 
     def test_ignored_content_not_suggested_again(self):
         count = []
-        self.agent.model = lambda *_: count.append(1) or {'decision': 'ignore'}
+        self.agent.cloud = lambda *_: count.append(1) or {'type': 'ignore'}
         self.agent.classify(self.agent.latest)
         self.agent.classify(self.agent.latest)
         self.assertEqual(len(count), 1)
@@ -756,7 +806,8 @@ class AgentTests(unittest.TestCase):
         calls = self.tools()
         observations = iter([view(), view('obs3', 'Title\n中文大纲')])
         self.agent.observe = lambda: next(observations)
-        self.agent.model = lambda *_: (_ for _ in ()).throw(AssertionError('Qwen must not translate cloud actions'))
+        self.agent.model = lambda *_: {'type': 'memory.set', 'key': 'procedure:outline',
+            'kind': 'procedure', 'value': 'Append at end', 'tags': ['app:notepad'], 'summary': 'Outline'}
         responses = iter([
             {'type': 'action_plan', 'observation_id': 'obs1',
              'actions': [{'action': 'paste', 'target_id': 2, 'text_ref': 'cloud_text'}],
@@ -764,16 +815,20 @@ class AgentTests(unittest.TestCase):
             {'type': 'finish', 'summary': 'Observed outline'},
             {'type': 'memory.set', 'key': 'procedure:outline', 'kind': 'procedure',
              'value': 'Append at end', 'tags': ['app:notepad'], 'summary': 'Outline'}])
-        self.agent.cloud = lambda *_: next(responses)
+        cloud_calls = []
+        self.agent.cloud = lambda *args: cloud_calls.append(args) or next(responses)
         writes = []
         self.agent.mem = lambda op, body: writes.append((op, body)) or {'memories': []}
         self.agent.run_task()
         self.assertTrue(self.agent.task['verified'])
+        for thread in self.agent.review_threads:
+            thread.join(2)
+        self.assertEqual(len(cloud_calls), 2)
         self.assertEqual(writes[-1][0], 'memory.set')
         self.assertEqual(writes[-1][1]['source_task_id'], 'task1')
         self.assertEqual(self.agent.hid.commands, [{'action': 'hotkey', 'keys': 'CTRL+V'}])
         self.assertEqual(next(value for op, value in calls if op == 'input.validate')['observation_id'], 'obs1')
-        self.assertFalse(any(event['type'] == 'model.timing' for event in self.events))
+        self.assertEqual([e['value']['stage'] for e in self.events if e['type'] == 'model.timing'], ['memory_review'])
         self.assertTrue(any(event['type'] == 'cloud.action_group' for event in self.events))
 
     def test_nonwriting_task_requires_fresh_visible_result(self):

@@ -1,0 +1,34 @@
+{
+  "scope": "Native Android 0.6.0 actual emulator, synthetic RK/HID, all required captures opened by builder",
+  "captures": [
+    "active-task-banner.png",
+    "completed-followup.png",
+    "execution-progress.png",
+    "failed-next-action.png",
+    "first-pair-guide.png",
+    "first-run.png",
+    "history-dark-font-1.3.png",
+    "history-failed-filter.png",
+    "history-filter-to-supplement.png",
+    "history-landscape.png",
+    "history-light.png",
+    "offline-recovery.png",
+    "pending-confirm-refresh-failed.png",
+    "pending-confirmation.png",
+    "pending-new-active.png",
+    "pending-refresh-unavailable.png",
+    "pending-resolved-idle.png",
+    "replace-draft-confirm.png",
+    "reply-next-action.png",
+    "reuse-editable-draft.png",
+    "supplement-context-keyboard.png"
+  ],
+  "reports": [
+    "verification.json",
+    "first-run-verification.json",
+    "correction-verification.json"
+  ],
+  "nativeDetector": "Skipped: HTML/CSS detector has no native verdict",
+  "priorUserFeedback": "UX still incomplete after 0.5.1; expanded task journey, not a visual-world replacement",
+  "correctionScope": "Two material review findings; final5 correction checks passed; all changed captures opened by builder"
+}

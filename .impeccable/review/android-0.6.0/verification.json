@@ -1,0 +1,14 @@
+{
+  "scope": "Actual Android/encrypted gateway with explicitly synthetic model/HID",
+  "checks": [
+    "Editing a historic task asks before replacing an unsent draft, and Keep preserves it",
+    "Confirmed reuse fills an editable draft and never submits a task automatically",
+    "Supplement identifies the original task, opens the keyboard and can be cancelled",
+    "Sending supplement creates a receipt containing the original goal plus added information",
+    "Recent tasks filter incomplete results and locate the selected task in its conversation",
+    "Failure recovery returns the original goal to editable draft without automatic replay",
+    "Recent tasks remain readable and dismissible in dark/font1.3",
+    "Landscape history closes normally; offline blocked send preserves draft and presents in-place recovery"
+  ],
+  "passed": true
+}

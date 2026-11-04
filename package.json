@@ -1,6 +1,6 @@
 {
   "name": "coloop",
-  "version": "0.4.0",
+  "version": "0.13.0",
   "description": "Coloop · RK 智能设备桌面工作台",
   "private": true,
   "type": "module",
@@ -15,7 +15,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && node tests/e2e.mjs",
+    "test:coordination": "npm run build && node tests/coordination-e2e.mjs",
+    "test:hooks": "npm run build && node tests/hooks-e2e.mjs",
+    "test:control": "npm run build && node tests/control-e2e.mjs",
+    "test:control:native": "npm run build && node tests/native-control-e2e.mjs",
+    "test:credentials": "npm run build && node tests/credential-vault-e2e.mjs",
+    "test:desktop": "npm run build && node tests/desktop-e2e.mjs",
     "setup:electron": "node node_modules/electron/install.js",
+    "setup:remote": "node scripts/setup-remote.mjs",
     "package:win": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --dir",
     "postinstall": "node node_modules/electron/install.js",
@@ -25,6 +32,7 @@
   "dependencies": {
     "lucide-react": "^0.468.0",
     "playwright-core": "1.64.1",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ssh2": "^1.16.0",
@@ -33,6 +41,7 @@
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@types/node": "^24.0.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/ssh2": "^1.15.4",
@@ -58,12 +67,52 @@
     ],
     "extraResources": [
       {
+        "from": "resources/rk-proactive-agent.py",
+        "to": "rk-proactive-agent.py"
+      },
+      {
+        "from": "resources/clipboard-lease.ps1",
+        "to": "clipboard-lease.ps1"
+      },
+      {
+        "from": "resources/rk-cloud-agent.py",
+        "to": "rk-cloud-agent.py"
+      },
+      {
+        "from": "resources/browser-observer.py",
+        "to": "browser-observer.py"
+      },
+      {
+        "from": "resources/browser-runtime.py",
+        "to": "browser-runtime.py"
+      },
+      {
+        "from": "resources/desktop-observer.py",
+        "to": "desktop-observer.py"
+      },
+      {
+        "from": "resources/desktop-runtime.py",
+        "to": "desktop-runtime.py"
+      },
+      {
+        "from": "resources/private-login-focus.ps1",
+        "to": "private-login-focus.ps1"
+      },
+      {
         "from": "resources/rapidocr-worker.py",
         "to": "rapidocr-worker.py"
       },
       {
         "from": "resources/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": ".cache/cloudflared/cloudflared.exe",
+        "to": "runtime/cloudflared.exe"
+      },
+      {
+        "from": "resources/remote/LICENSE-cloudflared.txt",
+        "to": "runtime/LICENSE-cloudflared.txt"
       }
     ],
     "win": {
