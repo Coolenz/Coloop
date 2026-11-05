@@ -1,10 +1,9 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-set "COLOOP_TARS_EXE=%~dp0release\tars-rk-0.13.0-20261104-r3\win-unpacked\Coloop.exe"
-if exist "%COLOOP_TARS_EXE%" (
-  start "" "%COLOOP_TARS_EXE%"
-  exit /b 0
+set "COLOOP_EXE=%LOCALAPPDATA%\Programs\Coloop\Coloop.exe"
+if not exist "%COLOOP_EXE%" (
+  echo Coloop is not installed. See AGENTS.md for local deployment instructions.
+  exit /b 1
 )
-echo Agent TARS build is missing. See docs\agent-tars-architecture.md.
-exit /b 1
+start "" "%COLOOP_EXE%"
+exit /b 0

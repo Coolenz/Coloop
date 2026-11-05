@@ -26,6 +26,7 @@ import {
 import type { AppSnapshot, ProviderConfig, Settings, SettingsInput } from '../../shared/contracts'
 import { BoardIllustration } from './components'
 import { api, unwrap } from './api'
+import { modelLimitsSchema, type ModelLimits } from '../../shared/model-usage'
 
 interface Props {
   snapshot: AppSnapshot
@@ -70,6 +71,7 @@ const presets: {
   },
 ]
 export function ModelsPage({ snapshot, notify, onSaved }: Props) {
+  const limits = modelLimitsSchema.parse(snapshot.settings.modelLimits ?? {})
   const [form, setForm] = useState(() => initialForm(snapshot.settings))
   const [key, setKey] = useState('')
   const [showKey, setShowKey] = useState(false)
@@ -77,7 +79,23 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
   const [testing, setTesting] = useState(false)
   const [dirty, setDirty] = useState(false)
   const changeProvider = (patch: Partial<ProviderConfig>) => {
-    setForm((v) => ({ ...v, provider: { ...v.provider, ...patch } }))
+    setForm((v) => {
+      const changed = (['model', 'baseUrl', 'protocol'] as const).some(
+        (field) => patch[field] !== undefined && patch[field] !== v.provider[field],
+      )
+      return {
+        ...v,
+        provider: { ...v.provider, ...patch },
+        modelLimits: changed
+          ? {
+              ...limits,
+              ...v.modelLimits,
+              inputYuanPerMillion: undefined,
+              outputYuanPerMillion: undefined,
+            }
+          : v.modelLimits,
+      }
+    })
     setDirty(true)
   }
   async function save() {
@@ -212,6 +230,99 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
             </small>
           </label>
         </div>
+        <h3>模型调用限额</h3>
+        <div className="row">
+          {(['usageBudgetEnabled', 'costLimitEnabled'] as const).map((field) => (
+            <label key={field}>
+              <input
+                type="checkbox"
+                checked={form.modelLimits?.[field] ?? limits[field]}
+                onChange={(event) => {
+                  setForm((previous) => ({
+                    ...previous,
+                    modelLimits: {
+                      ...limits,
+                      ...previous.modelLimits,
+                      [field]: event.target.checked,
+                    },
+                  }))
+                  setDirty(true)
+                }}
+              />
+              {field === 'costLimitEnabled' ? '启用人民币消费上限' : '启用累计调用及用量预算'}
+            </label>
+          ))}
+        </div>
+        <div className="form-grid">
+          {(
+            [
+              ['maxRequestsPerTask', '单任务模型请求上限', 1, 256],
+              ['maxRequestsPerDay', '每日最多云端请求', 1, 10000],
+              ['maxTokenUnitsPerTask', '单任务用量额度', 1000, 10000000],
+              ['maxTokenUnitsPerDay', '每日用量额度', 1000, 100000000],
+              ['maxInputBytes', '单次上下文上限（字节）', 1000, 1000000],
+              ['maxOutputTokens', '单次最大输出 token', 512, 8192],
+              ['minRequestIntervalMs', '云端请求最小间隔（毫秒）', 0, 60000],
+              ['maxNoProgressRequests', '无新进展连续调用上限', 2, 32],
+              ['maxCostYuanPerTask', '单任务费用上限（元）', 0.01, 10000],
+              ['maxCostYuanPerDay', '每日费用上限（元）', 0.01, 100000],
+              ['maxCostYuanTotal', '累计费用上限（元，留空不限制）', 0.01, 100000],
+              ['inputYuanPerMillion', '输入单价（元/百万 token）', 0, 1000000],
+              ['outputYuanPerMillion', '输出单价（元/百万 token）', 0, 1000000],
+            ] as [
+              Exclude<keyof ModelLimits, 'usageBudgetEnabled' | 'costLimitEnabled'>,
+              string,
+              number,
+              number,
+            ][]
+          ).map(([field, label, min, max]) => (
+            <label key={field}>
+              <span>{label}</span>
+              <input
+                type="number"
+                min={min}
+                max={max}
+                disabled={
+                  (['maxRequestsPerDay', 'maxTokenUnitsPerTask', 'maxTokenUnitsPerDay'].includes(
+                    field,
+                  ) &&
+                    !(form.modelLimits?.usageBudgetEnabled ?? limits.usageBudgetEnabled)) ||
+                  (['maxCostYuanPerTask', 'maxCostYuanPerDay', 'maxCostYuanTotal'].includes(
+                    field,
+                  ) &&
+                    !(form.modelLimits?.costLimitEnabled ?? limits.costLimitEnabled))
+                }
+                step={field.includes('Yuan') ? 0.01 : 1}
+                value={(form.modelLimits ? form.modelLimits[field] : limits[field]) ?? ''}
+                onChange={(event) => {
+                  const value =
+                    event.target.value === '' &&
+                    ['inputYuanPerMillion', 'outputYuanPerMillion'].includes(field)
+                      ? undefined
+                      : Number(event.target.value)
+                  setForm((previous) => ({
+                    ...previous,
+                    modelLimits: { ...limits, ...previous.modelLimits, [field]: value },
+                  }))
+                  setDirty(true)
+                }}
+              />
+            </label>
+          ))}
+        </div>
+        <p className="muted">
+          今日云端请求 {snapshot.modelUsage?.requests ?? 0} 次，用量额度已使用{' '}
+          {snapshot.modelUsage?.tokenUnits ?? 0}。 完整响应按服务商报告的 token
+          结算；缺少用量或响应中断时，保留输入字节数加最大输出的保守预留。金额以服务商账单为准。
+        </p>
+        <p className="muted">
+          已定价请求估算 {snapshot.modelUsage?.estimatedCostYuan ?? 0} 元，未定价请求{' '}
+          {snapshot.modelUsage?.unpricedRequests ?? 0} 次。
+          开启费用保护后必须配置输入、输出单价。累计上限跨日和重启保留，包含本配置目录历史已计价用量；切换模型或连接后请重新配置单价。
+        </p>
+        {snapshot.modelUsage?.error && (
+          <p role="alert">模型用量台账不可用，云端调用已停止。请检查本地磁盘及用量文件。</p>
+        )}
         <div className="settings-actions">
           <span>{dirty ? '有未保存的更改' : '配置已同步'}</span>
           <div className="row">
@@ -297,6 +408,7 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
   const [dirty, setDirty] = useState(false)
   const device = snapshot.device
   const connected = device.status === 'connected'
+  const hasCredential = !!snapshot.autoConnection?.hasCredential
   const busy = connecting || device.status === 'connecting' || startingService
   const rkRunning = snapshot.tasks.some((task) => task.status === 'running')
   async function save() {
@@ -490,12 +602,20 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="off"
-              placeholder="输入开发板的 SSH 登录密码"
+              placeholder={
+                hasCredential ? '已保存；仅密码变更时需要填写' : '首次连接时输入，之后自动连接'
+              }
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !dirty && !busy && !connected && !saving && !rkRunning) {
                   setConnecting(true)
                   const value = password
                   setPassword('')
+                  if (!value && hasCredential) {
+                    void unwrap(api.retryRkConnection())
+                      .catch((error) => notify(error.message, true))
+                      .finally(() => setConnecting(false))
+                    return
+                  }
                   void unwrap(api.connect(value))
                     .then(() => notify('RK 设备已连接'))
                     .catch((error) => notify(error.message, true))
@@ -515,17 +635,6 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                 : (snapshot.autoConnection?.message ?? '需要设备正常供电，USB 线连接 OTG 口')}
           </span>
           <div className="row">
-            {!connected && snapshot.autoConnection?.hasCredential && (
-              <button
-                className="button secondary"
-                disabled={busy || saving || rkRunning}
-                onClick={() =>
-                  void unwrap(api.retryRkConnection()).catch((error) => notify(error.message, true))
-                }
-              >
-                自动重新连接
-              </button>
-            )}
             {dirty && (
               <button
                 className="button secondary"
@@ -556,12 +665,12 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                   disabled={busy || rkRunning}
                   onClick={() =>
                     void unwrap(api.disconnect())
-                      .then(() => notify('设备已断开'))
+                      .then(() => notify('本次运行已断开，下次启动将自动连接'))
                       .catch((e) => notify(e.message, true))
                   }
                 >
                   <Unplug size={15} />
-                  断开连接
+                  暂时断开
                 </button>
               </>
             ) : (
@@ -572,13 +681,26 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
                   setConnecting(true)
                   const value = password
                   setPassword('')
+                  if (!value && hasCredential) {
+                    void unwrap(api.retryRkConnection())
+                      .catch((error) => notify(error.message, true))
+                      .finally(() => setConnecting(false))
+                    return
+                  }
                   void unwrap(api.connect(value))
                     .then(() => notify('RK 设备已连接'))
                     .catch((e) => notify(e.message, true))
                     .finally(() => setConnecting(false))
                 }}
               >
-                {busy ? <LoaderCircle size={15} className="spin" /> : <Plug size={15} />}连接设备
+                {busy ? <LoaderCircle size={15} className="spin" /> : <Plug size={15} />}
+                {busy
+                  ? '正在连接'
+                  : password
+                    ? '连接并保存密码'
+                    : hasCredential
+                      ? '自动连接 RK'
+                      : '首次连接 RK'}
               </button>
             )}
           </div>
@@ -612,6 +734,11 @@ export function DevicePage({ snapshot, notify, onSaved }: Props) {
               )}
             </div>
           </div>
+          {connected && device.clockSyncError && (
+            <div className="inline-error" role="alert">
+              {device.clockSyncError}
+            </div>
+          )}
           {connected && device.modelServiceError && (
             <div className="inline-error" role="alert">
               {device.modelServiceError}

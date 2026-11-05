@@ -2,99 +2,99 @@
 name: Coloop Android
 description: Native phone chat for goals, connection readiness, and verified computer-task replies.
 colors:
-  primary: "#202124"
-  on-primary: "#FFFFFF"
-  canvas: "#FFFFFF"
-  surface: "#FEFEFE"
-  ink: "#24262A"
-  supporting-ink: "#55585E"
-  container: "#F2F2F3"
-  message-surface: "#ECEDEE"
-  tonal-container: "#ECEDEF"
-  line: "#D3D5D9"
-  outline: "#74777D"
-  dark-primary: "#E5E6E8"
-  dark-on-primary: "#202124"
-  dark-canvas: "#17181A"
-  dark-surface: "#17181A"
-  dark-ink: "#F0F0F1"
-  dark-supporting-ink: "#C5C6CB"
-  dark-container: "#222326"
-  dark-message-surface: "#2B2D31"
-  dark-tonal-container: "#393B40"
-  dark-line: "#47494E"
-  dark-outline: "#909197"
-  connected: "#28775B"
-  dark-connected: "#84D6B1"
-  waiting-surface: "#FFF1CC"
-  waiting-ink: "#715000"
-  dark-waiting-surface: "#3C3013"
-  dark-waiting-ink: "#F2D080"
+  primary: '#202124'
+  on-primary: '#FFFFFF'
+  canvas: '#FFFFFF'
+  surface: '#FEFEFE'
+  ink: '#24262A'
+  supporting-ink: '#55585E'
+  container: '#F2F2F3'
+  message-surface: '#ECEDEE'
+  tonal-container: '#ECEDEF'
+  line: '#D3D5D9'
+  outline: '#74777D'
+  dark-primary: '#E5E6E8'
+  dark-on-primary: '#202124'
+  dark-canvas: '#17181A'
+  dark-surface: '#17181A'
+  dark-ink: '#F0F0F1'
+  dark-supporting-ink: '#C5C6CB'
+  dark-container: '#222326'
+  dark-message-surface: '#2B2D31'
+  dark-tonal-container: '#393B40'
+  dark-line: '#47494E'
+  dark-outline: '#909197'
+  connected: '#28775B'
+  dark-connected: '#84D6B1'
+  waiting-surface: '#FFF1CC'
+  waiting-ink: '#715000'
+  dark-waiting-surface: '#3C3013'
+  dark-waiting-ink: '#F2D080'
 typography:
   headline:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "28sp"
+    fontFamily: 'Roboto, sans-serif'
+    fontSize: '28sp'
     fontWeight: 500
-    lineHeight: "36sp"
+    lineHeight: '36sp'
   title:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "22sp"
+    fontFamily: 'Roboto, sans-serif'
+    fontSize: '22sp'
     fontWeight: 600
-    lineHeight: "28sp"
+    lineHeight: '28sp'
   body:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "16sp"
+    fontFamily: 'Roboto, sans-serif'
+    fontSize: '16sp'
     fontWeight: 400
-    lineHeight: "25sp"
+    lineHeight: '25sp'
   body-medium:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "14sp"
+    fontFamily: 'Roboto, sans-serif'
+    fontSize: '14sp'
     fontWeight: 400
-    lineHeight: "21sp"
+    lineHeight: '21sp'
 rounded:
-  bubble: "16dp"
-  bubble-tail: "4dp"
-  composer: "24dp"
+  bubble: '16dp'
+  bubble-tail: '4dp'
+  composer: '24dp'
 spacing:
-  compact: "8dp"
-  related: "12dp"
-  control: "16dp"
-  conversation-edge: "20dp"
-  section: "24dp"
-  task-gap: "28dp"
-  sheet-bottom: "32dp"
+  compact: '8dp'
+  related: '12dp'
+  control: '16dp'
+  conversation-edge: '20dp'
+  section: '24dp'
+  task-gap: '28dp'
+  sheet-bottom: '32dp'
 components:
   button-primary:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.on-primary}"
-    height: "48dp"
+    backgroundColor: '{colors.primary}'
+    textColor: '{colors.on-primary}'
+    height: '48dp'
   button-primary-dark:
-    backgroundColor: "{colors.dark-primary}"
-    textColor: "{colors.dark-on-primary}"
-    height: "48dp"
+    backgroundColor: '{colors.dark-primary}'
+    textColor: '{colors.dark-on-primary}'
+    height: '48dp'
   send:
-    backgroundColor: "{colors.primary}"
-    textColor: "{colors.on-primary}"
-    size: "48dp"
+    backgroundColor: '{colors.primary}'
+    textColor: '{colors.on-primary}'
+    size: '48dp'
   user-message:
-    backgroundColor: "{colors.message-surface}"
-    textColor: "{colors.ink}"
-    typography: "{typography.body}"
-    padding: "12dp 16dp"
-    width: "560dp"
+    backgroundColor: '{colors.message-surface}'
+    textColor: '{colors.ink}'
+    typography: '{typography.body}'
+    padding: '12dp 16dp'
+    width: '560dp'
   user-message-dark:
-    backgroundColor: "{colors.dark-message-surface}"
-    textColor: "{colors.dark-ink}"
-    typography: "{typography.body}"
-    padding: "12dp 16dp"
-    width: "560dp"
+    backgroundColor: '{colors.dark-message-surface}'
+    textColor: '{colors.dark-ink}'
+    typography: '{typography.body}'
+    padding: '12dp 16dp'
+    width: '560dp'
   composer:
-    textColor: "{colors.ink}"
-    rounded: "{rounded.composer}"
+    textColor: '{colors.ink}'
+    rounded: '{rounded.composer}'
   connection-strip:
-    padding: "10dp 20dp"
+    padding: '10dp 20dp'
   task-options:
-    padding: "0dp 24dp"
+    padding: '0dp 24dp'
 ---
 
 # Design System: Coloop Android
@@ -108,6 +108,7 @@ Coloop's graphite, white, and paired closed-arc mark carry into a native Materia
 This system is extracted from `app/src/main/java/ai/coloop/mobile/MainActivity.kt`, `ColoopChat.kt`, `TaskHistorySheet.kt`, `ColoopModels.kt`, `RemoteViewModel.kt`, and `RemoteRepository.kt`. It is scoped to Android; repository-root `DESIGN.md` and `.impeccable/design.json` describe desktop identity. The user-selected composition and Mode: Operate live in `../docs/android-chat-brief.md`.
 
 **Key Characteristics:**
+
 - Native system sans typography, font scaling, Material controls, and system Back.
 - Graphite primary actions, tonal neutral surfaces, and restrained semantic status color.
 - User messages and Coloop replies with distinct alignment and real task state.
@@ -118,10 +119,12 @@ This system is extracted from `app/src/main/java/ai/coloop/mobile/MainActivity.k
 The frontmatter extracts the actual light and dark roles from `ColoopTheme`; these supersede provisional colors in the surface brief. Components consume `MaterialTheme.colorScheme`, with explicit paired status colors in the connection strip and waiting notice.
 
 ### Primary
+
 - **Graphite Action** (`primary`, `on-primary`): filled actions and Send in light theme.
 - **Light Graphite Action** (`dark-primary`, `dark-on-primary`): the corresponding readable action pair in dark theme.
 
 ### Neutral
+
 - **Paper and Surface** (`canvas`, `surface`): light screen and composer.
 - **Reading Ink** (`ink`, `supporting-ink`): primary content and quieter explanatory text.
 - **Tonal Layers** (`container`, `message-surface`, `tonal-container`): Material containers and user messages.
@@ -129,6 +132,7 @@ The frontmatter extracts the actual light and dark roles from `ColoopTheme`; the
 - **Dark Layers** (the `dark-` neutral tokens): independently defined surfaces, text, borders, and messages; use the native dark scheme rather than a visual inversion.
 
 ### Semantic status
+
 - **Connected Green** (`connected`, `dark-connected`): connection readiness with visible state text.
 - **Recoverable Amber** (`waiting-surface`, `waiting-ink` and their `dark-` counterparts): an expected RK connection or model-start wait.
 - **Material Error**: `error`, `errorContainer`, and `onErrorContainer` remain inherited native Material 3 roles for actual failures; no custom brand-red token is established.
@@ -140,6 +144,7 @@ The frontmatter extracts the actual light and dark roles from `ColoopTheme`; the
 **Body and controls:** Android system sans through Compose Material 3 typography. Text uses sp and follows system font-size preferences. The incumbent mark is a vector asset; no display typeface is introduced.
 
 ### Hierarchy
+
 - **Headline**: `headlineMedium`, used for the empty conversation prompt.
 - **Title**: `titleLarge`, used by the native top app bar and section/sheet titles. The implemented token above supersedes the brief's provisional app-title size.
 - **Body**: `bodyLarge`, used for user messages and Coloop replies.
@@ -223,6 +228,7 @@ Keep the pending command UUID across uncertain transport and reconcile against l
 ## Do's and Don'ts
 
 ### Do:
+
 - **Do** preserve the paired-arc vector mark and graphite/white identity through native light and dark roles.
 - **Do** use sp text, native Material focus/pressed states, and at least 48dp action targets.
 - **Do** keep connection/startup state readable independently of task execution and completion.
@@ -230,6 +236,7 @@ Keep the pending command UUID across uncertain transport and reconcile against l
 - **Do** verify phone layouts with system bars, IME, dark theme, and enlarged text using emulator/device captures.
 
 ### Don't:
+
 - **Don't** treat a receipt or ready connection as proof that a computer task succeeded.
 - **Don't** replay an old task after reconnection, Resume, or an uncertain response.
 - **Don't** hide the sheet's final action beneath the keyboard or system navigation area.
@@ -237,5 +244,3 @@ Keep the pending command UUID across uncertain transport and reconcile against l
 - **Don't** overwrite desktop design artifacts or copy their Windows typography into Android.
 
 Not canonized or repaired: the pre-existing root product platform marker still says `web` despite its Android paragraph, and root desktop artifact metadata predates this Android system. Both remain outside the Android-only refinement. Palette, typography, shape, spacing primitives, and existing vector identity are preserved. Synthetic 0.5/0.6 UI evidence stays separate from the earlier 0.4/desktop 0.13 hardware report. The initial 0.6 review findings are corrected in source, pass the five final native correction checks and have a scoped ship verdict for those two fixes; this does not establish whole-surface certification.
-
-

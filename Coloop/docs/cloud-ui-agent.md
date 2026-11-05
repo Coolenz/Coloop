@@ -6,12 +6,12 @@
 
 ## 开源项目适配结论
 
-| 项目 | 适合借鉴或接入的位置 | 本项目的限制与取舍 |
-| --- | --- | --- |
-| [Microsoft UFO²](https://github.com/microsoft/UFO/blob/eae3c0a8d168c47cb10df0652e293e092eda1078/ufo/README.md)，MIT | Windows UIA/视觉感知、应用级规划、多动作预测与实时控件校验、经验检索。与已有Windows观察端最接近。 | 原项目有GUI及原生API混合执行器。本项目复用规划/实时绑定思路，实际输入统一交给RK；没有引入其API/软件输入后端。 |
-| [Browser-use](https://github.com/browser-use/browser-use/blob/b49a68e4060acb226da8f784194fef301c53a6d7/browser_use/agent/system_prompts/system_prompt.md)，MIT | 结构化Agent状态、精简上下文、多动作策略、页面变化后重新观察。 | 浏览器控制后端与本项目USB约束不同。只参考消息和执行边界，不运行其浏览器执行器，不把跨页面的旧控件ID拼成动作队列。 |
-| [LangGraph.js](https://github.com/langchain-ai/langgraphjs/tree/959f041dfb8f6bbafa6af3ebb4bc20484a9290da)，MIT | TypeScript状态图、检查点、故障恢复，可在后续长任务中编排观察/规划/执行/验证节点。 | 本次没有安装SDK。若接入，已发送或结果未知的HID节点不得自动重试；恢复先重新观察，检查点不赋予旧许可/坐标执行权。普通长期记忆仍使用RK Mem0。官方[持久化说明](https://docs.langchain.com/oss/javascript/langgraph/persistence)。 |
-| [Agent-S](https://github.com/simular-ai/Agent-S/tree/0fff0e634869dab72027435b4586e62300185d41)，Apache-2.0 | 任务经验、层级规划及Agent接口设计。当前仓库已包含S4接口演化实验。 | 已有Mem0，无需再并列一套长期记忆。S4的工具接口生成/基准环境不是可直接运行在RK上的执行器；本次不接入自动修改工具或任意代码执行能力。 |
+| 项目                                                                                                                                                           | 适合借鉴或接入的位置                                                                              | 本项目的限制与取舍                                                                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Microsoft UFO²](https://github.com/microsoft/UFO/blob/eae3c0a8d168c47cb10df0652e293e092eda1078/ufo/README.md)，MIT                                            | Windows UIA/视觉感知、应用级规划、多动作预测与实时控件校验、经验检索。与已有Windows观察端最接近。 | 原项目有GUI及原生API混合执行器。本项目复用规划/实时绑定思路，实际输入统一交给RK；没有引入其API/软件输入后端。                                                                                                                 |
+| [Browser-use](https://github.com/browser-use/browser-use/blob/b49a68e4060acb226da8f784194fef301c53a6d7/browser_use/agent/system_prompts/system_prompt.md)，MIT | 结构化Agent状态、精简上下文、多动作策略、页面变化后重新观察。                                     | 浏览器控制后端与本项目USB约束不同。只参考消息和执行边界，不运行其浏览器执行器，不把跨页面的旧控件ID拼成动作队列。                                                                                                             |
+| [LangGraph.js](https://github.com/langchain-ai/langgraphjs/tree/959f041dfb8f6bbafa6af3ebb4bc20484a9290da)，MIT                                                 | TypeScript状态图、检查点、故障恢复，可在后续长任务中编排观察/规划/执行/验证节点。                 | 本次没有安装SDK。若接入，已发送或结果未知的HID节点不得自动重试；恢复先重新观察，检查点不赋予旧许可/坐标执行权。普通长期记忆仍使用RK Mem0。官方[持久化说明](https://docs.langchain.com/oss/javascript/langgraph/persistence)。 |
+| [Agent-S](https://github.com/simular-ai/Agent-S/tree/0fff0e634869dab72027435b4586e62300185d41)，Apache-2.0                                                     | 任务经验、层级规划及Agent接口设计。当前仓库已包含S4接口演化实验。                                 | 已有Mem0，无需再并列一套长期记忆。S4的工具接口生成/基准环境不是可直接运行在RK上的执行器；本次不接入自动修改工具或任意代码执行能力。                                                                                           |
 
 本次是**借鉴开源设计后的本地适配实现**，未安装、嵌入或声称完整集成上述框架，也未复制其实现代码。固定调研revision见 `D:/RK/logs/cloud-agent-optimization-20261101-work/research-sources.json`；没有升级现有依赖或锁文件。UFO README中的旧multi_action文档链接本次404，以上行为以固定README及本项目实现/验收为准，不把链接失效的文档当作已经执行的代码。
 
@@ -46,13 +46,13 @@ flowchart LR
 
 真实新视频BV1XZxe6SEuU完成10次RK USB鼠标动作、20次守卫、点赞/投1枚币/默认夹收藏三态核验。两轮均记忆命中、0次RK模型；对比为：
 
-| 项目 | 逐按钮模式 | 语义流程模式 |
-| --- | ---: | ---: |
-| 正式任务总耗时 | 42.912秒 | 32.309秒 |
-| 真实云端请求 | 14 | 3 |
-| 接口报告输入token | 16,278 | 2,376 |
-| 请求system+user文本字节 | 58,245 | 8,629 |
-| 实际鼠标动作/报告守卫 | 10 / 20 | 10 / 20 |
+| 项目                    | 逐按钮模式 | 语义流程模式 |
+| ----------------------- | ---------: | -----------: |
+| 正式任务总耗时          |   42.912秒 |     32.309秒 |
+| 真实云端请求            |         14 |            3 |
+| 接口报告输入token       |     16,278 |        2,376 |
+| 请求system+user文本字节 |     58,245 |        8,629 |
+| 实际鼠标动作/报告守卫   |    10 / 20 |      10 / 20 |
 
 本次耗时减少10.604秒（24.7%），输入token减少85.4%；API报告的prompt_tokens包含其缓存token，不等于本轮全部重新prefill的token或同百分比费用下降。三次真实云请求分别为plan、choose_video、review；其余9个已发送动作由已批准流程结合新观察绑定。一次点赞许可前重新观察只重新做本地绑定，没有增加云请求。正常路径不保证永远三次，目标歧义/异常仍可增加调用。
 

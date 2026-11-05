@@ -54,16 +54,18 @@ export interface ControlIndicatorApi {
   snapshot(renderedRevision?: number): Promise<Result<ControlIndicatorView>>
   stop(): Promise<Result<void>>
   openMain(): Promise<Result<void>>
+  close(): Promise<Result<void>>
   closePreview(): Promise<Result<void>>
   acceptSuggestion(id: string, revision: number): Promise<Result<void>>
   dismissSuggestion(id: string, revision: number): Promise<Result<void>>
+  dismissResult(taskId: string, revision: number): Promise<Result<void>>
   answerQuestion(input: IslandAnswer): Promise<Result<void>>
   beginAnswer(): Promise<Result<void>>
   beginTask(): Promise<Result<void>>
   startTask(goal: string): Promise<Result<void>>
   endAnswer(): Promise<Result<void>>
   setExpanded(expanded: boolean): Promise<Result<void>>
-  setRevealed(revealed: boolean): Promise<Result<void>>
+  setRevealed(revealed: boolean, reducedMotion?: boolean): Promise<Result<void>>
   drag(phase: 'start' | 'move' | 'end', point: { x: number; y: number }): Promise<Result<void>>
   pauseObservation(paused: boolean): Promise<Result<void>>
   onSnapshot(callback: (snapshot: ControlIndicatorView) => void): () => void

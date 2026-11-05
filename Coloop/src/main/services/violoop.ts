@@ -12,6 +12,7 @@ import {
   type VioloopTask,
 } from '../../shared/violoop'
 import type { DesktopTaskService } from './desktop-tasks'
+import type { ProactiveState } from '../../shared/proactive'
 import { isBrowserPilot, browserTaskOf } from './browser-task'
 import { appendTiming, timed, writeTimingSummary, type StepTiming } from './step-timing'
 
@@ -47,10 +48,16 @@ interface Options {
   encrypt: (value: string) => string
   decrypt: (value: string) => string
   desktop: Pick<DesktopTaskService, 'windows' | 'start' | 'stop' | 'snapshot'>
-  assertAvailable: () => void
+  assertAvailable: (continuingTaskId?: string) => void
   understand: (content: string, signal: AbortSignal) => Promise<string>
   recallProcedure?: (goal: string, signal: AbortSignal) => Promise<boolean>
   onChange: () => void
+  execution?: {
+    start(goal: string, taskId: string, target?: 'hybrid' | 'cloud' | 'rk'): Promise<unknown>
+    snapshot(): ProactiveState
+    stop(): Promise<unknown>
+    answer(taskId: string, questionId: string, answer: string): void
+  }
 }
 
 /** Phone task admission and durable receipts. The RK runtime still owns all HID execution. */
@@ -60,6 +67,7 @@ export class VioloopService {
   private abort?: AbortController
   private storageError = false
   private stepTimings = new Map<string, StepTiming[]>()
+  private starting?: Promise<unknown>
   constructor(private options: Options) {
     try {
       if (existsSync(this.path())) {
@@ -69,10 +77,14 @@ export class VioloopService {
         if (new Set(this.entries.map((e) => e.task.id)).size !== this.entries.length)
           throw new Error('INVALID_JOURNAL')
         for (const entry of this.entries)
-          if (activeStates.has(entry.task.state)) {
+          if (
+            activeStates.has(entry.task.state) ||
+            (entry.task.state === 'awaiting_input' && entry.task.questionId)
+          ) {
             entry.task.state = 'interrupted'
             entry.task.message = '电脑服务已重启，原任务结果需核查；不会自动重放操作。'
             entry.task.updatedAt = new Date().toISOString()
+            entry.task.questionId = undefined
           }
         this.save()
       }
@@ -96,7 +108,15 @@ export class VioloopService {
     }
   }
   get active() {
-    return !!this.current && activeStates.has(this.current.task.state)
+    if (!this.current) return false
+    const execution = this.options.execution?.snapshot()
+    return (
+      activeStates.has(this.current.task.state) ||
+      !!(execution?.active && execution.taskId === this.current.task.id)
+    )
+  }
+  get taskId() {
+    return this.current?.task.id
   }
   snapshot(): VioloopSnapshot {
     let unavailableReason: string | undefined
@@ -117,9 +137,9 @@ export class VioloopService {
       ),
     }
   }
-  private assertAvailable() {
+  private assertAvailable(continuingTaskId?: string) {
     if (this.storageError) throw new Error('任务记录无法安全保存，请检查电脑端；不会重新发送旧任务')
-    this.options.assertAvailable()
+    this.options.assertAvailable(continuingTaskId)
   }
   private update(entry: Entry, values: Partial<VioloopTask>) {
     Object.assign(entry.task, values, { updatedAt: new Date().toISOString() })
@@ -139,20 +159,29 @@ export class VioloopService {
         throw new Error('VIOLOOP_CONFLICT')
       return structuredClone(previous.task)
     }
-    this.assertAvailable()
-    if (this.active || this.options.desktop.snapshot().active) throw new Error('VIOLOOP_BUSY')
+    const parent = request.replyTo
+      ? this.entries.find((e) => e.task.id === request.replyTo && e.deviceId === deviceId)
+      : undefined
+    if (request.replyTo && (!parent || parent.task.state !== 'awaiting_input'))
+      throw new Error('VIOLOOP_REPLY_INVALID')
+    const answering = !!(
+      this.options.execution &&
+      parent === this.current &&
+      parent?.task.questionId
+    )
+    this.assertAvailable(answering ? parent!.task.id : undefined)
+    if ((!answering && this.active) || this.options.desktop.snapshot().active)
+      throw new Error('VIOLOOP_BUSY')
     // Keep all accepted identifiers. Never evict a tombstone then execute a delayed duplicate.
     if (this.entries.length >= 1000) throw new Error('VIOLOOP_JOURNAL_FULL')
     let text = request.text
-    if (request.replyTo) {
-      const parent = this.entries.find(
-        (e) => e.task.id === request.replyTo && e.deviceId === deviceId,
-      )
-      if (!parent || parent.task.state !== 'awaiting_input')
-        throw new Error('VIOLOOP_REPLY_INVALID')
+    if (parent && !answering) {
       text = `${parent.task.text}\n补充：${request.text}`
       if (text.length > 2000) throw new Error('VIOLOOP_MESSAGE_TOO_LONG')
     }
+    const target = request.target ?? parent?.task.target
+    if (answering && (target ?? 'hybrid') !== (parent!.task.target ?? 'hybrid'))
+      throw new Error('VIOLOOP_REPLY_ROUTE_CHANGED')
     const at = new Date().toISOString()
     const entry: Entry = {
       deviceId,
@@ -160,6 +189,7 @@ export class VioloopService {
       task: {
         id: request.commandId,
         text,
+        ...(target ? { target } : {}),
         state: 'received',
         message: 'Coloop 已接收，等待 RK 处理。',
         createdAt: at,
@@ -173,38 +203,90 @@ export class VioloopService {
       this.entries.pop()
       throw error
     }
+    if (answering) {
+      try {
+        this.options.execution!.answer(parent!.task.id, parent!.task.questionId!, request.text)
+        this.update(entry, { state: 'answered', message: '补充已提交到原任务。' })
+        this.observeDesktop()
+      } catch {
+        this.update(entry, { state: 'failed', message: '原任务的问题已结束，请刷新任务状态。' })
+      }
+      return structuredClone(entry.task)
+    }
     this.current = entry
     const abort = (this.abort = new AbortController())
     this.options.onChange()
     // Admit and return a receipt before model inference; stop and snapshots remain reachable.
-    void this.run(entry, { ...request, text }, abort.signal).catch(async (error: unknown) => {
-      if (
-        abort.signal.aborted ||
-        !activeStates.has(entry.task.state) ||
-        entry.task.state === 'unconfirmed'
-      )
-        return
-      if (entry.task.desktopTaskId) await this.options.desktop.stop().catch(() => {})
-      const state =
-        entry.task.desktopTaskId && this.options.desktop.snapshot().active
-          ? 'unconfirmed'
-          : 'failed'
-      try {
-        this.update(entry, {
-          state,
-          message:
-            error instanceof Error && error.message === 'INVALID_INTENT'
-              ? 'RK 返回的任务格式不符合协议，尚未下发键鼠操作；请重新发送任务。'
-              : 'RK 未能解析或启动任务，请检查设备、模型与目标窗口；没有自动重试。',
-        })
-      } catch {
-        entry.task.state = state
-        this.options.onChange()
-      }
-    })
+    void this.run(entry, { ...request, text, target }, abort.signal).catch(
+      async (error: unknown) => {
+        if (
+          abort.signal.aborted ||
+          !activeStates.has(entry.task.state) ||
+          entry.task.state === 'unconfirmed'
+        )
+          return
+        if (this.options.execution) {
+          this.observeDesktop()
+          if (this.options.execution.snapshot().taskId === entry.task.id)
+            await this.options.execution.stop().catch(() => {})
+          if (!activeStates.has(entry.task.state)) return
+          this.update(entry, {
+            state: 'failed',
+            message: '电脑任务未能启动，请检查执行器和模型状态。',
+          })
+          return
+        }
+        if (entry.task.desktopTaskId) await this.options.desktop.stop().catch(() => {})
+        const state =
+          entry.task.desktopTaskId && this.options.desktop.snapshot().active
+            ? 'unconfirmed'
+            : 'failed'
+        try {
+          this.update(entry, {
+            state,
+            message:
+              error instanceof Error && error.message === 'INVALID_INTENT'
+                ? 'RK 返回的任务格式不符合协议，尚未下发键鼠操作；请重新发送任务。'
+                : 'RK 未能解析或启动任务，请检查设备、模型与目标窗口；没有自动重试。',
+          })
+        } catch {
+          entry.task.state = state
+          this.options.onChange()
+        }
+      },
+    )
     return structuredClone(entry.task)
   }
   private async run(entry: Entry, request: VioloopMessage, signal: AbortSignal) {
+    if (this.options.execution) {
+      this.update(entry, {
+        state: 'running',
+        desktopTaskId: entry.task.id,
+        message: '已接收电脑任务，正在执行并核验结果。',
+      })
+      const goal = [
+        request.text,
+        request.windowTitle ? `用户指定目标窗口：${request.windowTitle}` : '',
+        request.expectedText ? `用户指定完成文字：${request.expectedText}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+      signal.throwIfAborted()
+      this.starting = request.target
+        ? this.options.execution.start(goal, entry.task.id, request.target)
+        : this.options.execution.start(goal, entry.task.id)
+      try {
+        await this.starting
+      } finally {
+        this.starting = undefined
+      }
+      if (signal.aborted) {
+        await this.options.execution.stop()
+        return
+      }
+      this.observeDesktop()
+      return
+    }
     const rows: StepTiming[] = []
     this.stepTimings.set(entry.task.id, rows)
     const record = (row: StepTiming) => {
@@ -353,6 +435,37 @@ export class VioloopService {
   observeDesktop() {
     const entry = this.current
     if (!entry?.task.desktopTaskId) return
+    if (this.options.execution) {
+      const execution = this.options.execution.snapshot()
+      if (execution.taskId !== entry.task.desktopTaskId) return
+      const state =
+        execution.phase === 'input_unknown'
+          ? 'unconfirmed'
+          : execution.phase === 'waiting_user'
+            ? 'awaiting_input'
+            : execution.active
+              ? 'running'
+              : execution.phase === 'completed'
+                ? 'completed'
+                : execution.phase === 'cancelled'
+                  ? 'cancelled'
+                  : 'failed'
+      const question = execution.question
+      const message = String(
+        question?.question ?? execution.summary ?? execution.error ?? '正在执行电脑任务。',
+      ).slice(0, 1000)
+      const questionId =
+        typeof question?.question_id === 'string' ? question.question_id : undefined
+      if (
+        entry.task.state === state &&
+        entry.task.phase === execution.phase &&
+        entry.task.message === message &&
+        entry.task.questionId === questionId
+      )
+        return
+      this.update(entry, { state, phase: execution.phase, message, questionId })
+      return
+    }
     const desktop = this.options.desktop.snapshot()
     if (desktop.taskId !== entry.task.desktopTaskId) return
     const state =
@@ -394,6 +507,15 @@ export class VioloopService {
     const entry = this.current
     if (!entry || !this.active) return
     this.abort?.abort()
+    if (this.options.execution) {
+      const stopping = this.options.execution.stop()
+      await this.starting?.catch(() => {})
+      await stopping
+      if (this.options.execution.snapshot().active) await this.options.execution.stop()
+      this.observeDesktop()
+      if (this.active) throw new Error('VIOLOOP_STOP_UNCONFIRMED')
+      return
+    }
     if (entry.task.desktopTaskId || this.options.desktop.snapshot().active) {
       await this.options.desktop.stop()
       this.observeDesktop()

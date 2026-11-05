@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync } from 'n
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { AppStore } from '../src/main/infrastructure/store'
+import { modelLimitsSchema } from '../src/shared/model-usage'
 
 const directories: string[] = []
 function create() {
@@ -18,6 +19,26 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 describe('local persistence and credential boundary', () => {
+  it('persists model limits and clears stale prices when the model changes', () => {
+    const { store, directory, codec } = create()
+    store.saveSettings({
+      ...store.config,
+      modelLimits: modelLimitsSchema.parse({ inputYuanPerMillion: 2, outputYuanPerMillion: 8 }),
+    })
+    expect(new AppStore(directory, codec).config.modelLimits?.inputYuanPerMillion).toBe(2)
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, name: 'renamed connection' },
+    })
+    expect(store.config.modelLimits?.inputYuanPerMillion).toBe(2)
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, model: 'different-model' },
+    })
+    expect(store.config.modelLimits?.inputYuanPerMillion).toBeUndefined()
+    expect(store.config.modelLimits?.outputYuanPerMillion).toBeUndefined()
+    expect(store.config.modelLimits?.maxCostYuanPerTask).toBe(2)
+  })
   it('never exposes the API key in public settings or stores its plaintext', () => {
     const { store, directory } = create()
     store.saveSettings({

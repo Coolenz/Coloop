@@ -22,14 +22,14 @@ Windows 配套进程只读取 HWND/PID、真实进程、焦点、UIA 与 OCR。R
 
 固定原始证据在 `D:/RK/logs/cloud-hid-relay-20261101-live-9/` 和 `...-10/`。两轮都使用真实 DeepSeek 账户、既有 Qwen4B NPU、RK USB、实际 Chrome/Bilibili、UIA/OCR 和真实云端复盘。通过生产 `VioloopService.submit` 输入同一任务消息；**没有使用物理手机或本轮公网手机传输**，原 Android 通道只能沿用此前验收，不冒充本轮实机证据。
 
-| 项目 | 首次（9） | 复用（10） |
-| --- | ---: | ---: |
-| RK 调用，包含任务理解 | 2 | 1 |
-| 真实云端调用，规划/总结各一次 | 2 | 2 |
-| USB 模板动作 | 4 | 4 |
-| 每报告守卫 | 47 | 47 |
-| 运行时，含云复盘 | 22.042秒 | 15.675秒 |
-| 含任务理解的服务总时间 | 34.898秒 | 28.809秒 |
+| 项目                          | 首次（9） | 复用（10） |
+| ----------------------------- | --------: | ---------: |
+| RK 调用，包含任务理解         |         2 |          1 |
+| 真实云端调用，规划/总结各一次 |         2 |          2 |
+| USB 模板动作                  |         4 |          4 |
+| 每报告守卫                    |        47 |         47 |
+| 运行时，含云复盘              |  22.042秒 |   15.675秒 |
+| 含任务理解的服务总时间        |  34.898秒 |   28.809秒 |
 
 第二次明确携带1条历史流程，省掉了一次约6秒的RK模板选择。两轮间还修正 Windows 管道 UTF-8 编码，不能视为严格耗时 A/B，也不能推出通用提速倍数。首轮云总结提到乱码，原样保留；第10轮中文 UIA/OCR 正常。`procedure.json` 是固定快照，`procedures/open-bilibili.json` 是该轮生成的索引，未改写前轮结果。
 
@@ -107,7 +107,6 @@ Windows 配套进程只读取 HWND/PID、真实进程、焦点、UIA 与 OCR。R
 
 562项Vitest、19项浏览器Python、类型/构建和Ruff/语法通过。最终独立agent发行物已启动，主进程默认semantic-plan，核心源码与真实模式相同；打包后未再重复账号互动。计时同生产服务提交→终态，已有首页/已登录/模型驻留，含4秒开始等待，提交前“显示桌面”准备、Electron/SSH和实体手机网络不计入。不同视频与单次样本不能外推通用任务质量或SLA。
 
-
 ### 2026-11-02 手机“打开 Bilibili”意图解析修复
 
 手机真实记录中，00:48:59 的“帮我打开哔哩哔哩”与 00:49:29 的“打开bilibili”均已到达 Violoop；窗口枚举和 RK 调用成功，随后在意图解析/启动前失败，没有 desktopTaskId。旧入口没有保留原始模型文本，不能断言两次原输出的逐字内容。独立真实 RK 复现返回 `kind=browser_relay` 并附加 `message`，内容还错误声称要执行三连；严格 schema 拒绝额外字段。复现是只读观察/模型调用，没有发送 USB。
@@ -120,7 +119,6 @@ Windows 配套进程只读取 HWND/PID、真实进程、焦点、UIA 与 OCR。R
 
 证据：`D:/RK/logs/phone-bilibili-fix-20261102/diagnostic.json`、`verification.json`、`package-ready.json` 和 `D:/RK/logs/phone-bilibili-fix-20261102-live-1/` 的输入、manifest、原始模型/云响应、运行时回执和分步耗时。旧两次手机任务时间来自原任务记录（Asia/Shanghai），不以新结果改写旧失败。
 
-
 ### 2026-11-02 意图层容错修正
 
 手机任务的模型意图 schema 改为显式 strip：保留已知任务类型与必要参数，忽略 message/reason 等额外字段；额外字段不传给执行器，不据此展示“已完成”。这修正此前“正确 kind + 多一句说明即整任务失败”的不合理限制。用户输入授权 envelope、执行动作参数、任务范围和业务核验独立保留；未知 kind、缺失/错误必要字段及重复JSON键仍不能直接执行。没有新增任意网址、登录或三连授权。
@@ -128,7 +126,6 @@ Windows 配套进程只读取 HWND/PID、真实进程、焦点、UIA 与 OCR。R
 47项相关测试与类型检查通过。使用上一轮真实RK原始输出回放，带错误三连说明的 browser_relay 现在正常归一化为单一 kind；单元测试确认普通desktop额外shell、authorizeInput和maxSteps不会传到执行器，实际参数仍由用户目标及主机策略产生。没有为解析器改动再次启动板端模型或发送USB；本轮验证为真实历史原文回放、单元/类型及发行物就绪，不宣称新增实体手机端到端成功。
 
 源码为 src/shared/violoop.ts；测试 tests/violoop-intent.test.ts 与 tests/violoop.test.ts。工作区另有进行中的RK Agent迁移，故基于已验证 phone-bilibili-fix 发行物冻结应用，仅替换编译后五个意图对象的strict为strip，并与源码对应；其余主程序字节和观察/输入资源保留原发行物。通过electron-builder重打包并更新asar完整性，独立目录release/intent-tolerant-0.13.0-20261102；start-cloud-hid.cmd指向新包，旧包保留。正常退出旧程序后启动新包，不自动重放旧失败任务。可复现冻结/打包配置、原始manifest、模型原文回放和包验证在D:/RK/logs/intent-tolerance-20261102/；本地准备脚本D:/Coloop/.qa/prepare-intent-package.mjs，构建配置D:/Coloop/.qa/intent-tolerance-builder.json。
-
 
 ### 2026-11-02 安卓模拟器真实发送首页任务验收
 

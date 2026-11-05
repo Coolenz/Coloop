@@ -26,8 +26,10 @@ public static class ClipboardLeaseNative {
  [DllImport("user32.dll")] static extern bool CloseClipboard();
  [DllImport("user32.dll")] static extern bool EmptyClipboard();
  [DllImport("user32.dll")] static extern uint EnumClipboardFormats(uint f);
- [DllImport("user32.dll")] static extern IntPtr GetClipboardData(uint f);
- [DllImport("user32.dll")] static extern IntPtr SetClipboardData(uint f, IntPtr p);
+ [DllImport("user32.dll",SetLastError=true)] static extern IntPtr GetClipboardData(uint f);
+ [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SetClipboardData(uint f, IntPtr p);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClipboardFormatName(uint f,StringBuilder name,int size);
+ [DllImport("kernel32.dll")] static extern void SetLastError(uint error);
  [DllImport("user32.dll")] public static extern uint GetClipboardSequenceNumber();
  [DllImport("user32.dll")] static extern IntPtr GetClipboardOwner();
  [DllImport("kernel32.dll")] static extern UIntPtr GlobalSize(IntPtr p);
@@ -39,6 +41,13 @@ public static class ClipboardLeaseNative {
  public static bool HasSaved { get { return saved!=null; } }
  public static uint Sequence;
  static void Put(uint format, byte[] bytes) {
+   // Preserve an advertised but unrenderable metadata marker as that same
+   // marker, without manufacturing a payload for it.
+   if(bytes==null) {
+     SetLastError(0); SetClipboardData(format,IntPtr.Zero);
+     if(Marshal.GetLastWin32Error()!=0)throw new Exception("CLIPBOARD_WRITE_FAILED");
+     return;
+   }
    IntPtr h = GlobalAlloc(2, (UIntPtr)bytes.Length);
    if(h == IntPtr.Zero) throw new Exception("CLIPBOARD_ALLOC_FAILED");
    IntPtr p = GlobalLock(h);
@@ -46,16 +55,34 @@ public static class ClipboardLeaseNative {
    Marshal.Copy(bytes,0,p,bytes.Length); GlobalUnlock(h);
    if(SetClipboardData(format,h)==IntPtr.Zero) { GlobalFree(h); throw new Exception("CLIPBOARD_WRITE_FAILED"); }
  }
+ static void RestoreSaved() {
+   try {
+     foreach(var item in saved) Put(item.Key,item.Value);
+     saved=null;
+   } finally {
+     // A partial restoration is still our own clipboard generation. Retain the
+     // snapshot for retry instead of treating that generation as a user copy.
+     Sequence=GetClipboardSequenceNumber();
+   }
+ }
  public static uint Prepare(IntPtr owner, string text) {
    if(saved != null) throw new Exception("CLIPBOARD_LEASE_BUSY");
    if(!OpenClipboard(owner)) throw new Exception("CLIPBOARD_BUSY");
    try {
      var snapshot = new Dictionary<uint,byte[]>(); ulong total=0; bool hadBitmap=false;
      for(uint f=EnumClipboardFormats(0); f!=0; f=EnumClipboardFormats(f)) {
+       var name=new StringBuilder(256);GetClipboardFormatName(f,name,256);
+       // These are OLE transport envelopes, including process-local pointers.
+       // The materialized public formats below reconstruct the native clipboard.
+       if(name.ToString()=="DataObject" || name.ToString()=="Ole Private Data")continue;
        // Bitmap/palette/metafile/owner-display formats are handles, not HGLOBAL bytes.
        if(f==2) { hadBitmap=true; continue; } // Windows can synthesize CF_BITMAP from DIB.
        if(f==3 || f==9 || f==14 || (f>=0x80 && f<=0x8e)) throw new Exception("CLIPBOARD_FORMAT_UNSUPPORTED");
-       IntPtr h=GetClipboardData(f); ulong size=GlobalSize(h).ToUInt64(); total+=size;
+       SetLastError(0);IntPtr h=GetClipboardData(f);int readError=Marshal.GetLastWin32Error();
+       if(h==IntPtr.Zero && readError==0 && name.ToString()=="EnterpriseDataProtectionId") {
+         snapshot.Add(f,null);continue;
+       }
+       ulong size=GlobalSize(h).ToUInt64(); total+=size;
        if(h==IntPtr.Zero || size==0 || total>33554432) throw new Exception("CLIPBOARD_FORMAT_UNSUPPORTED");
        IntPtr p=GlobalLock(h); if(p==IntPtr.Zero) throw new Exception("CLIPBOARD_FORMAT_UNSUPPORTED");
        byte[] data=new byte[(int)size]; try { Marshal.Copy(p,data,0,data.Length); } finally { GlobalUnlock(h); }
@@ -65,7 +92,7 @@ public static class ClipboardLeaseNative {
      if(!EmptyClipboard()) throw new Exception("CLIPBOARD_EMPTY_FAILED");
      saved=snapshot;
      try { Put(13,Encoding.Unicode.GetBytes(text+"\0")); Sequence=GetClipboardSequenceNumber(); }
-     catch { foreach(var item in saved) Put(item.Key,item.Value); saved=null; throw; }
+     catch { RestoreSaved(); throw; }
    } finally { CloseClipboard(); }
    // Windows may synthesize additional text formats when the writer closes.
    // Establish the lease only after that close, under a new clipboard lock.
@@ -87,8 +114,7 @@ public static class ClipboardLeaseNative {
    try {
      if(GetClipboardSequenceNumber()!=Sequence) { saved=null; return "user_changed"; }
      if(!EmptyClipboard()) throw new Exception("CLIPBOARD_EMPTY_FAILED");
-     foreach(var item in saved) Put(item.Key,item.Value);
-     saved=null; return "restored";
+     RestoreSaved(); return "restored";
    } finally { CloseClipboard(); }
  }
 }
@@ -138,7 +164,9 @@ try {
     } catch {
       if (-not $lease -and [ClipboardLeaseNative]::HasSaved) { $orphanedUntil=[DateTime]::UtcNow.AddSeconds(10) }
       # Return only fixed codes, never exception messages that might carry clipboard text.
-      $code=([string]$_.Exception.Message)
+      $exception=$_.Exception
+      while ($null -ne $exception.InnerException) { $exception=$exception.InnerException }
+      $code=([string]$exception.Message)
       if ($code -notmatch '^CLIPBOARD_[A-Z_]+$') { $code='CLIPBOARD_OPERATION_FAILED' }
       [Console]::WriteLine((@{type='reply';id=$request.id;error=$code}|ConvertTo-Json -Compress))
     }

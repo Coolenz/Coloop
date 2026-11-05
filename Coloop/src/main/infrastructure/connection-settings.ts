@@ -35,6 +35,9 @@ export class ConnectionSettings {
         const raw = readFileSync(this.path(), 'utf8')
         if (raw.length > 40000) throw new Error('INVALID_CONNECTION_SETTINGS')
         this.value = schema.parse(JSON.parse(raw))
+        // Disconnect pauses this run only. Migrate older persisted pauses so
+        // launching the desktop always reconnects an already paired RK.
+        this.value.enabled = true
       } catch {
         this.damaged = true
       }
@@ -89,7 +92,6 @@ export class ConnectionSettings {
   }
   setEnabled(enabled: boolean) {
     this.value.enabled = enabled
-    this.save()
   }
   setMobile(enabled: boolean) {
     this.value.mobileEnabled = enabled
@@ -100,7 +102,10 @@ export class ConnectionSettings {
     if (this.damaged) throw new Error('自动连接配置损坏，请重新连接 RK 后保存')
     mkdirSync(this.directory, { recursive: true })
     const temporary = this.path() + '.tmp'
-    writeFileSync(temporary, JSON.stringify(this.value), { mode: 0o600, flush: true })
+    writeFileSync(temporary, JSON.stringify({ ...this.value, enabled: true }), {
+      mode: 0o600,
+      flush: true,
+    })
     renameSync(temporary, this.path())
   }
 }

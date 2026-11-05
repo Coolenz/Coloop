@@ -41,7 +41,7 @@ export class AutoConnectionService {
           ? 'RK 已连接，可以发送消息'
           : 'RK 已连接，云端任务可用，本地记忆模型尚未就绪'
         : !enabled
-          ? '自动连接已暂停，点击重新连接可恢复'
+          ? '本次运行已暂停自动连接，重新打开上位机或点击自动连接可恢复'
           : this.message || '首次连接 RK 后将自动重连',
     }
   }

@@ -53,7 +53,10 @@ function get(path, headers) {
 try {
   const [health, host] = await Promise.all([
     get('/healthz', { 'x-coloop-access-key': config.accessKey }),
-    get(`/v1/hosts/${channelId}/status`, { authorization: `Bearer ${config.token}`, 'x-coloop-access-key': config.accessKey }),
+    get(`/v1/hosts/${channelId}/status`, {
+      authorization: `Bearer ${config.token}`,
+      'x-coloop-access-key': config.accessKey,
+    }),
   ])
   const healthy = health.status === 200 && health.authorized && health.body.service === 'coloop'
   const statusAvailable =

@@ -110,7 +110,7 @@ export function CredentialsPage({ snapshot }: { snapshot: AppSnapshot }) {
                 允许的网站
                 <input
                   name="origin"
-                aria-label="允许的网站"
+                  aria-label="允许的网站"
                   type="url"
                   required
                   maxLength={500}

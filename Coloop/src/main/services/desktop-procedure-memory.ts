@@ -17,7 +17,14 @@ export const procedureContract = {
     'verify_three',
     'cloud_review',
   ],
-  guards: ['mouse_only', 'fresh_uia_ocr', 'same_hwnd_pid', 'one_coin', 'skip_active', 'no_unknown_replay'],
+  guards: [
+    'mouse_only',
+    'fresh_uia_ocr',
+    'same_hwnd_pid',
+    'one_coin',
+    'skip_active',
+    'no_unknown_replay',
+  ],
 } as const
 const recipeSchema = z
   .object({

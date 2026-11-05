@@ -78,7 +78,9 @@ await hook('initial-task', 'message', {
   text: '已连接电脑，等待安卓端发送要求。此会话为验收数据。',
 })
 if (process.env.COLOOP_SERVER_CONFIG) {
-  await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }) }, process.env.COLOOP_SERVER_CONFIG)
+  await app.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
+  }, process.env.COLOOP_SERVER_CONFIG)
   assert.equal((await page.evaluate(() => window.coloop.importMobileServer())).ok, true)
 }
 const enabled = await page.evaluate(() => window.coloop.enableMobile())

@@ -59,12 +59,22 @@ try {
     }),
   )
   await Promise.race([
-    page.getByText('Task completed', { exact: true }).waitFor({ state: 'attached', timeout: 300000 }),
-    exited.then(code => { throw Error('EXITED_BEFORE_RESULT_DISPLAY:' + code) }),
+    page
+      .getByText('Task completed', { exact: true })
+      .waitFor({ state: 'attached', timeout: 300000 }),
+    exited.then((code) => {
+      throw Error('EXITED_BEFORE_RESULT_DISPLAY:' + code)
+    }),
   ])
   await page.locator('main').dispatchEvent('mouseover')
   await page.screenshot({ path: output + '/island-completed.png' })
-  await writeFile(output + '/island-result-readback.json', JSON.stringify({ displayed: true, detail: await page.locator('.control-detail').textContent() }))
+  await writeFile(
+    output + '/island-result-readback.json',
+    JSON.stringify({
+      displayed: true,
+      detail: await page.locator('.control-detail').textContent(),
+    }),
+  )
   const code = await exited
   await writeFile(output + '/driver.stdout.txt', stdout)
   if (code !== 0) throw Error('TARS_LIVE_FAILED:' + code)

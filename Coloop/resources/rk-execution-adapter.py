@@ -85,8 +85,8 @@ class ExecutionAdapter:
                 self.current = parse(saved['value']) if saved else None
                 if self.current and self.current.get('phase') in ('active', 'stopping'):
                     # Owning the global lock proves the previous executor is gone.
-                    # End its session, while recovered unknown receipts still
-                    # prevent any new generation from sending input.
+                    # End its session. Business effects remain in the journal;
+                    # only unconfirmed hardware release prevents new input.
                     self.current['phase'] = 'stopped'
                     db.execute('UPDATE session SET value=? WHERE id=1', (encode(self.current),))
                 db.commit()
@@ -122,14 +122,18 @@ class ExecutionAdapter:
             db.execute('INSERT OR REPLACE INTO session VALUES(1,?)', (encode(self.current),))
             db.commit()
 
+    def input_unreleased(self):
+        with self.connect() as db:
+            pending = db.execute("SELECT outcome,receipt FROM commands WHERE outcome IN ('unknown','dispatching')").fetchall()
+        return any(row['outcome'] == 'dispatching' or
+                   parse(row['receipt']).get('release_confirmed') is not True for row in pending)
+
     def begin(self, value):
         identity = self.identity(value)
         with self.guard:
             if self.closed.is_set():
                 raise ExecutionError('EXECUTOR_CLOSED')
-            with self.connect() as db:
-                unknown = db.execute("SELECT 1 FROM commands WHERE outcome IN ('unknown','dispatching') LIMIT 1").fetchone()
-            if unknown:
+            if self.input_unreleased():
                 raise ExecutionError('INPUT_UNKNOWN')
             if self.in_flight or (self.current and self.current['phase'] == 'active' and not self.matches(identity)):
                 raise ExecutionError('EXECUTOR_BUSY')
@@ -151,9 +155,7 @@ class ExecutionAdapter:
             return self.stop_result()
 
     def stop_result(self):
-        with self.connect() as db:
-            unknown = db.execute("SELECT receipt FROM commands WHERE outcome IN ('unknown','dispatching')").fetchall()
-        neutral = not self.in_flight and all(parse(row['receipt']).get('release_confirmed') is True for row in unknown)
+        neutral = not self.in_flight and not self.input_unreleased()
         return {'ok': True, **self.current, 'in_flight': self.in_flight,
                 'stopped': self.in_flight is None, 'neutral': neutral}
 
@@ -213,14 +215,22 @@ class ExecutionAdapter:
         if (not isinstance(observed, dict) or not isinstance(observed.get('observation_id'), str)
                 or not observed.get('observation_id') or 'window_id' not in observed):
             raise ExecutionError('INVALID_OBSERVATION')
-        action = canonical_action(value.get('action'))
+        try:
+            action = canonical_action(value.get('action'))
+        except ValueError as error:
+            raise ExecutionError('INVALID_ACTION') from error
         fields = {'click': set(), 'double_click': set(), 'move': set(), 'scroll': {'steps'},
                   'hotkey': {'keys'}, 'paste': {'text'}}
         kind = action.get('action')
-        targets = observed.get('targets', []) + observed.get('ocr_items', [])
-        if (kind not in fields or set(action) != {'action', 'target_id'} | fields[kind]
+        targets, ocr_items = observed.get('targets', []), observed.get('ocr_items', [])
+        if not isinstance(targets, list) or not isinstance(ocr_items, list):
+            raise ExecutionError('INVALID_OBSERVATION')
+        targets = targets + ocr_items
+        target_ids = {item.get('id') for item in targets
+                      if isinstance(item, dict) and type(item.get('id')) is int}
+        if (not isinstance(kind, str) or kind not in fields or set(action) != {'action', 'target_id'} | fields[kind]
                 or type(action.get('target_id')) is not int
-                or action['target_id'] not in {item.get('id') for item in targets if isinstance(item, dict)}):
+                or action['target_id'] not in target_ids):
             raise ExecutionError('INVALID_ACTION')
         if kind == 'scroll' and (type(action['steps']) is not int or not 1 <= abs(action['steps']) <= 32):
             raise ExecutionError('INVALID_SCROLL')
@@ -268,12 +278,26 @@ class ExecutionAdapter:
 
     def execute(self, value):
         identity = self.identity(value)
-        action, observed = self.validate(value)
+        # A malformed retry must not claim that an earlier command was not sent.
+        prior = None
+        if isinstance(value.get('command_id'), str):
+            with self.connect() as db:
+                prior = db.execute('SELECT digest,receipt FROM commands WHERE command_id=?',
+                                   (value['command_id'],)).fetchone()
+        try:
+            action, observed = self.validate(value)
+        except ExecutionError as error:
+            if prior:
+                raise ExecutionError('COMMAND_CONFLICT') from error
+            # Validation has no hardware effects. Return that fact to the model
+            # so it can correct the request using a new observation.
+            return {'ok': False, 'error': str(error), 'receipt': {
+                **identity, 'command_id': value.get('command_id'),
+                'outcome': 'not_sent', 'release_confirmed': True,
+                'error': str(error), 'rejected_before_input': True}}
         canonical = json.dumps({**identity, 'action': action, 'observation': observed},
                                sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
-        with self.connect() as db:
-            prior = db.execute('SELECT digest,receipt FROM commands WHERE command_id=?', (value['command_id'],)).fetchone()
         if prior:
             if prior['digest'] != digest:
                 raise ExecutionError('COMMAND_CONFLICT')
@@ -291,9 +315,8 @@ class ExecutionAdapter:
             with self.guard:
                 if self.cancel.is_set() or not self.matches(identity):
                     raise ExecutionError('TASK_STOPPED')
-                with self.connect() as db:
-                    if db.execute("SELECT 1 FROM commands WHERE outcome IN ('unknown','dispatching') LIMIT 1").fetchone():
-                        raise ExecutionError('INPUT_UNKNOWN')
+                if self.input_unreleased():
+                    raise ExecutionError('INPUT_UNKNOWN')
                 self.in_flight = value['command_id']
                 self.record(receipt, digest)
             validated = self.host_rpc('input.validate', args, identity)
@@ -331,7 +354,7 @@ class ExecutionAdapter:
         except Exception as error:
             code = str(error) if isinstance(error, ExecutionError) else type(error).__name__
             receipt.update(outcome='unknown' if reports_started else 'not_sent',
-                           release_confirmed=input_complete, error=code)
+                           release_confirmed=input_complete or not reports_started, error=code)
             try:
                 self.record(receipt)
             except (OSError, sqlite3.Error):

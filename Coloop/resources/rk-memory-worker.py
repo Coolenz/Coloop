@@ -83,6 +83,25 @@ class MemoryWorker:
                     raise ValueError('INVALID_MEMORY_REQUEST')
                 status = self.queue.status(task_id)
                 return {'ok': True, 'task_id': task_id, **status} if status else {'ok': False, 'error': 'MEMORY_JOB_NOT_FOUND'}
+            if op == 'memory.remember':
+                key, text, task_id = value.get('key'), value.get('value'), value.get('source_task_id')
+                if (set(value) != {'key', 'value', 'source_task_id'}
+                        or not isinstance(key, str) or not key.startswith('preference:coloop:')
+                        or not 19 <= len(key) <= 128 or any(ord(c) < 32 for c in key)
+                        or not isinstance(text, str) or not 1 <= len(text.strip()) <= 1000
+                        or '\x00' in text or not isinstance(task_id, str) or not 1 <= len(task_id) <= 128):
+                    raise ValueError('INVALID_PREFERENCE_REQUEST')
+                if self.namespace != 'production':
+                    import hashlib
+                    prefix = 'preference:coloop:qa_' + hashlib.sha256(self.namespace.encode()).hexdigest()[:16] + ':'
+                    if not key.startswith(prefix):
+                        key = prefix + key[len('preference:coloop:'):]
+                result = self.call_memory('memory.set', {
+                    'key': key, 'value': text, 'kind': 'preference',
+                    'tags': ['user_preference'], 'summary': text[:160],
+                    'source_task_id': task_id, 'source': 'user_message', 'verified': False,
+                })
+                return {'ok': True, 'result': result}
             if op == 'memory.catalog':
                 query, tags, limit = value.get('query', ''), value.get('tags', []), value.get('limit', 5)
                 if (set(value) - {'query', 'tags', 'limit'} or not isinstance(query, str) or len(query) > 4000

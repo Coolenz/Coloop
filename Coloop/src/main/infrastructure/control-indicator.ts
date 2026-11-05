@@ -1,4 +1,11 @@
-import { BrowserWindow, ipcMain, screen, session, type IpcMainInvokeEvent } from 'electron'
+import {
+  BrowserWindow,
+  ipcMain,
+  screen,
+  session,
+  type IpcMainInvokeEvent,
+  type Rectangle,
+} from 'electron'
 import { pathToFileURL } from 'node:url'
 import {
   controlIndicatorSnapshotSchema,
@@ -21,6 +28,7 @@ interface ControlIndicatorOptions {
   onUnavailable?: (reason: string) => void | Promise<void>
   onAcceptSuggestion?: (id: string) => Promise<void>
   onDismissSuggestion?: (id: string) => Promise<void>
+  onDismissResult?: (taskId: string) => Promise<void>
   onAnswerQuestion?: (answer: IslandAnswer) => Promise<void>
   onPauseObservation?: (paused: boolean) => Promise<void>
   onStartTask?: (goal: string) => Promise<void>
@@ -36,12 +44,14 @@ interface PaintWaiter {
 }
 
 const CHANNELS = [
+  'control-indicator:close',
   'control-indicator:get',
   'control-indicator:stop',
   'control-indicator:open',
   'control-indicator:close-preview',
   'control-indicator:accept',
   'control-indicator:dismiss',
+  'control-indicator:dismiss-result',
   'control-indicator:answer',
   'control-indicator:begin-answer',
   'control-indicator:end-answer',
@@ -68,6 +78,12 @@ export class ControlIndicatorWindow {
   private expectedUrl: string
   private actionPending = false
   private editingCommand = false
+  private dismissed = false
+  private resizeTimer?: ReturnType<typeof setInterval>
+  private resizeTarget?: Rectangle
+  private appliedBounds?: Rectangle
+  private applyingBounds = false
+  private reducedMotion = false
   private revealed = false
   private anchor?: { x: number; y: number }
   private dragging?: { cursor: { x: number; y: number }; x: number; y: number }
@@ -106,6 +122,15 @@ export class ControlIndicatorWindow {
         }
       }
       return { ...this.current }
+    })
+    this.handle('control-indicator:close', async (_event, args) => {
+      this.noArguments(args)
+      if (this.isActualControl()) await this.stop()
+      if (this.isActualControl()) throw new Error('控制期间不能隐藏提示，请先停止控制')
+      this.dismissed = true
+      this.revealed = false
+      this.editingCommand = false
+      await this.update({ mode: 'hidden' })
     })
     this.handle('control-indicator:stop', (_event, args) => {
       this.noArguments(args)
@@ -147,6 +172,28 @@ export class ControlIndicatorWindow {
         }
       })
     }
+    this.handle('control-indicator:dismiss-result', async (_event, args) => {
+      if (args.length !== 1 || this.actionPending) throw new Error('控制提示参数无效')
+      const input = islandActionSchema.parse(args[0])
+      if (
+        !['completed', 'blocked', 'failed'].includes(this.current.mode) ||
+        input.id !== this.current.taskId ||
+        input.revision !== this.current.revision ||
+        !this.options.onDismissResult
+      )
+        throw new Error('控制提示参数无效')
+      this.actionPending = true
+      try {
+        this.editingCommand = false
+        this.window?.setFocusable(false)
+        this.window?.blur()
+        await this.options.onDismissResult(input.id)
+        await this.options.onRestoreTarget?.()
+      } finally {
+        this.actionPending = false
+        this.resize()
+      }
+    })
     this.handle('control-indicator:answer', async (_event, args) => {
       if (args.length !== 1 || this.actionPending) throw new Error('控制提示参数无效')
       const input = islandAnswerSchema.parse(args[0])
@@ -165,7 +212,7 @@ export class ControlIndicatorWindow {
         await this.options.onAnswerQuestion(input)
       } finally {
         this.actionPending = false
-        this.reposition()
+        this.resize()
       }
     })
     this.handle('control-indicator:begin-answer', async (_event, args) => {
@@ -211,7 +258,7 @@ export class ControlIndicatorWindow {
         await this.options.onStartTask(args[0].trim())
       } finally {
         this.actionPending = false
-        this.reposition()
+        this.resize()
       }
     })
     this.handle('control-indicator:expand', (_event, args) => {
@@ -219,9 +266,15 @@ export class ControlIndicatorWindow {
       return this.update({ ...this.snapshot(), expanded: args[0] })
     })
     this.handle('control-indicator:reveal', (_event, args) => {
-      if (args.length !== 1 || typeof args[0] !== 'boolean') throw new Error('控制提示参数无效')
+      if (
+        (args.length !== 1 && args.length !== 2) ||
+        typeof args[0] !== 'boolean' ||
+        (args.length === 2 && typeof args[1] !== 'boolean')
+      )
+        throw new Error('控制提示参数无效')
       this.revealed = args[0]
-      if (!this.actionPending) this.reposition()
+      if (typeof args[1] === 'boolean') this.reducedMotion = args[1]
+      if (!this.actionPending || this.reducedMotion) this.resize()
     })
     this.handle('control-indicator:drag', (_event, args) => {
       if (args.length !== 2 || !['start', 'move', 'end'].includes(String(args[0])))
@@ -241,7 +294,10 @@ export class ControlIndicatorWindow {
         throw new Error('控制提示参数无效')
       const cursor = { x: point.x, y: point.y }
       if (args[0] === 'start') {
+        this.cancelResize()
+        this.appliedBounds = undefined
         const bounds = window.getBounds()
+        this.anchor = { x: bounds.x + bounds.width / 2, y: bounds.y }
         this.dragging = { cursor, x: bounds.x, y: bounds.y }
       } else if (this.dragging) {
         const area = screen.getDisplayNearestPoint(cursor).workArea
@@ -261,7 +317,12 @@ export class ControlIndicatorWindow {
           ),
         )
         window.setPosition(Math.round(x), Math.round(y), false)
-        if (args[0] === 'end') this.dragging = undefined
+        const moved = window.getBounds()
+        this.anchor = { x: moved.x + moved.width / 2, y: moved.y }
+        if (args[0] === 'end') {
+          this.dragging = undefined
+          this.resize()
+        }
       }
     })
     this.handle('control-indicator:pause-observation', async (_event, args) => {
@@ -382,9 +443,69 @@ export class ControlIndicatorWindow {
     }
   }
 
-  private reposition = () => {
-    if (this.window && !this.window.isDestroyed()) this.window.setBounds(this.bounds(), false)
+  private sameBounds(a: Rectangle, b: Rectangle, tolerance = 0) {
+    return (
+      Math.abs(a.x - b.x) <= tolerance &&
+      Math.abs(a.y - b.y) <= tolerance &&
+      Math.abs(a.width - b.width) <= tolerance &&
+      Math.abs(a.height - b.height) <= tolerance
+    )
   }
+
+  private cancelResize() {
+    if (this.resizeTimer) clearInterval(this.resizeTimer)
+    this.resizeTimer = undefined
+    this.resizeTarget = undefined
+  }
+
+  private applyBounds(window: BrowserWindow, bounds: Rectangle) {
+    // Native move events also fire during resizing. They must not move the user's anchor.
+    this.appliedBounds = bounds
+    this.applyingBounds = true
+    try {
+      window.setBounds(bounds, false)
+      this.appliedBounds = window.getBounds()
+    } finally {
+      this.applyingBounds = false
+    }
+  }
+
+  private resize(animate = true) {
+    const window = this.window
+    if (!window || window.isDestroyed() || this.dragging) return
+    const target = this.bounds()
+    const shouldAnimate = animate && !this.reducedMotion && window.isVisible()
+    // Frequent status refreshes keep the current trajectory instead of restarting it.
+    if (shouldAnimate && this.resizeTarget && this.sameBounds(target, this.resizeTarget)) return
+    const from = window.getBounds()
+    this.cancelResize()
+    if (this.sameBounds(from, target, 1)) return
+    if (!shouldAnimate) {
+      this.applyBounds(window, target)
+      return
+    }
+    this.resizeTarget = target
+    const started = performance.now()
+    const duration = target.width < from.width || target.height < from.height ? 180 : 220
+    this.resizeTimer = setInterval(() => {
+      if (window.isDestroyed() || this.window !== window || !window.isVisible()) {
+        this.cancelResize()
+        return
+      }
+      const progress = Math.min(1, (performance.now() - started) / duration)
+      const eased = 1 - Math.pow(1 - progress, 3)
+      const mix = (a: number, b: number) => Math.round(a + (b - a) * eased)
+      this.applyBounds(window, {
+        x: mix(from.x, target.x),
+        y: mix(from.y, target.y),
+        width: mix(from.width, target.width),
+        height: mix(from.height, target.height),
+      })
+      if (progress === 1) this.cancelResize()
+    }, 16)
+  }
+
+  private reposition = () => this.resize(false)
 
   private async ensureWindow(): Promise<BrowserWindow> {
     if (this.disposed) throw new Error('控制提示已关闭')
@@ -426,7 +547,12 @@ export class ControlIndicatorWindow {
     })
     this.window = window
     window.on('move', () => {
+      if (this.applyingBounds) return
       const bounds = window.getBounds()
+      // Windows may round DIP coordinates by one pixel at fractional scale factors.
+      if (this.appliedBounds && this.sameBounds(bounds, this.appliedBounds, 1)) return
+      this.cancelResize()
+      this.appliedBounds = undefined
       this.anchor = { x: bounds.x + bounds.width / 2, y: bounds.y }
     })
     window.on('blur', () => {
@@ -515,6 +641,8 @@ export class ControlIndicatorWindow {
   async update(input: ControlIndicatorSnapshot): Promise<void> {
     if (this.disposed) throw new Error('控制提示已关闭')
     const snapshot = controlIndicatorSnapshotSchema.parse(input)
+    if (this.dismissed && !isActiveControlMode(snapshot.mode) && snapshot.mode !== 'hidden') return
+    if (isActiveControlMode(snapshot.mode)) this.dismissed = false
     if (!this.canStartTask(snapshot.mode)) this.editingCommand = false
     if (
       !this.editingCommand &&
@@ -522,8 +650,11 @@ export class ControlIndicatorWindow {
     )
       this.window?.setFocusable(false)
     this.clearPreviewTimer()
+    const previous = this.current
     const revision = this.assign(snapshot)
     if (snapshot.mode === 'hidden') {
+      this.cancelResize()
+      this.dragging = undefined
       this.rejectPaints('控制显示已取消')
       this.hiding = true
       try {
@@ -536,7 +667,12 @@ export class ControlIndicatorWindow {
     try {
       const window = await this.ensureWindow()
       if (this.current.mode === 'hidden') throw new Error('控制显示已取消')
-      this.reposition()
+      // A new active task must be fully visible before its paint acknowledgment;
+      // routine refreshes and user-driven panel changes can keep moving independently.
+      const enteringControl =
+        isActiveControlMode(snapshot.mode) &&
+        (snapshot.mode !== previous.mode || snapshot.taskId !== previous.taskId)
+      this.resize(!enteringControl)
       window.webContents.send('control-indicator:snapshot', { ...this.current })
       if (!window.isVisible()) window.showInactive()
       if (!window.isVisible()) throw new Error('控制提示未能显示')
@@ -548,6 +684,7 @@ export class ControlIndicatorWindow {
   }
 
   async preview(): Promise<void> {
+    this.dismissed = false
     if (this.isActualControl()) throw new Error('控制期间不能替换为预览')
     await this.update({ mode: 'preview', detail: 'Preview · No actions running', sessionCount: 0 })
     if (this.current.mode === 'preview')
@@ -589,6 +726,9 @@ export class ControlIndicatorWindow {
   private async unavailable(reason: string) {
     if (this.disposed || this.recovering) return
     this.recovering = true
+    this.cancelResize()
+    this.appliedBounds = undefined
+    this.dragging = undefined
     this.clearPreviewTimer()
     this.rejectPaints(reason)
     const actualControl = this.isActualControl()
@@ -634,6 +774,7 @@ export class ControlIndicatorWindow {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    this.cancelResize()
     this.clearPreviewTimer()
     this.rejectPaints('控制提示已关闭')
     screen.removeListener('display-added', this.reposition)

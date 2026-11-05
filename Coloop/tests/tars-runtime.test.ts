@@ -5,8 +5,13 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createTarsRuntime, type TarsRuntimeEvent } from '../src/main/infrastructure/tars-runtime'
+import {
+  createTarsRuntime,
+  type TarsRuntimeEvent,
+  type TarsRuntimeOptions,
+} from '../src/main/infrastructure/tars-runtime'
 import { TarsAgentService } from '../src/main/services/tars-agent'
+import { ModelUsageLedger } from '../src/main/infrastructure/model-usage'
 
 const require = createRequire(import.meta.url)
 const official = require('@agent-tars/core') as typeof import('@agent-tars/core')
@@ -67,7 +72,13 @@ function toolCall(name: string, args = '{}') {
 }
 
 const testInstructions = 'Use coloop_echo and report its actual result.'
-function runtime(baseURL: string, execute: (args: unknown) => Promise<unknown> | unknown) {
+function runtime(
+  baseURL: string,
+  execute: (args: unknown) => Promise<unknown> | unknown,
+  options: Pick<TarsRuntimeOptions, 'maxIterations' | 'completion' | 'requestContext'> = {
+    maxIterations: 5,
+  },
+) {
   const events: TarsRuntimeEvent[] = []
   const fetcher = vi.fn(globalThis.fetch)
   const agent = createTarsRuntime({
@@ -75,7 +86,7 @@ function runtime(baseURL: string, execute: (args: unknown) => Promise<unknown> |
     workspace: process.cwd(),
     model: { provider: 'openai', id: 'test-cloud', apiKey: 'test-only', baseURL },
     instructions: testInstructions,
-    maxIterations: 5,
+    ...options,
     tools: [
       {
         name: 'coloop_echo',
@@ -96,6 +107,140 @@ function runtime(baseURL: string, execute: (args: unknown) => Promise<unknown> |
 }
 
 describe('official Agent TARS runtime integration', () => {
+  it('enforces an actual HTTP request cap through the official SDK client', async () => {
+    const api = await endpoint((_body, response) => {
+      respond(response, toolCall('coloop_echo', '{"value":"same-state"}'), 'tool_calls')
+    })
+    const directory = await mkdtemp(join(tmpdir(), 'coloop-sdk-budget-'))
+    cleanups.push(() => rm(directory, { recursive: true, force: true }))
+    const ledger = new ModelUsageLedger(directory, () => ({
+      minRequestIntervalMs: 0,
+      maxRequestsPerTask: 2,
+    }))
+    const agent = createTarsRuntime({
+      id: 'bounded',
+      workspace: directory,
+      model: { provider: 'openai', id: 'test-cloud', apiKey: 'test-only', baseURL: api.baseURL },
+      instructions: 'Call the echo tool.',
+      fetch: ledger.wrap(globalThis.fetch, { taskId: 'bounded-task', source: 'sdk_integration' }),
+      tools: [
+        {
+          name: 'coloop_echo',
+          description: 'Echo',
+          parameters: { type: 'object' },
+          execute: () => ({ same: true }),
+        },
+      ],
+    })
+    cleanups.push(() => agent.dispose())
+    const result = await agent.run('Repeat until stopped.')
+    expect(result.finishReason).toBe('error')
+    expect(api.requests).toHaveLength(2)
+    expect(ledger.snapshot().requests).toBe(2)
+    expect(await readFile(join(directory, 'model-usage.jsonl'), 'utf8')).toContain(
+      'MODEL_TASK_REQUEST_LIMIT',
+    )
+  })
+  it('refreshes diagnostic context through the official request hook', async () => {
+    let diagnostic = ''
+    const { agent } = runtime('http://127.0.0.1:1/v1', vi.fn(), {
+      requestContext: () => diagnostic,
+    })
+    const context = {
+      systemPrompt: 'upstream defaults',
+      tools: agent.getTools(),
+      sessionId: 'diagnostic',
+      iteration: 1,
+    }
+    expect((await agent.onPrepareRequest(context)).systemPrompt).not.toContain('停滞')
+    diagnostic = '停滞诊断，请根据真实进展继续。'
+    expect((await agent.onPrepareRequest(context)).systemPrompt).toContain(diagnostic)
+    diagnostic = ''
+    expect((await agent.onPrepareRequest(context)).systemPrompt).not.toContain('停滞')
+    expect(agent.run).toBe(official.AgentTARS.prototype.run)
+  })
+  it('keeps the official loop running after an unverified final answer and supplies completion feedback', async () => {
+    let step = 0
+    let verified = false
+    const api = await endpoint((body, response) => {
+      step++
+      if (step === 1)
+        respond(response, {
+          role: 'assistant',
+          content: '提前声称完成',
+          reasoning_content: 'provider-final-reasoning',
+        })
+      else if (step === 2) {
+        expect(body.messages[0].content).toContain('缺少实际核验')
+        expect(
+          body.messages.find((message: any) => message.role === 'assistant').reasoning_content,
+        ).toBe('provider-final-reasoning')
+        respond(
+          response,
+          {
+            ...toolCall('coloop_echo', '{"value":"实际结果"}'),
+            reasoning_content: 'provider-tool-reasoning',
+          },
+          'tool_calls',
+        )
+      } else {
+        expect(
+          body.messages
+            .filter((message: any) => message.role === 'assistant')
+            .map((message: any) => message.reasoning_content),
+        ).toEqual(['provider-final-reasoning', 'provider-tool-reasoning'])
+        respond(response, { role: 'assistant', content: '实际核验完成' })
+      }
+    })
+    const execute = vi.fn(() => {
+      verified = true
+      return { verified }
+    })
+    const { agent } = runtime(api.baseURL, execute, {
+      maxIterations: 5,
+      completion: () => ({ finished: verified, message: '缺少实际核验，请继续调用工具。' }),
+    })
+    const result = await agent.run('完成并核验')
+    expect(result.finishReason).toBe('stop')
+    expect(result.content).toBe('实际核验完成')
+    expect(execute).toHaveBeenCalledOnce()
+    expect(step).toBe(3)
+    expect(agent.run).toBe(official.AgentTARS.prototype.run)
+  })
+  it('continues the default execution loop beyond 32 iterations until the model finishes', async () => {
+    let step = 0
+    const api = await endpoint((_body, response) => {
+      step++
+      if (step <= 36)
+        respond(
+          response,
+          {
+            role: 'assistant',
+            tool_calls: [
+              {
+                index: 0,
+                id: `step-${step}`,
+                type: 'function',
+                function: {
+                  name: 'coloop_echo',
+                  arguments: JSON.stringify({ value: `progress-${step}` }),
+                },
+              },
+            ],
+          },
+          'tool_calls',
+        )
+      else respond(response, { role: 'assistant', content: 'All 36 steps completed.' })
+    })
+    const execute = vi.fn((args: unknown) => args)
+    const { agent } = runtime(api.baseURL, execute, {})
+    const result = await agent.run('Continue through all 36 steps.')
+    expect(result.finishReason).toBe('stop')
+    expect(result.content).toBe('All 36 steps completed.')
+    expect(execute).toHaveBeenCalledTimes(36)
+    expect(api.requests).toHaveLength(37)
+  }, 15000)
+
   it('runs the published AgentTARS loop through real HTTP, tools, feedback and events', async () => {
     const api = await endpoint((body, response) => {
       if (body.messages.some((message: any) => message.role === 'tool')) {
@@ -156,19 +301,23 @@ describe('official Agent TARS runtime integration', () => {
     )
   })
 
-  it.each([0, 1, 2])(
-    'finishes a validated recommendation without an extra model request (prior invalid decisions: %s)',
-    async (invalidDecisions) => {
-      const api = await endpoint((body, response) => {
-        const toolFeedback = body.messages.filter((message: any) => message.role === 'tool')
-        const decision =
-          toolFeedback.length < invalidDecisions
-            ? { type: 'suggestion' }
-            : { type: 'suggestion', title: '补充正文', text: '目前只有标题', goal: '追加正文' }
-        respond(response, toolCall('coloop_recommend', JSON.stringify(decision)), 'tool_calls')
-      })
+  it.each([
+    [
+      'suggestion',
+      '{"type":"suggestion","title":"补充正文","text":"目前只有标题","goal":"追加正文"}',
+    ],
+    ['ignore', '{"type":"ignore"}'],
+    ['invalid', '{"type":"suggestion"}'],
+  ])(
+    'keeps passive decisions local without starting the cloud runtime (%s)',
+    async (kind, answer) => {
+      const api = await endpoint((_body, response) =>
+        respond(response, { content: 'Cloud forbidden' }),
+      )
       const directory = await mkdtemp(join(tmpdir(), 'coloop-tars-recommend-'))
       cleanups.push(() => rm(directory, { recursive: true, force: true }))
+      const recommendLocal = vi.fn(async () => answer)
+      const onObservationRetry = vi.fn()
       const service = new TarsAgentService({
         workspace: directory,
         model: () => ({
@@ -177,12 +326,14 @@ describe('official Agent TARS runtime integration', () => {
           apiKey: 'test-only',
           baseURL: api.baseURL,
         }),
+        recommendLocal,
         available: () => true,
         assertStart: vi.fn(),
         observe: vi.fn(),
         input: vi.fn(),
         prepareInput: vi.fn(),
         onChange: vi.fn(),
+        onObservationRetry,
         execution: {
           connect: vi.fn(),
           begin: vi.fn(),
@@ -198,26 +349,11 @@ describe('official Agent TARS runtime integration', () => {
         window_id: 'window',
         ocr_text: '标题',
       })
-      await vi.waitFor(() =>
-        expect(service.snapshot().suggestion).toMatchObject({ title: '补充正文' }),
-      )
+      await vi.waitFor(() => expect(recommendLocal).toHaveBeenCalledOnce())
+      expect(api.requests).toHaveLength(0)
+      expect(!!service.snapshot().suggestion).toBe(kind === 'suggestion')
+      expect(onObservationRetry).toHaveBeenCalledTimes(kind === 'invalid' ? 1 : 0)
       await service.dispose()
-      expect(api.requests).toHaveLength(invalidDecisions + 1)
-      const events = (await readFile(join(directory, 'tars-events', 'events.jsonl'), 'utf8'))
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line).event as TarsRuntimeEvent)
-      expect(events.map((event) => event.type)).toEqual(
-        expect.arrayContaining(['tool_call', 'tool_result', 'agent_run_end']),
-      )
-      expect(events.some((event) => event.type === 'tool_result' && !event.error)).toBe(true)
-      expect(
-        [...events].reverse().find((event) => event.type === 'assistant_message'),
-      ).toMatchObject({
-        finishReason: invalidDecisions === 2 ? 'max_iterations' : 'stop',
-      })
-      if (invalidDecisions)
-        expect(events.some((event) => event.type === 'tool_result' && !!event.error)).toBe(true)
     },
   )
 

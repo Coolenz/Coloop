@@ -7,15 +7,22 @@ const content = {
   feedback: '',
 }
 describe('task outcome review', () => {
-  it.each([['0', 'complete'], ['1', 'revise'], ['2', 'execute']])(
-    'accepts the bounded digit %s without generating long JSON feedback', async (digit, decision) => {
+  it.each([
+    ['0', 'complete'],
+    ['1', 'revise'],
+    ['2', 'execute'],
+  ])(
+    'accepts the bounded digit %s without generating long JSON feedback',
+    async (digit, decision) => {
       const result = await reviewTaskCandidate(content, async () => digit)
       expect(result.decision).toBe(decision)
       expect(result.feedback).toBeTruthy()
     },
   )
   it('does not infer a routing digit from explanatory prose', async () => {
-    await expect(reviewTaskCandidate(content, async () => 'choose 2 because tools')).rejects.toThrow()
+    await expect(
+      reviewTaskCandidate(content, async () => 'choose 2 because tools'),
+    ).rejects.toThrow()
   })
   it('feeds the original goal and candidate back for capability recovery', async () => {
     const result = await reviewTaskCandidate(content, async (_system, input) => {

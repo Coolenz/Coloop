@@ -95,6 +95,10 @@ export class AppStore {
     const current = this.settings.provider
     const changedEndpoint =
       current.protocol !== parsed.provider.protocol || current.baseUrl !== parsed.provider.baseUrl
+    if (parsed.modelLimits && (changedEndpoint || current.model !== parsed.provider.model)) {
+      delete parsed.modelLimits.inputYuanPerMillion
+      delete parsed.modelLimits.outputYuanPerMillion
+    }
     const encryptedKey = parsed.provider.clearKey
       ? ''
       : parsed.provider.apiKey

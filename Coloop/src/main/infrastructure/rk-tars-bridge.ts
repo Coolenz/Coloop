@@ -1,11 +1,16 @@
 import { readFile } from 'node:fs/promises'
 import { deflateSync } from 'node:zlib'
 import type { Readable, Writable } from 'node:stream'
-import { DesktopPipe } from './desktop-pipe'
+import { DesktopPipe, DesktopPipeError } from './desktop-pipe'
 import type { ProactiveObservation } from '../services/proactive-agent'
 
 type Channel = Readable & Writable & { close(): void }
 type Row = Record<string, unknown>
+const errorCode = (error: unknown, fallback: string) => {
+  const code =
+    error instanceof DesktopPipeError ? error.code : error instanceof Error ? error.message : ''
+  return /^[A-Z_]{1,100}$/.test(code) ? code : fallback
+}
 interface Options {
   executorScript: string
   memoryScript: string
@@ -156,13 +161,32 @@ export class RkTarsBridge {
     observation: ProactiveObservation
     action: unknown
   }) {
-    this.assertTask(value)
-    const pipe = this.executor!
-    this.views.set(value.observation.observation_id, value.observation)
-    if (this.views.size > 16) this.views.delete(this.views.keys().next().value!)
-    await this.options.prepareInput()
-    this.assertTask(value)
-    if (this.executor !== pipe) throw new Error('RK_ADAPTER_DISCONNECTED')
+    let pipe: DesktopPipe
+    try {
+      this.assertTask(value)
+      pipe = this.executor!
+      this.views.set(value.observation.observation_id, value.observation)
+      if (this.views.size > 16) this.views.delete(this.views.keys().next().value!)
+      await this.options.prepareInput()
+      this.assertTask(value)
+      if (this.executor !== pipe) throw new Error('RK_ADAPTER_DISCONNECTED')
+    } catch (error) {
+      // No execute request has been sent. Transport errors after the request
+      // remain outside this catch because their input outcome may be unknown.
+      const code = errorCode(error, 'INPUT_PREPARATION_FAILED')
+      throw Object.assign(new Error(code), {
+        receipt: {
+          task_id: value.task_id,
+          generation: value.generation,
+          command_id: value.command_id,
+          observation_id: value.observation.observation_id,
+          outcome: 'not_sent',
+          release_confirmed: true,
+          rejected_before_input: true,
+          error: code,
+        },
+      })
+    }
     const result = await pipe.request('execute', value)
     this.options.onEvent?.({ type: 'execution.receipt', value: result })
     return this.checkResult(result)
@@ -211,6 +235,10 @@ export class RkTarsBridge {
   async get(value: Row) {
     await this.connectMemory()
     return this.checkResult(await this.memory!.request('memory.get', value))
+  }
+  async remember(value: Row) {
+    await this.connectMemory()
+    return this.checkResult(await this.memory!.request('memory.remember', value))
   }
 
   private async hostRequest(pipe: DesktopPipe, packet: Row) {
@@ -295,10 +323,7 @@ export class RkTarsBridge {
         pipe.send({
           type: 'reply',
           id: packet.id,
-          error:
-            error instanceof Error && /^[A-Z_]{1,100}$/.test(error.message)
-              ? error.message
-              : 'RK_ADAPTER_RPC_FAILED',
+          error: errorCode(error, 'RK_ADAPTER_RPC_FAILED'),
         })
     }
   }

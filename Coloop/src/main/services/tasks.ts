@@ -23,10 +23,15 @@ export class TaskService {
       id: string,
       goal: string,
       signal: AbortSignal,
-      stage: (text: string) => void,
+      stage: (text: string, model?: string) => void,
+      target: TaskRequest['target'],
+      workspace?: string,
+      cloudFields?: TaskRequest['cloudFields'],
     ) => Promise<string>,
   ) {}
-  start(request: TaskRequest): string {
+  start(request: TaskRequest, taskId: string = randomUUID()): string {
+    if (this.store.tasks.some((task) => task.id === taskId))
+      throw new Error('TASK_ID_ALREADY_EXISTS')
     if (this.active) throw new Error('已有任务正在运行，请等待或停止后重试')
     if (this.executeDesktop) {
       if (this.board.state.status !== 'connected') throw new Error('请先在「设备管理」连接 RK 设备')
@@ -36,19 +41,20 @@ export class TaskService {
         throw new Error('协作模式需要 RK 服务启用请求级日志隐私保护')
     }
     const task: Task = {
-      id: randomUUID(),
+      id: taskId,
       prompt: request.prompt,
-      target: this.executeDesktop ? 'cloud' : request.target,
+      target: request.target,
       source: request.source,
       status: 'running',
       createdAt: new Date().toISOString(),
       answer: '',
       stage: request.source === 'screen' ? '正在读取屏幕' : '正在连接模型',
-      model: this.executeDesktop
-        ? `${this.store.config.provider.model} · 云端理解 / RK 执行`
-        : request.target === 'rk'
-          ? `${this.board.state.model} · RK3588`
-          : 'RK 隐私 Agent · 按需云端分析',
+      model:
+        this.executeDesktop && request.target === 'cloud'
+          ? `${this.store.config.provider.model} · 桌面任务`
+          : request.target === 'rk'
+            ? `${this.board.state.model} · RK3588`
+            : 'RK 隐私 Agent · 按需云端分析',
     }
     const controller = new AbortController()
     this.active = { id: task.id, controller }
@@ -67,6 +73,7 @@ export class TaskService {
   }
   private async execute(task: Task, request: TaskRequest, controller: AbortController) {
     try {
+      this.cloud.bindTask?.(controller.signal, task.id)
       const readScreen = async () => {
         while (true) {
           try {
@@ -92,7 +99,7 @@ export class TaskService {
         const plan =
           request.intent === 'execute'
             ? { type: 'execute' as const }
-            : await this.planCloudTask(task, request.prompt, context, controller.signal)
+            : await this.planTask(task, request, context, controller.signal)
         controller.signal.throwIfAborted()
         if (plan.type === 'answer') {
           answer = plan.answer
@@ -106,11 +113,15 @@ export class TaskService {
             task.id,
             [request.prompt, context ? `参考资料：\n${context}` : ''].filter(Boolean).join('\n\n'),
             controller.signal,
-            (stage) => {
+            (stage, model) => {
               if (controller.signal.aborted) return
               task.stage = stage
+              if (model) task.model = `${model} · 桌面任务`
               this.onChange()
             },
+            request.target,
+            request.workspace,
+            request.cloudFields,
           )
         }
       } else if (request.target === 'rk') {
@@ -130,6 +141,10 @@ export class TaskService {
             if (controller.signal.aborted) return
             task.stage = stage
             this.onChange()
+          },
+          {
+            answerMode: 'direct',
+            ...(request.target === 'cloud' ? { route: 'cloud' as const } : {}),
           },
         )
         answer = result.answer
@@ -169,14 +184,28 @@ export class TaskService {
       this.onChange()
     }
   }
-  private async planCloudTask(task: Task, goal: string, context: string, signal: AbortSignal) {
+  private async planTask(task: Task, request: TaskRequest, context: string, signal: AbortSignal) {
+    const local = async () => {
+      task.stage = '正在本地理解任务'
+      task.model = `${this.board.state.model} · RK3588`
+      this.onChange()
+      const output = await this.board.privacyAgent(
+        cloudTaskPolicy,
+        JSON.stringify({ goal: request.prompt, context }),
+        signal,
+        1024,
+      )
+      signal.throwIfAborted()
+      return parseCloudTaskPlan(output)
+    }
+    if (request.target === 'rk' || request.target === 'hybrid') return local()
     for (let attempt = 0; ; attempt++) {
       signal.throwIfAborted()
       try {
         const output = await this.cloud.generate(
           this.store.config.provider,
           this.store.apiKey,
-          JSON.stringify({ goal }),
+          JSON.stringify({ goal: request.prompt }),
           context,
           signal,
           () => {},

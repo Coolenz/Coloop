@@ -3,7 +3,6 @@ import {
   ArrowUpRight,
   ArrowUp,
   ChevronDown,
-  ChevronUp,
   GripHorizontal,
   Minus,
   LoaderCircle,
@@ -40,10 +39,22 @@ export function ControlIndicator() {
   const [focusWithin, setFocusWithin] = useState(false)
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dragging = useRef(false)
+  const surface = useRef<HTMLElement>(null)
+  const panel = useRef<HTMLElement>(null)
+  const closing = useRef(false)
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  )
   const revealed = hovered || focusWithin || editingAnswer || snapshot.mode === 'preview'
   useEffect(() => {
-    void window.coloopControl?.setRevealed?.(revealed)
-  }, [revealed])
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = () => setReducedMotion(preference.matches)
+    preference.addEventListener('change', update)
+    return () => preference.removeEventListener('change', update)
+  }, [])
+  useEffect(() => {
+    void window.coloopControl?.setRevealed?.(revealed, reducedMotion)
+  }, [revealed, reducedMotion])
   useEffect(() => {
     const blur = () => setFocusWithin(false)
     window.addEventListener('blur', blur)
@@ -157,6 +168,15 @@ export function ControlIndicator() {
     snapshot.mode,
   )
   const expanded = snapshot.expanded ?? hasPanel
+  // Animate a new task/phase, never each polling revision or elapsed-time tick.
+  useLayoutEffect(() => {
+    if (!panel.current) return
+    const animation = panel.current.animate([{ opacity: 0.6 }, { opacity: 1 }], {
+      duration: reducedMotion ? 70 : 160,
+      easing: 'ease-out',
+    })
+    return () => animation.cancel()
+  }, [snapshot.mode, snapshot.taskId, snapshot.suggestionId, snapshot.questionId, reducedMotion])
   const runAction = async (action: () => Promise<{ ok: boolean; error?: string }> | undefined) => {
     if (pendingAction) return
     setPendingAction(true)
@@ -191,6 +211,34 @@ export function ControlIndicator() {
     })
     return preparation
   }
+  const closeSurface = (isPreview = false) => {
+    if (closing.current || pendingAction) return
+    closing.current = true
+    void runAction(async () => {
+      let animation: Animation | undefined
+      try {
+        // Stopping real control must never wait on a decorative exit.
+        if (!active && surface.current) {
+          animation = surface.current.animate(
+            [
+              { opacity: 1, transform: 'scale(1)' },
+              { opacity: 0, transform: reducedMotion ? 'scale(1)' : 'scale(0.98)' },
+            ],
+            { duration: reducedMotion ? 60 : 110, easing: 'ease-in', fill: 'forwards' },
+          )
+          await animation.finished.catch(() => {})
+        }
+        return (
+          (await (isPreview
+            ? window.coloopControl?.closePreview()
+            : window.coloopControl?.close())) || { ok: false }
+        )
+      } finally {
+        animation?.cancel()
+        closing.current = false
+      }
+    })
+  }
   const submitAnswer = (value: string) =>
     runAction(() => {
       if (!snapshot.taskId || !snapshot.questionId) return undefined
@@ -204,6 +252,7 @@ export function ControlIndicator() {
   if (snapshot.mode === 'hidden' && !actionError) return null
   return (
     <main
+      ref={surface}
       className="control-indicator"
       data-mode={snapshot.mode}
       data-expanded={expanded}
@@ -271,7 +320,7 @@ export function ControlIndicator() {
         </button>
         <div className="control-copy" role="status" aria-live="polite" aria-atomic="true">
           <strong className="control-title">Coloop</strong>
-          <span className="control-detail" title={detail}>
+          <span key={detail} className="control-detail" title={detail}>
             {detail}
           </span>
         </div>
@@ -295,14 +344,7 @@ export function ControlIndicator() {
             </button>
             <button
               className="control-preview-close"
-              onClick={() => {
-                void window.coloopControl
-                  ?.closePreview()
-                  .then((result) => {
-                    if (!result.ok) setActionError('Unable to close preview. Open Coloop.')
-                  })
-                  .catch(() => setActionError('Unable to close preview. Open Coloop.'))
-              }}
+              onClick={() => closeSurface(true)}
               aria-label="Close preview"
               title="Close preview"
             >
@@ -319,45 +361,66 @@ export function ControlIndicator() {
             <span>{stopping ? 'Stopping' : 'Stop'}</span>
           </button>
         ) : null}
-        {revealed && hasPanel && (
-          <button
-            aria-label={expanded ? 'Collapse' : 'Expand'}
-            onClick={() => void runAction(() => window.coloopControl?.setExpanded(!expanded))}
-          >
-            {expanded ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
-          </button>
-        )}
-        {revealed && canStartTask && (
-          <button
-            className="island-text-button"
-            onClick={() =>
-              void runAction(() =>
-                window.coloopControl?.pauseObservation(!snapshot.observationPaused),
-              )
-            }
-          >
-            {snapshot.observationPaused ? 'Resume' : 'Pause'}
-          </button>
-        )}
-        {revealed && !preview && (
-          <button
-            aria-label="收起灵动岛"
-            title="收起灵动岛"
-            onClick={() => {
-              setHovered(false)
-              setFocusWithin(false)
-              setEditingAnswer(false)
-              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-              void window.coloopControl?.endAnswer()
-            }}
-          >
-            <Minus size={16} />
-          </button>
-        )}
+        <div
+          className="island-header-actions"
+          data-visible={revealed}
+          inert={!revealed}
+          aria-hidden={!revealed}
+        >
+          {hasPanel && (
+            <button
+              className="island-expand"
+              aria-expanded={expanded}
+              aria-label={expanded ? 'Collapse' : 'Expand'}
+              onClick={() => void runAction(() => window.coloopControl?.setExpanded(!expanded))}
+            >
+              <ChevronDown size={17} />
+            </button>
+          )}
+          {canStartTask && (
+            <button
+              className="island-text-button"
+              onClick={() =>
+                void runAction(() =>
+                  window.coloopControl?.pauseObservation(!snapshot.observationPaused),
+                )
+              }
+            >
+              {snapshot.observationPaused ? 'Resume' : 'Pause'}
+            </button>
+          )}
+          {!preview && (
+            <button
+              aria-label="收起灵动岛"
+              title="收起灵动岛"
+              onClick={() => {
+                setHovered(false)
+                setFocusWithin(false)
+                setEditingAnswer(false)
+                if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                void window.coloopControl?.endAnswer()
+              }}
+            >
+              <Minus size={16} />
+            </button>
+          )}
+          {!preview && (
+            <button
+              aria-label="关闭灵动岛"
+              title={active ? '停止任务并关闭灵动岛' : '关闭灵动岛（从托盘重新打开）'}
+              disabled={pendingAction || stopping}
+              onClick={() => closeSurface()}
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </header>
       {!preview && (
         <form
-          hidden={!revealed}
+          data-visible={revealed}
+          inert={!revealed}
+          aria-hidden={!revealed}
           className="island-command"
           aria-label="主动命令"
           onBlur={(event) => {
@@ -424,14 +487,36 @@ export function ControlIndicator() {
           </button>
         </form>
       )}
-      {revealed && hasPanel && expanded && (
-        <section className="island-panel" aria-label="Task details">
+      {hasPanel && (
+        <section
+          ref={panel}
+          className="island-panel"
+          data-visible={revealed && expanded}
+          inert={!revealed || !expanded}
+          aria-hidden={!revealed || !expanded}
+          aria-label="Task details"
+        >
           {snapshot.title && <h1>{snapshot.title}</h1>}
           {snapshot.content && <div className="island-content">{snapshot.content}</div>}
           {snapshot.error && (
             <p className="island-error" role="alert">
               {snapshot.error}
             </p>
+          )}
+          {['completed', 'blocked', 'failed'].includes(snapshot.mode) && (
+            <div className="island-actions">
+              <button
+                className="island-secondary"
+                disabled={pendingAction || !snapshot.taskId}
+                onClick={() =>
+                  void runAction(() =>
+                    window.coloopControl?.dismissResult(snapshot.taskId!, snapshot.revision),
+                  )
+                }
+              >
+                {snapshot.mode === 'completed' ? '完成' : '取消'}
+              </button>
+            </div>
           )}
           {snapshot.mode === 'suggestion' && (
             <div className="island-actions">

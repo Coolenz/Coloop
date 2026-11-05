@@ -3,6 +3,7 @@ import type { AppSnapshot, DesktopApi } from '../shared/contracts'
 
 const api: DesktopApi = {
   startProactiveTask: (goal) => ipcRenderer.invoke('proactive:start', goal),
+  resumeProactiveTask: (taskId) => ipcRenderer.invoke('proactive:resume', taskId),
   stopProactiveTask: () => ipcRenderer.invoke('proactive:stop'),
   pauseProactiveObservation: (paused) => ipcRenderer.invoke('proactive:pause', paused),
   acceptProactiveSuggestion: (id) => ipcRenderer.invoke('proactive:accept', id),
@@ -30,6 +31,9 @@ const api: DesktopApi = {
   openCredentialLogin: (id) => ipcRenderer.invoke('credentials:open', id),
   snapshot: () => ipcRenderer.invoke('app:get'),
   saveSettings: (input) => ipcRenderer.invoke('settings:save', input),
+  chooseTaskWorkspace: () => ipcRenderer.invoke('settings:task-workspace'),
+  transcribeVoice: (audio) => ipcRenderer.invoke('voice:transcribe', audio),
+  cancelVoiceTranscription: () => ipcRenderer.invoke('voice:cancel'),
   importRk: () => ipcRenderer.invoke('settings:import-rk'),
   connect: (password) => ipcRenderer.invoke('device:connect', password),
   retryRkConnection: () => ipcRenderer.invoke('device:auto-reconnect'),
@@ -41,6 +45,8 @@ const api: DesktopApi = {
   openImage: () => ipcRenderer.invoke('screen:open'),
   recognize: (id) => ipcRenderer.invoke('ocr:recognize', id),
   dispatchTask: (request) => ipcRenderer.invoke('task:dispatch', request),
+  scheduleTask: (request) => ipcRenderer.invoke('task:schedule', request),
+  cancelScheduledTask: (id) => ipcRenderer.invoke('task:schedule-cancel', id),
   runTask: (request) => ipcRenderer.invoke('task:run', request),
   cancelTask: (id) => ipcRenderer.invoke('task:cancel', id),
   controlSession: (input) => ipcRenderer.invoke('sessions:command', input),

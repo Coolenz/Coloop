@@ -6,6 +6,7 @@ export const violoopMessageSchema = z
     commandId: z.string().uuid(),
     text: z.string().trim().min(1).max(2000),
     authorizeInput: z.literal(true),
+    target: z.enum(['hybrid', 'cloud', 'rk']).optional(),
     replyTo: z.string().uuid().optional(),
     windowTitle: z.string().trim().min(1).max(250).optional(),
     expectedText: z.string().trim().min(1).max(128).optional(),
@@ -16,6 +17,7 @@ export const violoopTaskSchema = z
   .object({
     id: z.string().uuid(),
     text: z.string().max(2000),
+    target: z.enum(['hybrid', 'cloud', 'rk']).optional(),
     state: z.enum([
       'received',
       'understanding',
@@ -36,6 +38,7 @@ export const violoopTaskSchema = z
     phase: z.string().max(32).optional(),
     planningSource: z.enum(['local', 'cloud']).optional(),
     steps: z.number().int().min(0).max(20).optional(),
+    questionId: z.string().uuid().optional(),
   })
   .strict()
 export type VioloopTask = z.infer<typeof violoopTaskSchema>

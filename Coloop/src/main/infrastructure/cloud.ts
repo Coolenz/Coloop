@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { providerSchema, type ProviderConfig } from '../../shared/contracts'
 import { parseStrictJson } from '../domain/strict-json'
+import { ModelUsageError, type ModelUsageLedger } from './model-usage'
 
 export interface CloudAnalysis {
   summary: string
@@ -217,7 +218,18 @@ export async function readOpenAiStream(
 }
 
 export class CloudGateway {
-  constructor(private fetcher: typeof fetch = fetch) {}
+  constructor(
+    private fetcher: typeof fetch = fetch,
+    private usage?: ModelUsageLedger,
+  ) {}
+  bindTask(signal: AbortSignal, taskId: string) {
+    this.usage?.bind(signal, taskId)
+  }
+  private transport(source: string, signal: AbortSignal) {
+    return (
+      this.usage?.wrap(this.fetcher, { taskId: this.usage.scope(signal), source }) ?? this.fetcher
+    )
+  }
   /** Dedicated bounded command channel. Does not change the privacy-analysis route. */
   async relay(
     config: ProviderConfig,
@@ -269,7 +281,7 @@ export class CloudGateway {
       }
     }
     const bounded = AbortSignal.any([signal, AbortSignal.timeout(120000)])
-    const response = await this.fetcher(request.url, {
+    const response = await this.transport('cloud_relay', signal)(request.url, {
       method: 'POST',
       headers: request.headers,
       body: JSON.stringify(request.body),
@@ -283,11 +295,13 @@ export class CloudGateway {
     const envelope = parseStrictJson(
       await readAnalysisBody(response, bounded, limits ? 131072 : 32768),
     )
-    if (limits && (
-      (envelope as any)?.choices?.[0]?.finish_reason === 'length' ||
-      (envelope as any)?.stop_reason === 'max_tokens' ||
-      (envelope as any)?.candidates?.[0]?.finishReason === 'MAX_TOKENS'
-    )) throw new Error('RELAY_OUTPUT_TRUNCATED')
+    if (
+      limits &&
+      ((envelope as any)?.choices?.[0]?.finish_reason === 'length' ||
+        (envelope as any)?.stop_reason === 'max_tokens' ||
+        (envelope as any)?.candidates?.[0]?.finishReason === 'MAX_TOKENS')
+    )
+      throw new Error('RELAY_OUTPUT_TRUNCATED')
     bounded.throwIfAborted()
     const text =
       config.protocol === 'anthropic'
@@ -325,7 +339,7 @@ export class CloudGateway {
     let response: Response | undefined
     try {
       combinedSignal.throwIfAborted()
-      response = await this.fetcher(request.url, {
+      response = await this.transport('cloud_analysis', signal)(request.url, {
         method: 'POST',
         headers: request.headers,
         body: JSON.stringify(request.body),
@@ -333,8 +347,9 @@ export class CloudGateway {
         redirect: 'error',
       })
       combinedSignal.throwIfAborted()
-    } catch {
+    } catch (error) {
       await response?.body?.cancel().catch(() => {})
+      if (error instanceof ModelUsageError) throw error
       if (signal.aborted) throw new DOMException('云端分析已取消', 'AbortError')
       throw new Error('云端分析请求失败或超时，请检查连接与模型配置')
     }
@@ -378,7 +393,7 @@ export class CloudGateway {
     if (!key && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.baseUrl).hostname))
       throw new Error('请在「模型连接」配置并保存 API Key')
     const request = providerRequest(config, key, prompt, context, 'assistant', systemOverride)
-    const response = await this.fetcher(request.url, {
+    const response = await this.transport('cloud_generate', signal)(request.url, {
       method: 'POST',
       headers: request.headers,
       body: JSON.stringify(request.body),

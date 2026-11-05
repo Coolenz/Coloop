@@ -83,6 +83,8 @@ async function fixture(
     modelHealth?: Record<string, unknown>
     healthStatus?: number
     startSucceeds?: boolean
+    clockOffsetMs?: number
+    clockSyncFails?: boolean
     chat?: (body: ChatBody, response: ServerResponse, request: IncomingMessage) => void
   } = {},
 ) {
@@ -151,19 +153,32 @@ async function fixture(
           const encoded = info.command.match(/b64decode\(['"]([A-Za-z0-9+/=]+)['"]\)/)?.[1]
           const script = encoded ? Buffer.from(encoded, 'base64').toString('utf8') : info.command
           commands.push(script)
+          if (script.includes('rk-coloop-admin') && options.clockSyncFails) {
+            stream.exit(1)
+            stream.end()
+            return
+          }
           if (script.includes('scripts/start.sh') && options.startSucceeds) modelOnline = true
           const result = script.includes('scripts/start.sh')
             ? '{}'
             : script.includes('/proc/meminfo')
-              ? JSON.stringify(health)
-              : script.includes('api-key')
-                ? apiKey
-                : script.includes('.runtime/coloop-hook')
-                  ? JSON.stringify({
-                      root: '/home/cat/rk-opencode',
-                      path: '/home/cat/rk-opencode/.runtime/coloop-hook/connection.json',
-                    })
-                  : JSON.stringify({ ready: true, active_sessions: 0 })
+              ? JSON.stringify({
+                  ...health,
+                  boardTimeMs:
+                    options.clockOffsetMs === undefined
+                      ? undefined
+                      : Date.now() + options.clockOffsetMs,
+                })
+              : script.includes('rk-coloop-admin')
+                ? JSON.stringify({ at: Date.now() / 1000, rtc_saved: true })
+                : script.includes('api-key')
+                  ? apiKey
+                  : script.includes('.runtime/coloop-hook')
+                    ? JSON.stringify({
+                        root: '/home/cat/rk-opencode',
+                        path: '/home/cat/rk-opencode/.runtime/coloop-hook/connection.json',
+                      })
+                    : JSON.stringify({ ready: true, active_sessions: 0 })
           stream.write(result + '\n')
           stream.exit(0)
           stream.end()
@@ -221,6 +236,31 @@ function gateway() {
 }
 
 describe('SSH identity and tunneled RK model service', () => {
+  it('corrects board clock through the pinned connection and throttles repeated corrections', async () => {
+    const { config, commands } = await fixture({ clockOffsetMs: -76_000_000 })
+    const device = gateway()
+    const state = await device.connect(config, 'test-password')
+    expect(Math.abs(state.clockOffsetMs!)).toBeLessThan(1000)
+    expect(state.clockSyncedAt).toBeDefined()
+    expect(state.clockSyncError).toBeUndefined()
+    await device.refresh()
+    expect(commands.filter((command) => command.includes('rk-coloop-admin'))).toHaveLength(1)
+    expect(commands.find((command) => command.includes('rk-coloop-admin'))).not.toContain(
+      'test-password',
+    )
+  })
+  it('reports missing clock helper without disconnecting the model', async () => {
+    const { config } = await fixture({ clockOffsetMs: -76_000_000, clockSyncFails: true })
+    const state = await gateway().connect(config, 'test-password')
+    expect(state.status).toBe('connected')
+    expect(state.qwenReady).toBe(true)
+    expect(state.clockSyncError).toContain('校时服务')
+  })
+  it('does not set an already synchronized clock', async () => {
+    const { config, commands } = await fixture({ clockOffsetMs: 0 })
+    await gateway().connect(config, 'test-password')
+    expect(commands.some((command) => command.includes('rk-coloop-admin'))).toBe(false)
+  })
   it('reads real board health and authenticated model readiness through pinned SSH', async () => {
     const { config, requests } = await fixture()
     const device = gateway()
@@ -412,7 +452,7 @@ describe('SSH identity and tunneled RK model service', () => {
     expect(commands.join('\n')).not.toContain('qwen35/run.sh')
   })
 
-  it.each([429, 503])('surfaces HTTP %i as a failed model request', async (status) => {
+  it.each([503])('surfaces HTTP %i as a failed model request', async (status) => {
     const { config } = await fixture({
       chat: (_body, response) => reply(response, status, { error: { message: 'Model busy' } }),
     })
@@ -424,6 +464,41 @@ describe('SSH identity and tunneled RK model service', () => {
     ).rejects.toThrow()
     expect(onText).not.toHaveBeenCalled()
     expect(JSON.stringify(device.state)).not.toContain(apiKey)
+  })
+
+  it('waits for a busy worker to admit the same inference and keeps the result exclusive', async () => {
+    let attempts = 0
+    const { config, requests } = await fixture({
+      chat: (_body, response) => {
+        if (++attempts === 1) reply(response, 429, { error: { message: 'Model busy' } })
+        else answer(response, '2')
+      },
+    })
+    const device = gateway()
+    await device.connect(config, 'test-password')
+    const text = vi.fn()
+    expect(await device.generate('1+1', '', new AbortController().signal, text)).toBe('2')
+    expect(requests.filter((r) => r.url === '/v1/chat/completions')).toHaveLength(2)
+    expect(text).toHaveBeenCalledExactlyOnceWith('2')
+    expect(device.busy).toBe(false)
+  })
+
+  it('cancels a waiting worker admission before submitting another inference', async () => {
+    const { config, chatStarted, requests } = await fixture({
+      chat: (_body, response) => reply(response, 429, { error: { message: 'Model busy' } }),
+    })
+    const device = gateway()
+    await device.connect(config, 'test-password')
+    const controller = new AbortController()
+    const text = vi.fn()
+    const pending = device.generate('1+1', '', controller.signal, text)
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    await chatStarted
+    controller.abort()
+    await rejected
+    expect(requests.filter((r) => r.url === '/v1/chat/completions')).toHaveLength(1)
+    expect(text).not.toHaveBeenCalled()
+    expect(device.busy).toBe(false)
   })
 
   it('does not publish a late answer after cancellation', async () => {
@@ -613,6 +688,29 @@ describe('SSH identity and tunneled RK model service', () => {
     expect(commands.at(-1)).toContain("'active':False")
     expect(commands.join('\n')).not.toMatch(/['"]\/(?:recall|enqueue|call)['"]/)
     expect(device.busy).toBe(false)
+  })
+
+  it('preserves conversation roles and privacy protection for the local tool loop', async () => {
+    const turns = [
+      { role: 'user' as const, content: '原始目标' },
+      { role: 'assistant' as const, content: '<tool_call>真实工具调用</tool_call>' },
+      { role: 'user' as const, content: 'Tool: 真实回执' },
+    ]
+    const { config } = await fixture({
+      modelHealth: { ...modelHealth, privacy_metadata_only: true },
+      chat: (body, response, request) => {
+        expect(request.headers['x-rk-privacy']).toBe('metadata-only')
+        expect(request.headers['x-rk-cache']).toBe('off')
+        expect(body.messages).toEqual([{ role: 'system', content: '固定规则' }, ...turns])
+        response.setHeader('X-RK-Privacy', 'metadata-only')
+        answer(response, '继续下一步')
+      },
+    })
+    const device = gateway()
+    await device.connect(config, 'test-password')
+    expect(await device.privacyConversation('固定规则', turns, new AbortController().signal)).toBe(
+      '继续下一步',
+    )
   })
 
   it('requires declared privacy support before starting a privacy agent', async () => {
@@ -813,6 +911,27 @@ describe('SSH identity and tunneled RK model service', () => {
     })
     await expect(device.detachHookRelay()).resolves.toBeUndefined()
     expect(device.state.hookRelayReady).toBe(false)
+  })
+
+  it('releases hook initialization when SSH closes before a callback completes', async () => {
+    const { config } = await fixture()
+    const device = gateway()
+    await device.connect(config, 'test-password')
+    const client = (device as unknown as { client: Client }).client
+    const listeners = client.listenerCount('close')
+    const forward = vi.spyOn(client, 'forwardIn').mockImplementation(() => client)
+    const attaching = device.attachHookRelay({
+      url: 'http://127.0.0.1:31235',
+      token: 'test-token',
+      workspace: 'D:\\RK',
+      plugin: Buffer.from('plugin'),
+      launcher: Buffer.from('launcher'),
+    })
+    const rejected = expect(attaching).rejects.toThrow('已取消 Hook 初始化')
+    await vi.waitFor(() => expect(forward).toHaveBeenCalled())
+    device.disconnect()
+    await rejected
+    expect(client.listenerCount('close')).toBe(listeners)
   })
 
   it('does not mask an installation failure when cancelling a dead forwarding port', async () => {

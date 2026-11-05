@@ -349,9 +349,6 @@ body.control-surface .island-command-send:disabled {
   opacity: 1;
 }
 
-body.control-surface .island-command[hidden] {
-  display: none;
-}
 body.control-surface .island-drag-handle {
   display: flex;
   align-items: center;
@@ -436,4 +433,110 @@ body.control-surface .island-content {
 body.control-surface textarea {
   background: #090f1959;
   border-color: #ffffff69;
+}
+
+/* One motion rhythm: the shell opens first, then its contents become available.
+   Keep exit nodes mounted so reversing a hover continues from the current frame. */
+body.control-surface .control-indicator {
+  --island-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top center;
+  transition: border-radius 200ms var(--island-ease);
+}
+body.control-surface button {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    opacity 120ms ease-out,
+    transform 120ms var(--island-ease);
+}
+body.control-surface button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+body.control-surface .island-drag-handle:active {
+  cursor: grabbing;
+  color: #fff;
+}
+body.control-surface .island-header-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 4px;
+  min-width: 0;
+  max-width: 220px;
+  opacity: 1;
+  visibility: visible;
+  /* A small, bounded layout transition keeps the title from jumping sideways. */
+  transition:
+    max-width 200ms var(--island-ease),
+    margin-left 200ms var(--island-ease),
+    opacity 130ms ease-out,
+    visibility 0s;
+}
+body.control-surface .island-header-actions[data-visible='false'] {
+  max-width: 0;
+  margin-left: -6px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition-delay: 0s, 0s, 0s, 130ms;
+}
+body.control-surface .island-expand svg {
+  transition: transform 180ms var(--island-ease);
+}
+body.control-surface .island-expand[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+body.control-surface .island-command,
+body.control-surface .island-panel {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition:
+    opacity 160ms ease-out,
+    transform 200ms var(--island-ease),
+    visibility 0s,
+    border-color 140ms ease-out;
+}
+body.control-surface .island-command[data-visible='false'],
+body.control-surface .island-panel[data-visible='false'] {
+  opacity: 0;
+  transform: translateY(-4px);
+  visibility: hidden;
+  pointer-events: none;
+  transition-duration: 100ms, 140ms, 0s, 140ms;
+  transition-delay: 0s, 0s, 140ms, 0s;
+}
+body.control-surface .control-detail {
+  animation: island-status-change 160ms ease-out;
+}
+@keyframes island-status-change {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.control-surface .control-indicator,
+  body.control-surface .island-header-actions,
+  body.control-surface .island-command,
+  body.control-surface .island-panel,
+  body.control-surface .island-expand svg {
+    transition-duration: 0s;
+    transition-delay: 0s;
+  }
+  body.control-surface button {
+    transition:
+      background-color 80ms ease-out,
+      color 80ms ease-out;
+  }
+  body.control-surface button:active:not(:disabled),
+  body.control-surface .island-command[data-visible='false'],
+  body.control-surface .island-panel[data-visible='false'] {
+    transform: none;
+  }
+  body.control-surface .control-detail {
+    animation-duration: 70ms;
+  }
 }

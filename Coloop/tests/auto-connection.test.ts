@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -60,6 +60,39 @@ function fixture() {
   }
 }
 describe('automatic connection and credential binding', () => {
+  it('pauses only this run and reconnects with saved credentials on a fresh launch', async () => {
+    const f = fixture()
+    await f.service.connectManually('synthetic-password')
+    f.service.disable()
+    f.setState({ status: 'disconnected' })
+    f.settings.setMobile(false)
+    await f.service.tick()
+    expect(f.connect).toHaveBeenCalledOnce()
+    const restored = new ConnectionSettings(f.directory, codec)
+    expect(restored.enabled).toBe(true)
+    const restarted = new AutoConnectionService({
+      settings: restored,
+      config: () => config,
+      state: () => ({ status: 'disconnected' }),
+      connect: f.connect,
+      startModel: f.startModel,
+      canAttempt: () => true,
+      onChange: vi.fn(),
+    })
+    await restarted.tick()
+    expect(f.connect).toHaveBeenLastCalledWith('synthetic-password')
+    expect(f.connect).toHaveBeenCalledTimes(2)
+  })
+  it('migrates a previously persisted disconnect without losing the credential', () => {
+    const f = fixture()
+    f.settings.remember(config, 'synthetic-password')
+    const path = join(f.directory, 'auto-connection.json')
+    const saved = JSON.parse(readFileSync(path, 'utf8'))
+    writeFileSync(path, JSON.stringify({ ...saved, enabled: false }))
+    const restored = new ConnectionSettings(f.directory, codec)
+    expect(restored.enabled).toBe(true)
+    expect(restored.password(config)).toBe('synthetic-password')
+  })
   it('stores only a protected credential bound to host identity and reconnects after restart', async () => {
     const f = fixture()
     await f.service.connectManually('synthetic-password')

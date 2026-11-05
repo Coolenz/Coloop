@@ -5,8 +5,14 @@ import { z } from 'zod'
 import { parseStrictJson } from '../domain/strict-json'
 import { timed, type StepTiming } from './step-timing'
 import type { DesktopProcedureMemory, RecalledProcedure } from './desktop-procedure-memory'
-import { compactObservation, compactProcedure, parseSemanticPlan, ScopedUIWorkflow,
-  semanticPlanPolicy, workflowFor } from './cloud-ui-agent'
+import {
+  compactObservation,
+  compactProcedure,
+  parseSemanticPlan,
+  ScopedUIWorkflow,
+  semanticPlanPolicy,
+  workflowFor,
+} from './cloud-ui-agent'
 
 export const browserTarget = 'https://www.bilibili.com'
 export const browserSteps = [
@@ -17,7 +23,11 @@ import { browserTaskOf, isBrowserPilot } from './browser-task'
 export { browserTaskOf, isBrowserPilot } from './browser-task'
 
 const planSchema = z
-  .object({ command: z.literal('open_browser'), url: z.literal(browserTarget), method: z.literal('mouse_same_window') })
+  .object({
+    command: z.literal('open_browser'),
+    url: z.literal(browserTarget),
+    method: z.literal('mouse_same_window'),
+  })
   .strict()
 const reviewSchema = z
   .object({
@@ -117,20 +127,31 @@ export class CloudHIDRelay {
         })
         .passthrough()
         .parse(facts)
-      if (browserTaskOf(goal) !== 'video-triple' && !['open_chrome', 'home_tab'].includes(observation.phase))
+      if (
+        browserTaskOf(goal) !== 'video-triple' &&
+        !['open_chrome', 'home_tab'].includes(observation.phase)
+      )
         throw new Error('RELAY_TASK_OUT_OF_SCOPE')
       const semantic = this.options.workflowMode === 'semantic-plan'
       const active = this.workflow?.applies(goal, signal) ? this.workflow : undefined
-      const local = active ? await timed('agent.bind.' + observation.phase, 'local_binding', recordTiming,
-        async () => active.decide(observation)) : null
-      const raw = local ?? await timed('cloud.act.' + observation.phase, 'cloud_model', recordTiming, () =>
-        this.options.cloud(
-          interactionPolicy,
-          JSON.stringify({ goal, observation: semantic ? compactObservation(observation) : observation,
-            procedure: semantic ? compactProcedure(this.recalled) : this.recalled ?? null }),
-          signal,
-        ),
-      )
+      const local = active
+        ? await timed('agent.bind.' + observation.phase, 'local_binding', recordTiming, async () =>
+            active.decide(observation),
+          )
+        : null
+      const raw =
+        local ??
+        (await timed('cloud.act.' + observation.phase, 'cloud_model', recordTiming, () =>
+          this.options.cloud(
+            interactionPolicy,
+            JSON.stringify({
+              goal,
+              observation: semantic ? compactObservation(observation) : observation,
+              procedure: semantic ? compactProcedure(this.recalled) : (this.recalled ?? null),
+            }),
+            signal,
+          ),
+        ))
       signal.throwIfAborted()
       const action = z
         .discriminatedUnion('command', [
@@ -161,43 +182,65 @@ export class CloudHIDRelay {
       if (error.code !== 'ENOENT') throw new Error('RELAY_HISTORY_INVALID')
     }
     const semantic = this.options.workflowMode === 'semantic-plan'
-    const requestedPlan = { command: 'open_browser', url: browserTarget, method: 'mouse_same_window',
-      workflow: workflowFor(browserTaskOf(goal)) }
-    const content = JSON.stringify(semantic ? {
-      protocol: 'rk-ui-agent-v2', stage, goal, taskMode: browserTaskOf(goal),
-      ...(stage === 'plan' ? { requestedPlan } : {}),
-      facts, procedure: compactProcedure(this.recalled),
-      previous: previous.map(p => { const e = p as z.infer<typeof episodeSchema>;
-        return { task: e.task, verified: e.verified, reviewVerified: e.reviewVerified, review: e.review } }),
-    } : {
-      stage,
-      goal,
-      background: {
-        os: 'Windows',
-        executor: 'RK USB HID',
-        inputMode: 'mouse_same_window',
-        keyboard: 'US ASCII',
-        privacy: 'ordinary browser OCR may be sent to cloud for this pilot; no vault access',
-        completion: 'Chrome address host www.bilibili.com AND visible Bilibili page content',
-      },
-      previous,
-      facts,
-      taskMode: browserTaskOf(goal),
-      procedure: this.recalled ?? null,
-    })
-    const policy = semantic && stage === 'plan' ? semanticPlanPolicy :
-      stage === 'review' && browserTaskOf(goal) === 'video-triple'
-        ? relayCloudPolicy +
-          '\nFor this review only, the user also authorized one homepage video, like, ONE coin, default-folder favorite. Summarize the actual verified engagement states and receipts; this is not permission for more input.'
-        : relayCloudPolicy
+    const requestedPlan = {
+      command: 'open_browser',
+      url: browserTarget,
+      method: 'mouse_same_window',
+      workflow: workflowFor(browserTaskOf(goal)),
+    }
+    const content = JSON.stringify(
+      semantic
+        ? {
+            protocol: 'rk-ui-agent-v2',
+            stage,
+            goal,
+            taskMode: browserTaskOf(goal),
+            ...(stage === 'plan' ? { requestedPlan } : {}),
+            facts,
+            procedure: compactProcedure(this.recalled),
+            previous: previous.map((p) => {
+              const e = p as z.infer<typeof episodeSchema>
+              return {
+                task: e.task,
+                verified: e.verified,
+                reviewVerified: e.reviewVerified,
+                review: e.review,
+              }
+            }),
+          }
+        : {
+            stage,
+            goal,
+            background: {
+              os: 'Windows',
+              executor: 'RK USB HID',
+              inputMode: 'mouse_same_window',
+              keyboard: 'US ASCII',
+              privacy: 'ordinary browser OCR may be sent to cloud for this pilot; no vault access',
+              completion: 'Chrome address host www.bilibili.com AND visible Bilibili page content',
+            },
+            previous,
+            facts,
+            taskMode: browserTaskOf(goal),
+            procedure: this.recalled ?? null,
+          },
+    )
+    const policy =
+      semantic && stage === 'plan'
+        ? semanticPlanPolicy
+        : stage === 'review' && browserTaskOf(goal) === 'video-triple'
+          ? relayCloudPolicy +
+            '\nFor this review only, the user also authorized one homepage video, like, ONE coin, default-folder favorite. Summarize the actual verified engagement states and receipts; this is not permission for more input.'
+          : relayCloudPolicy
     const cloud = await timed('cloud.' + stage, 'cloud_model', recordTiming, () =>
       this.options.cloud(policy, content, signal),
     )
     signal.throwIfAborted()
     if (stage === 'plan') {
       const planned = semantic ? parseSemanticPlan(cloud, browserTaskOf(goal)) : null
-      const command = planSchema.parse(planned ?
-        { command: planned.command, url: planned.url, method: planned.method } : cloud)
+      const command = planSchema.parse(
+        planned ? { command: planned.command, url: planned.url, method: planned.method } : cloud,
+      )
       if (planned) this.workflow = new ScopedUIWorkflow(browserTaskOf(goal), goal, signal)
       const learned = previous[0] as z.infer<typeof episodeSchema> | undefined
       if ((learned && isDeepStrictEqual(learned.steps, browserSteps)) || this.recalled)
@@ -237,7 +280,11 @@ export class CloudHIDRelay {
       task: advanced ? 'bilibili-video-triple' : 'open-bilibili',
       verified: true,
       at: new Date().toISOString(),
-      command: planSchema.parse({ command: 'open_browser', url: browserTarget, method: 'mouse_same_window' }),
+      command: planSchema.parse({
+        command: 'open_browser',
+        url: browserTarget,
+        method: 'mouse_same_window',
+      }),
       steps: advanced ? result.receipts.map((r: any) => r.action) : browserSteps,
       receipts: result.receipts,
       review,
@@ -251,7 +298,9 @@ export class CloudHIDRelay {
       JSON.stringify(episode, null, 2),
       { flag: 'wx', mode: 0o600 },
     )
-    const indexPath = advanced ? join(this.options.directory, 'bilibili-video-triple-mouse.json') : path
+    const indexPath = advanced
+      ? join(this.options.directory, 'bilibili-video-triple-mouse.json')
+      : path
     await writeFile(indexPath + '.tmp', JSON.stringify(episode, null, 2), { mode: 0o600 })
     await rename(indexPath + '.tmp', indexPath)
     let memorySaved = false

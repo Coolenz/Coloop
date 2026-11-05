@@ -66,6 +66,7 @@ function variants(value: string): string[] {
 }
 
 function hasRule(text: string, secretsOnly = false): boolean {
+  text = text.normalize('NFKC')
   return rules.some(({ pattern, secret }) => {
     if (secretsOnly && !secret) return false
     pattern.lastIndex = 0
@@ -84,10 +85,15 @@ export class PrivacyVault {
   private revokedTokens = new Set<string>()
   private disposed = false
   private nextToken = 0
+  private maskedInput: { prompt: string; context: string } | undefined
 
   constructor(prompt: string, context: string) {
     if (typeof prompt !== 'string' || typeof context !== 'string') fail('INVALID_INPUT')
-    if (reservedPattern.test(prompt) || reservedPattern.test(context)) fail('RESERVED_INPUT')
+    if (
+      reservedPattern.test(prompt.normalize('NFKC')) ||
+      reservedPattern.test(context.normalize('NFKC'))
+    )
+      fail('RESERVED_INPUT')
     this.prompt = prompt
     this.context = context
     this.checkMarkers(prompt)
@@ -98,10 +104,12 @@ export class PrivacyVault {
 
   maskInput(): { prompt: string; context: string } {
     this.alive()
+    if (this.maskedInput) return { ...this.maskedInput }
     // Reapply the current map: semantic privateValues can be added after the first pass.
     const prompt = this.maskText(this.prompt)
     const context = this.maskText(this.context)
-    return { prompt: this.replaceKnown(prompt), context: this.replaceKnown(context) }
+    this.maskedInput = { prompt: this.replaceKnown(prompt), context: this.replaceKnown(context) }
+    return { ...this.maskedInput }
   }
 
   protectProjection(projection: Projection, privateValues: string[]): Projection {
@@ -131,6 +139,7 @@ export class PrivacyVault {
     }
     for (const value of privateValues) {
       if (this.tokens.has(value)) continue
+      this.maskedInput = undefined
       const original = value.replace(tokenPattern, (token) => this.tokens.get(token)!)
       const replacement = this.remember(original, hasRule(original, true))
       this.substitutions.set(value, replacement)
@@ -206,6 +215,7 @@ export class PrivacyVault {
     this.tokens.clear()
     this.secretValues.clear()
     this.revokedTokens.clear()
+    this.maskedInput = undefined
     this.disposed = true
   }
 
@@ -258,6 +268,18 @@ export class PrivacyVault {
   private maskText(text: string): string {
     this.validateTokens(text)
     this.checkMarkers(text)
+    // Reject compatibility spellings of credentials rather than normalize user content:
+    // normalization would change the exact values restored for legitimate identities.
+    const normalized = text.normalize('NFKC')
+    if (normalized !== text) {
+      for (const { pattern, secret } of rules) {
+        if (!secret) continue
+        pattern.lastIndex = 0
+        for (const match of normalized.matchAll(pattern)) {
+          if (!text.includes(match[0])) fail('UNSAFE_CREDENTIAL_FORM')
+        }
+      }
+    }
     // Secrets are discovered before identity spans, so a containing URL/private block cannot restore them.
     for (const { pattern, secret } of rules) {
       if (!secret) continue

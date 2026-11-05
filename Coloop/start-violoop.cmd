@@ -1,17 +1,9 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-if exist "release\coloop-connected-0.13.0\win-unpacked\Coloop.exe" (
-  start "" "release\coloop-connected-0.13.0\win-unpacked\Coloop.exe"
-  exit /b 0
+set "COLOOP_EXE=%LOCALAPPDATA%\Programs\Coloop\Coloop.exe"
+if not exist "%COLOOP_EXE%" (
+  echo Coloop is not installed. See AGENTS.md for local deployment instructions.
+  exit /b 1
 )
-if exist "release\violoop-rk-0.12.0\win-unpacked\Coloop.exe" (
-  start "" "release\violoop-rk-0.12.0\win-unpacked\Coloop.exe"
-  exit /b
-)
-if exist "release\violoop-companion-0.12.0\win-unpacked\Coloop.exe" (
-  start "" "release\violoop-companion-0.12.0\win-unpacked\Coloop.exe"
-  exit /b
-)
-echo Coloop companion build is missing. Run npm run build first.
-pause
+start "" "%COLOOP_EXE%"
+exit /b 0

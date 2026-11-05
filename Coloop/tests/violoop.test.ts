@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VioloopService } from '../src/main/services/violoop'
 import type { DesktopSnapshot } from '../src/shared/desktop'
+import type { ProactiveState } from '../src/shared/proactive'
 
 const directories: string[] = []
 afterEach(() => {
@@ -23,6 +24,12 @@ function fixture(
     understand?: (content: string, signal: AbortSignal) => Promise<string>
     recallProcedure?: (goal: string, signal: AbortSignal) => Promise<boolean>
     browserAgentLocation?: 'host' | 'rk'
+    execution?: {
+      start(goal: string, taskId: string, target?: 'hybrid' | 'cloud' | 'rk'): Promise<unknown>
+      snapshot(): ProactiveState
+      stop(): Promise<unknown>
+      answer(taskId: string, questionId: string, answer: string): void
+    }
   } = {},
 ) {
   const directory = options.directory ?? mkdtempSync(join(tmpdir(), 'coloop-violoop-'))
@@ -60,6 +67,7 @@ function fixture(
     understand,
     recallProcedure: options.recallProcedure,
     browserAgentLocation: options.browserAgentLocation,
+    execution: options.execution,
     onChange: vi.fn(),
   })
   return {
@@ -82,6 +90,146 @@ function fixture(
   }
 }
 describe('Violoop phone task admission and lifecycle', () => {
+  it('routes a Chinese multi-application task through the shared executor without the legacy planner', async () => {
+    let state: ProactiveState = { connected: true, active: false, phase: 'idle' }
+    const execution = {
+      start: vi.fn(async (goal: string, taskId: string) => {
+        state = { ...state, taskId, active: true, phase: 'planning' }
+      }),
+      snapshot: () => state,
+      stop: vi.fn(async () => {
+        state = { ...state, active: false, phase: 'cancelled' }
+      }),
+      answer: vi.fn(),
+    }
+    const f = fixture({ execution })
+    const request = { ...f.request, text: '整理中文订单并写入台账，保存后核验。' }
+    f.service.submit(request, f.deviceId)
+    await vi.waitFor(() =>
+      expect(execution.start).toHaveBeenCalledWith(request.text, request.commandId),
+    )
+    expect(f.understand).not.toHaveBeenCalled()
+    expect(f.start).not.toHaveBeenCalled()
+    expect(f.service.taskId).toBe(request.commandId)
+    state = { ...state, active: false, phase: 'completed', summary: '已保存并核验中文台账' }
+    f.service.observeDesktop()
+    expect(f.service.snapshot().tasks[0]).toMatchObject({
+      state: 'completed',
+      id: request.commandId,
+    })
+    f.service.submit(request, f.deviceId)
+    expect(execution.start).toHaveBeenCalledOnce()
+  })
+  it('keeps a shared question active and waits for an actual stop acknowledgement', async () => {
+    const taskId = randomUUID(),
+      questionId = randomUUID()
+    let state: ProactiveState = { connected: true, active: false, phase: 'idle' }
+    const execution = {
+      start: vi.fn(async (_goal: string, id: string) => {
+        state = {
+          ...state,
+          taskId: id,
+          active: true,
+          phase: 'waiting_user',
+          question: { question_id: questionId, question: '请补充数量' },
+        }
+      }),
+      snapshot: () => state,
+      stop: vi.fn(async () => {
+        state = { ...state, active: false, phase: 'cancelled', question: undefined }
+      }),
+      answer: vi.fn(),
+    }
+    const f = fixture({ execution })
+    f.service.submit({ ...f.request, commandId: taskId }, f.deviceId)
+    await vi.waitFor(() => expect(f.service.snapshot().tasks[0].questionId).toBe(questionId))
+    expect(f.service.active).toBe(true)
+    await f.service.stop()
+    expect(execution.stop).toHaveBeenCalledOnce()
+    expect(f.service.snapshot().tasks[0].state).toBe('cancelled')
+  })
+  it('passes an explicit phone model route into the shared executor and binds it to deduplication', async () => {
+    const execute = vi.fn(async () => {})
+    const f = fixture({
+      execution: {
+        start: execute,
+        snapshot: () => ({ phase: 'idle', active: false, connected: true }),
+        stop: vi.fn(async () => {}),
+        answer: vi.fn(),
+      },
+    })
+    const request = { ...f.request, target: 'cloud' as const }
+    const accepted = f.service.submit(request, f.deviceId)
+    await vi.waitFor(() => expect(execute).toHaveBeenCalled())
+    expect(execute).toHaveBeenCalledExactlyOnceWith(expect.any(String), accepted.id, 'cloud')
+    expect(accepted.target).toBe('cloud')
+    f.service.submit(request, f.deviceId)
+    expect(execute).toHaveBeenCalledOnce()
+    expect(() => f.service.submit({ ...request, target: 'rk' }, f.deviceId)).toThrow()
+  })
+
+  it('answers a shared question on the original task and deduplicates the reply command', async () => {
+    const questionId = randomUUID()
+    let state: ProactiveState = { connected: true, active: false, phase: 'idle' }
+    const execution = {
+      start: vi.fn(async (_goal: string, id: string) => {
+        state = {
+          ...state,
+          taskId: id,
+          active: true,
+          phase: 'waiting_user',
+          question: { question_id: questionId, question: '补充数量' },
+        }
+      }),
+      snapshot: () => state,
+      stop: vi.fn(async () => {}),
+      answer: vi.fn((_taskId: string, _questionId: string, _answer: string) => {
+        state = { ...state, phase: 'planning', question: undefined }
+      }),
+    }
+    const f = fixture({ execution })
+    f.service.submit(f.request, f.deviceId)
+    await vi.waitFor(() => expect(f.service.snapshot().tasks[0].questionId).toBe(questionId))
+    const reply = {
+      ...f.request,
+      commandId: randomUUID(),
+      replyTo: f.request.commandId,
+      text: '数量改为4，署名林悦',
+    }
+    expect(f.service.submit(reply, f.deviceId).state).toBe('answered')
+    f.service.submit(reply, f.deviceId)
+    expect(execution.start).toHaveBeenCalledOnce()
+    expect(execution.answer).toHaveBeenCalledExactlyOnceWith(
+      f.request.commandId,
+      questionId,
+      reply.text,
+    )
+    expect(f.service.taskId).toBe(f.request.commandId)
+    expect(f.service.active).toBe(true)
+  })
+  it('waits for a pending shared start before confirming stop', async () => {
+    const pending = deferred<void>()
+    let state: ProactiveState = { connected: true, active: false, phase: 'idle' }
+    const execution = {
+      start: vi.fn(async (_goal: string, id: string) => {
+        await pending.promise
+        state = { ...state, taskId: id, active: true, phase: 'planning' }
+      }),
+      snapshot: () => state,
+      stop: vi.fn(async () => {
+        state = { ...state, active: false, phase: 'cancelled' }
+      }),
+      answer: vi.fn(),
+    }
+    const f = fixture({ execution })
+    f.service.submit(f.request, f.deviceId)
+    const stopping = f.service.stop()
+    expect(execution.stop).toHaveBeenCalledOnce()
+    pending.resolve()
+    await stopping
+    expect(f.service.active).toBe(false)
+    expect(f.service.snapshot().tasks[0].state).toBe('cancelled')
+  })
   it('forwards an exact browser task to the RK Agent without host memory or intent inference', async () => {
     const recallProcedure = vi.fn(async () => false)
     const f = fixture({ browserAgentLocation: 'rk', recallProcedure })

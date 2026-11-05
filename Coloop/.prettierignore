@@ -5,3 +5,6 @@ release
 package-lock.json
 resources
 tests/fixtures
+# Historical UI evidence must retain its original bytes.
+.impeccable
+android/.impeccable

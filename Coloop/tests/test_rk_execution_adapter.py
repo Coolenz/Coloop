@@ -111,15 +111,45 @@ class AdapterTests(unittest.TestCase):
                        {'action': 'click', 'target_id': 1, 'x': 10, 'y': 10},
                        {'action': 'scroll', 'target_id': 1, 'steps': 33},
                        {'action': 'type', 'target_id': 1, 'text': 'unsafe'}):
-            self.assertFalse(self.adapter.dispatch('execute', command(action=action))['ok'])
+            result = self.adapter.dispatch('execute', command(action=action))
+            self.assertFalse(result['ok'])
+            self.assertEqual(result['receipt']['outcome'], 'not_sent')
+            self.assertTrue(result['receipt']['rejected_before_input'])
         self.assertEqual(self.hid.calls, [])
+        self.assertTrue(self.adapter.dispatch('execute', command('corrected'))['ok'])
 
     def test_host_target_rejection_is_not_sent(self):
         self.adapter.rpc_hook = lambda *_: {'allowed': False}
         result = self.adapter.dispatch('execute', command())
         self.assertEqual(result['receipt']['outcome'], 'not_sent')
+        self.assertTrue(result['receipt']['release_confirmed'])
         self.assertEqual(self.hid.calls, [])
         self.assertTrue(self.adapter.dispatch('stop', IDENTITY)['neutral'])
+
+    def test_invalid_reuse_cannot_replace_a_known_command_with_not_sent(self):
+        original = self.adapter.dispatch('execute', command())['receipt']
+        malformed = command(action={'action': 'click', 'target_id': 999})
+        result = self.adapter.dispatch('execute', malformed)
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['error'], 'COMMAND_CONFLICT')
+        self.assertNotIn('receipt', result)
+        status = self.adapter.dispatch('status', {**IDENTITY, 'command_id': 'command1'})
+        self.assertEqual(status['receipt'], original)
+        self.assertEqual(len(self.hid.calls), 1)
+
+    def test_malformed_action_and_target_containers_are_rejected_before_input(self):
+        for replacement in (
+                {'action': None},
+                {'action': {'action': [], 'target_id': 1}},
+                {'observation': {'observation_id': 'bad', 'window_id': '42', 'targets': None}},
+                {'observation': {'observation_id': 'bad', 'window_id': '42', 'ocr_items': {}}},
+                {'observation': {'observation_id': 'bad', 'window_id': '42', 'targets': [{'id': []}]}}):
+            with self.subTest(replacement=replacement):
+                result = self.adapter.dispatch('execute', {**command(), **replacement})
+                self.assertFalse(result['ok'])
+                self.assertEqual(result['receipt']['outcome'], 'not_sent')
+                self.assertTrue(result['receipt']['release_confirmed'])
+        self.assertEqual(self.hid.calls, [])
 
     def test_unicode_paste_uses_clipboard_with_verified_effect_and_cleanup(self):
         result = self.adapter.dispatch('execute', command(action={'action': 'paste', 'target_id': 1, 'text': '你好\nRésumé'}))
@@ -137,11 +167,29 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(result['receipt']['outcome'], 'unknown')
         self.assertTrue(result['receipt']['release_confirmed'])
         self.assertTrue(self.adapter.dispatch('execute', request)['deduplicated'])
-        self.assertEqual(self.adapter.dispatch('execute', command('next'))['error'], 'INPUT_UNKNOWN')
+        following = command('next')
+        following['observation']['observation_id'] = 'obs-after-unknown'
+        self.assertTrue(self.adapter.dispatch('execute', following)['ok'])
         self.assertTrue(self.adapter.dispatch('stop', IDENTITY)['neutral'])
         self.adapter.close()
         resumed = self.create()
-        self.assertEqual(resumed.dispatch('begin', {**IDENTITY, 'generation': 2})['error'], 'INPUT_UNKNOWN')
+        new_task = {'task_id': 'another-task', 'generation': 2}
+        self.assertTrue(resumed.dispatch('begin', new_task)['ok'])
+        self.assertEqual(resumed.dispatch('execute', request)['receipt']['outcome'], 'unknown')
+        next_request = {**command('another-command'), **new_task}
+        self.assertTrue(resumed.dispatch('execute', next_request)['ok'])
+        self.assertEqual(len(self.hid.calls), 3)
+
+    def test_released_unknown_does_not_bypass_an_active_task_or_change_its_receipt(self):
+        previous = self.adapter.rpc_hook
+        self.adapter.rpc_hook = lambda op, value: {'verified': False} if op == 'clipboard.verify' else previous(op, value)
+        request = command(action={'action': 'paste', 'target_id': 1, 'text': 'hello'})
+        receipt = self.adapter.dispatch('execute', request)['receipt']
+        other = {'task_id': 'another-task', 'generation': 2}
+        self.assertEqual(self.adapter.dispatch('begin', other)['error'], 'EXECUTOR_BUSY')
+        self.assertTrue(self.adapter.dispatch('stop', IDENTITY)['neutral'])
+        self.assertTrue(self.adapter.dispatch('begin', other)['ok'])
+        self.assertEqual(self.adapter.dispatch('status', {**IDENTITY, 'command_id': 'command1'})['receipt'], receipt)
         self.assertEqual(len(self.hid.calls), 1)
 
     def test_stop_reader_cancels_inflight_and_delays_ack_until_cleanup(self):
@@ -314,6 +362,22 @@ class MemoryWorkerTests(unittest.TestCase):
         return {'task_id': 'task1', 'goal': 'Write outline', 'verified': True,
                 'summary': 'Verified outline', 'verified_texts': ['你好'],
                 'receipts': [{'action': 'paste', 'outcome': 'effect_verified'}]}
+
+    def test_explicit_preferences_reuse_scoped_key_and_fixed_source(self):
+        request = {'key': 'preference:coloop:A02:signature', 'value': '署名小林', 'source_task_id': 'task1'}
+        self.assertTrue(self.worker.dispatch('memory.remember', request)['ok'])
+        self.assertTrue(self.worker.dispatch('memory.remember', {**request, 'value': '署名林悦'})['ok'])
+        calls = [row for row in self.memory.calls if row['op'] == 'set']
+        self.assertEqual(calls[0]['key'], calls[1]['key'])
+        self.assertTrue(calls[0]['key'].startswith('preference:coloop:qa_'))
+        self.assertEqual(calls[1]['value'], '署名林悦')
+        self.assertEqual(calls[1]['kind'], 'preference')
+        self.assertEqual(calls[1]['source'], 'user_message')
+        self.assertFalse(calls[1]['verified'])
+        self.assertEqual(calls[1]['tags'], ['qa:unit', 'user_preference'])
+        for change in ({'kind': 'procedure'}, {'key': 'private:credential:bad'}, {'value': ''}, {'verified': True}):
+            self.assertFalse(self.worker.dispatch('memory.remember', {**request, **change})['ok'])
+        self.assertEqual(len([row for row in self.memory.calls if row['op'] == 'set']), 2)
 
     def wait_saved(self):
         deadline = time.monotonic() + 3

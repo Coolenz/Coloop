@@ -48,7 +48,10 @@ await writeFile(join(output, 'relay.json'), JSON.stringify(serverConfiguration))
 for (const file of ['relay.mjs', 'install.sh'])
   await copyFile(join(root, 'server', file), join(output, file))
 const bundled = await transform(await readFile(join(output, 'relay.mjs'), 'utf8'), {
-  minify: true, platform: 'node', format: 'esm', target: 'node24',
+  minify: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node24',
 })
 await writeFile(join(output, 'relay.mjs'), bundled.code)
 // The cloud command contains code and a token HASH only. No desktop token or pairing secrets.

@@ -53,7 +53,6 @@ Android JVM 14 项测试通过。实际模拟器的聊天/状态、次级页面�
 
 ---
 
-
 ## 2026-10-31 真实 RK 联调完成
 
 现有 Android 0.3.0 与新的 `release/violoop-rk-0.12.0/win-unpacked/Coloop.exe` 已通过真实公网、真实 RK 本地路由/规划、USB HID 输入点击、独立业务结果与安卓回执的闭环，另验证手机停止真实解析任务。启动使用 `start-violoop.cmd`，APK 无需更换。范围仍为已打开的单窗口 ASCII 输入，不包含 QQ 邮箱中文邮件；证据见 [实机联调](violoop-rk-live.md)。

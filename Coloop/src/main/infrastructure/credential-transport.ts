@@ -47,7 +47,8 @@ export function credentialRequest(
         stream.on('error', disconnected)
         stream.on('data', (chunk: string) => {
           output += chunk
-          if (output.length > (target === 'memory' ? 524288 : 32768)) return finish(new Error('记忆服务回包无效'))
+          if (output.length > (target === 'memory' ? 524288 : 32768))
+            return finish(new Error('记忆服务回包无效'))
           while (output.includes('\n')) {
             const end = output.indexOf('\n')
             const line = output.slice(0, end)

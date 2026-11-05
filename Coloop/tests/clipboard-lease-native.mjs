@@ -18,7 +18,22 @@ await build({
   format: 'cjs',
 })
 const { ClipboardLeaseService } = createRequire(import.meta.url)(bundled)
-const script = `[Console]::InputEncoding=[Text.UTF8Encoding]::new($false);[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);Add-Type -AssemblyName System.Windows.Forms;$before=[Windows.Forms.Clipboard]::GetText();$formats=@([Windows.Forms.Clipboard]::GetDataObject().GetFormats($false)|Sort-Object);[Console]::WriteLine('ready');while($null-ne($line=[Console]::ReadLine())){try{$q=$line|ConvertFrom-Json;if($q.op-eq'marker'){$value=[Windows.Forms.Clipboard]::GetText()-ceq$q.text}else{$current=@([Windows.Forms.Clipboard]::GetDataObject().GetFormats($false)|Sort-Object);$value=([Windows.Forms.Clipboard]::GetText()-ceq$before)-and(($current-join'|')-ceq($formats-join'|'))};[Console]::WriteLine((@{same=$value}|ConvertTo-Json -Compress))}catch{[Console]::WriteLine('{"same":false}')}}`
+const verifierSource = resolve(root, 'tests/ClipboardStateVerifier.cs').replaceAll("'", "''")
+const script = `
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -Path '${verifierSource}' -ReferencedAssemblies System.Windows.Forms
+$verifier = [ClipboardStateVerifier]::new()
+[Console]::WriteLine('ready')
+while ($null -ne ($line = [Console]::ReadLine())) {
+  try {
+    $query = $line | ConvertFrom-Json
+    $same = if ($query.op -eq 'marker') { $verifier.Marker([string]$query.text) } elseif ($query.op -eq 'metadata') { $verifier.MetadataSame() } else { $verifier.Same() }
+    [Console]::WriteLine((@{same=$same} | ConvertTo-Json -Compress))
+  } catch { [Console]::WriteLine('{"same":false}') }
+}
+`
 const verifier = spawn(
   'powershell.exe',
   [
@@ -77,10 +92,12 @@ try {
     'restored',
   )
   assert.equal((await query({ op: 'same' })).same, true)
-  cases.push('prepare guard finish restores original text and format names')
+  assert.equal((await query({ op: 'metadata' })).same, true)
+  cases.push('prepare guard finish restores every readable public format byte-for-byte')
   lease = await service.call('clipboard.prepare', { task_id: task, text: marker })
   await new Promise((resolve) => setTimeout(resolve, 11000))
   assert.equal((await query({ op: 'same' })).same, true)
+  assert.equal((await query({ op: 'metadata' })).same, true)
   await assert.rejects(() =>
     service.call('clipboard.guard', { task_id: task, lease_id: lease.lease_id }),
   )
@@ -96,7 +113,8 @@ try {
       {
         passed: cases.length,
         cases,
-        scope: 'actual Windows clipboard helper; original data retained only in verifier memory',
+        scope:
+          'actual Windows clipboard helper; original readable public formats hashed only inside the verifier; OLE transport envelopes and an unrenderable EnterpriseDataProtectionId marker are excluded from payload equality',
       },
       null,
       2,

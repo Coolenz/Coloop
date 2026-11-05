@@ -7,18 +7,22 @@ const api: ControlIndicatorApi = {
       : ipcRenderer.invoke('control-indicator:get', revision),
   stop: () => ipcRenderer.invoke('control-indicator:stop'),
   openMain: () => ipcRenderer.invoke('control-indicator:open'),
+  close: () => ipcRenderer.invoke('control-indicator:close'),
   closePreview: () => ipcRenderer.invoke('control-indicator:close-preview'),
   acceptSuggestion: (id, revision) =>
     ipcRenderer.invoke('control-indicator:accept', { id, revision }),
   dismissSuggestion: (id, revision) =>
     ipcRenderer.invoke('control-indicator:dismiss', { id, revision }),
+  dismissResult: (id, revision) =>
+    ipcRenderer.invoke('control-indicator:dismiss-result', { id, revision }),
   answerQuestion: (input) => ipcRenderer.invoke('control-indicator:answer', input),
   beginAnswer: () => ipcRenderer.invoke('control-indicator:begin-answer'),
   beginTask: () => ipcRenderer.invoke('control-indicator:begin-task'),
   startTask: (goal) => ipcRenderer.invoke('control-indicator:start-task', goal),
   endAnswer: () => ipcRenderer.invoke('control-indicator:end-answer'),
   setExpanded: (expanded) => ipcRenderer.invoke('control-indicator:expand', expanded),
-  setRevealed: (revealed) => ipcRenderer.invoke('control-indicator:reveal', revealed),
+  setRevealed: (revealed, reducedMotion = false) =>
+    ipcRenderer.invoke('control-indicator:reveal', revealed, reducedMotion),
   drag: (phase, point) => ipcRenderer.invoke('control-indicator:drag', phase, point),
   pauseObservation: (paused) => ipcRenderer.invoke('control-indicator:pause-observation', paused),
   onSnapshot: (callback) => {

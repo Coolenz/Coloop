@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { RkTarsBridge } from '../src/main/infrastructure/rk-tars-bridge'
+import { DesktopPipeError } from '../src/main/infrastructure/desktop-pipe'
 
 const cleanups: (() => Promise<unknown>)[] = []
 afterEach(async () => {
@@ -23,6 +24,7 @@ async function fixture() {
   const clipboard = vi.fn(async () => ({ allowed: true, lease_id: 'lease', status: 'restored' }))
   const onMemorySaved = vi.fn()
   const releaseClipboard = vi.fn(async () => {})
+  const prepareInput = vi.fn(async () => {})
   const bridge = new RkTarsBridge({
     supportScript: join(dir, 'support.py'),
     executorScript: join(dir, 'executor.py'),
@@ -30,7 +32,7 @@ async function fixture() {
     input,
     clipboard,
     releaseClipboard,
-    prepareInput: vi.fn(async () => {}),
+    prepareInput,
     onMemorySaved,
     openRuntime: async (source) => {
       sources.push(source)
@@ -106,6 +108,7 @@ async function fixture() {
     input,
     clipboard,
     releaseClipboard,
+    prepareInput,
     received,
     sources,
     channels,
@@ -136,6 +139,68 @@ it('rejects cloud RPC and unbound observation requests from the executor', async
   expect(f.input).not.toHaveBeenCalled()
 })
 
+it('returns a not-sent receipt when preparation fails before the executor request', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  f.prepareInput.mockRejectedValueOnce(new Error('INDICATOR_UNAVAILABLE'))
+  await expect(f.execute()).rejects.toMatchObject({
+    message: 'INDICATOR_UNAVAILABLE',
+    receipt: {
+      ...f.task,
+      command_id: 'command',
+      outcome: 'not_sent',
+      release_confirmed: true,
+      rejected_before_input: true,
+    },
+  })
+  expect(f.received.filter((packet) => packet.op === 'execute')).toHaveLength(0)
+  await f.execute()
+  expect(f.received.filter((packet) => packet.op === 'execute')).toHaveLength(1)
+})
+
+it('returns not-sent if stop wins while input preparation is pending', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  let finish!: () => void
+  f.prepareInput.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+  )
+  const execution = f.execute()
+  const rejected = expect(execution).rejects.toMatchObject({
+    receipt: { outcome: 'not_sent', release_confirmed: true },
+  })
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'))
+  await f.bridge.stop(f.task)
+  finish()
+  await rejected
+  expect(f.received.filter((packet) => packet.op === 'execute')).toHaveLength(0)
+})
+
+it('keeps a lost post-dispatch receipt unknown instead of claiming not-sent', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  f.channels[0]._write = (chunk, _encoding, callback) => {
+    const packet = JSON.parse(chunk.toString())
+    f.received.push(packet)
+    if (packet.op === 'execute') queueMicrotask(() => f.channels[0].push(null))
+    callback()
+  }
+  await expect(f.execute()).rejects.not.toHaveProperty('receipt')
+  expect(f.received.filter((packet) => packet.op === 'execute')).toHaveLength(1)
+})
+
+it('preserves fixed clipboard error codes across the native pipe and RK host RPC', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  await f.execute()
+  f.clipboard.mockRejectedValueOnce(new DesktopPipeError('CLIPBOARD_FORMAT_UNSUPPORTED'))
+  expect((await f.rpc('clipboard.prepare', { text: '中文测试' })).error).toBe(
+    'CLIPBOARD_FORMAT_UNSUPPORTED',
+  )
+})
 it('checks the target before preparing the clipboard and rechecks the lease per report', async () => {
   const f = await fixture()
   await f.bridge.begin(f.task)
@@ -188,6 +253,12 @@ it('uses a separate memory process and forwards its real save acknowledgement', 
     JSON.stringify({ type: 'memory.saved', value: { task_id: 'task', saved: true } }) + '\n',
   )
   await vi.waitFor(() => expect(f.onMemorySaved).toHaveBeenCalledWith('task', true))
+})
+it('persists explicit preferences through the independent memory service', async () => {
+  const f = await fixture()
+  const value = { key: 'preference:coloop:signature', value: '署名小林', source_task_id: 'task' }
+  await f.bridge.remember(value)
+  expect(f.received).toContainEqual(expect.objectContaining({ op: 'memory.remember', value }))
 })
 
 it('waits for an in-flight clipboard preparation and cleans its late lease before stop completes', async () => {

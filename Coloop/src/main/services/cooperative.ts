@@ -54,7 +54,7 @@ export class CooperativeAgent {
     getKey: () => string,
     signal: AbortSignal,
     onStage: (stage: string) => void,
-    options: { route?: 'cloud' } = {},
+    options: { route?: 'cloud'; answerMode?: 'direct' | 'local' } = {},
   ): Promise<{ answer: string; cloudUsed: boolean }> {
     let vault: PrivacyVault | undefined
     let failure = '本地隐私检查未通过，未发送云端'
@@ -95,17 +95,22 @@ export class CooperativeAgent {
         )
         signal.throwIfAborted()
         vault.protectProjection({ question: '', facts: [] }, privateValues)
-        onStage('RK 正在选择必要的脱敏原文片段')
         const spans = cloudSourceSpans(vault.maskInput())
-        const selected = checkedJson(
-          await this.board.privacyAgent(
-            localAgentPolicies.sanitize,
-            JSON.stringify({ spans }),
-            signal,
-            128,
-          ),
-          2048,
-        )
+        // With one span there is no selection to make. This is not egress approval:
+        // the same projection budget, semantic review and deterministic checks still apply.
+        let selected: unknown = [{ id: spans[0].id }]
+        if (spans.length > 1) {
+          onStage('RK 正在选择必要的脱敏原文片段')
+          selected = checkedJson(
+            await this.board.privacyAgent(
+              localAgentPolicies.sanitize,
+              JSON.stringify({ spans }),
+              signal,
+              128,
+            ),
+            2048,
+          )
+        }
         signal.throwIfAborted()
         const projection = vault.protectProjection(selectCloudProjection(spans, selected), [])
         if (Buffer.byteLength(JSON.stringify(projection), 'utf8') > 3000)
@@ -151,6 +156,24 @@ export class CooperativeAgent {
         const returnedTokens = JSON.stringify(analysis).match(/\[LOCAL_[a-f0-9]{24}_\d+\]/g) ?? []
         if (returnedTokens.some((token) => !exposedTokens.has(token)))
           throw new Error('UNEXPOSED_CLOUD_REFERENCE')
+        if (options.answerMode === 'direct') {
+          // Display only already-validated cloud fields. This is plain answer text,
+          // not an action plan or an additional local semantic verification pass.
+          onStage('正在呈现分析结果')
+          signal.throwIfAborted()
+          const displayed = [
+            analysis.summary,
+            analysis.steps.length
+              ? `建议步骤：\n${analysis.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}`
+              : '',
+            analysis.uncertainties.length
+              ? `不确定性：\n${analysis.uncertainties.map((item) => `- ${item}`).join('\n')}`
+              : '',
+          ]
+            .filter(Boolean)
+            .join('\n\n')
+          return { answer: vault.restore(displayed), cloudUsed: true }
+        }
       }
       onStage(route === 'cloud' ? 'RK 正在核查分析并处理本地信息' : 'RK 正在本地回答')
       failure = 'RK 本地答案生成失败，未发布中间分析'

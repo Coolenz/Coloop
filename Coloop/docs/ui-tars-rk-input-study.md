@@ -24,14 +24,14 @@
 
 以下行号对应本次固定快照。
 
-| 顺序 | 源码 | 重点 |
-| --- | --- | --- |
-| 1 | [packages/ui-tars/operators/nut-js/src/index.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/operators/nut-js/src/index.ts) | 第 94 行开始，`execute()` 如何把动作分派为点击、拖拽、输入、组合键与滚动 |
-| 2 | [packages/ui-tars/sdk/src/utils.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/sdk/src/utils.ts) | 第 29 行，`parseBoxToScreenCoords()` 取框中心并映射到屏幕尺寸 |
-| 3 | [packages/ui-tars/action-parser/src/actionParser.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/action-parser/src/actionParser.ts) | 原始动作字符串解析；模型坐标先按模型版本、缩放尺寸归一化 |
-| 4 | [apps/ui-tars/src/main/agent/operator.ts](../.cache/research/UI-TARS-desktop-main/apps/ui-tars/src/main/agent/operator.ts) | 第 20 行起的 Electron 子类；截图与 Windows 剪贴板输入覆盖了部分通用行为 |
-| 5 | [packages/ui-tars/sdk/src/types.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/sdk/src/types.ts) | 第 66 行，Operator 抽象：`screenshot()` 和 `execute()` |
-| 6 | [packages/ui-tars/sdk/src/GUIAgent.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/sdk/src/GUIAgent.ts) | 第 385 行，Agent 调用 Operator；输入执行的默认重试次数是 0 |
+| 顺序 | 源码                                                                                                                                             | 重点                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| 1    | [packages/ui-tars/operators/nut-js/src/index.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/operators/nut-js/src/index.ts)         | 第 94 行开始，`execute()` 如何把动作分派为点击、拖拽、输入、组合键与滚动 |
+| 2    | [packages/ui-tars/sdk/src/utils.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/sdk/src/utils.ts)                                   | 第 29 行，`parseBoxToScreenCoords()` 取框中心并映射到屏幕尺寸            |
+| 3    | [packages/ui-tars/action-parser/src/actionParser.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/action-parser/src/actionParser.ts) | 原始动作字符串解析；模型坐标先按模型版本、缩放尺寸归一化                 |
+| 4    | [apps/ui-tars/src/main/agent/operator.ts](../.cache/research/UI-TARS-desktop-main/apps/ui-tars/src/main/agent/operator.ts)                       | 第 20 行起的 Electron 子类；截图与 Windows 剪贴板输入覆盖了部分通用行为  |
+| 5    | [packages/ui-tars/sdk/src/types.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/sdk/src/types.ts)                                   | 第 66 行，Operator 抽象：`screenshot()` 和 `execute()`                   |
+| 6    | [packages/ui-tars/sdk/src/GUIAgent.ts](../.cache/research/UI-TARS-desktop-main/packages/ui-tars/sdk/src/GUIAgent.ts)                             | 第 385 行，Agent 调用 Operator；输入执行的默认重试次数是 0               |
 
 仓库还包含 [multimodal/gui-agent/operator-nutjs/src/NutJSOperator.ts](../.cache/research/UI-TARS-desktop-main/multimodal/gui-agent/operator-nutjs/src/NutJSOperator.ts)，采用统一的 `BaseAction`、`point/start/end` 与归一化坐标。可以参考它的结构，但当前 UI-TARS 桌面应用的 `runAgent.ts` 导入的是前述 `@ui-tars/operator-nut-js` 路径，两套实现不能混为同一调用链。
 
@@ -61,18 +61,18 @@ flowchart TD
 
 ## 各动作的实现和 RK 对应方式
 
-| 动作 | UI-TARS 与 nut-js 做法 | RK 对应做法与现状 |
-| --- | --- | --- |
-| 移动、悬停 | `straightTo(Point)` 产生路径，`mouse.move()` 逐点移动 | 发送当前位置绝对坐标、按钮位为 0 的报告；现有编码函数可复用，执行入口待加 |
-| 左键单击 | 移到目标，等待 100 ms，`mouse.click(LEFT)` | 当前已有：移动报告 → 左键按下 → 释放 |
-| 右键、双击 | 切换按钮，或两次点击并控制间隔 | 报告支持右键；当前动作分派尚未开放。双击需配置间隔并对照主机阈值实测 |
-| 拖拽 | 移到起点 → 左键按下 → 沿路径移动 → 释放 | 整条路径保持按钮位 1，结束或取消时释放。必须作为完整动作持锁执行 |
-| 垂直滚动 | 先移到滚动区域，再 `scrollUp/Down(500)` | 当前描述符有 wheel 字段，编码函数允许 -8 到 8；动作入口尚未接入。步数需按主机滚动效果标定 |
-| 水平滚动 | 这条桌面 Operator 实际只处理 up/down | 当前鼠标描述符没有水平滚轮字段；首版不宣称支持 |
-| 组合键 | 字符串映射为 nut-js Key，先 press，再 release | 当前已有 CTRL/SHIFT/ALT 加一个普通键；需独立映射为 HID usage，不能复用 nut-js 枚举数字 |
-| 持续按住与释放 | `press`、`release` 可分次调用 | 当前 `send()` 每次结束都释放；跨调用保持状态需另设计，建议先只实现完整组合键和完整拖拽 |
-| 英文和数字 | Windows 通常走剪贴板；其他分支 `keyboard.type()` | 现有 `text_reports()` 提供 US 布局 ASCII，每次 1 到 64 字符；受主机布局与输入法状态影响 |
-| 中文与任意 Unicode | Windows 写入剪贴板，发送 Ctrl+V，再恢复原文本 | RK 不能靠 HID 报告直接写 Windows 剪贴板；需已有电脑助手协作或单独验证输入法方案 |
+| 动作               | UI-TARS 与 nut-js 做法                                | RK 对应做法与现状                                                                         |
+| ------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 移动、悬停         | `straightTo(Point)` 产生路径，`mouse.move()` 逐点移动 | 发送当前位置绝对坐标、按钮位为 0 的报告；现有编码函数可复用，执行入口待加                 |
+| 左键单击           | 移到目标，等待 100 ms，`mouse.click(LEFT)`            | 当前已有：移动报告 → 左键按下 → 释放                                                      |
+| 右键、双击         | 切换按钮，或两次点击并控制间隔                        | 报告支持右键；当前动作分派尚未开放。双击需配置间隔并对照主机阈值实测                      |
+| 拖拽               | 移到起点 → 左键按下 → 沿路径移动 → 释放               | 整条路径保持按钮位 1，结束或取消时释放。必须作为完整动作持锁执行                          |
+| 垂直滚动           | 先移到滚动区域，再 `scrollUp/Down(500)`               | 当前描述符有 wheel 字段，编码函数允许 -8 到 8；动作入口尚未接入。步数需按主机滚动效果标定 |
+| 水平滚动           | 这条桌面 Operator 实际只处理 up/down                  | 当前鼠标描述符没有水平滚轮字段；首版不宣称支持                                            |
+| 组合键             | 字符串映射为 nut-js Key，先 press，再 release         | 当前已有 CTRL/SHIFT/ALT 加一个普通键；需独立映射为 HID usage，不能复用 nut-js 枚举数字    |
+| 持续按住与释放     | `press`、`release` 可分次调用                         | 当前 `send()` 每次结束都释放；跨调用保持状态需另设计，建议先只实现完整组合键和完整拖拽    |
+| 英文和数字         | Windows 通常走剪贴板；其他分支 `keyboard.type()`      | 现有 `text_reports()` 提供 US 布局 ASCII，每次 1 到 64 字符；受主机布局与输入法状态影响   |
+| 中文与任意 Unicode | Windows 写入剪贴板，发送 Ctrl+V，再恢复原文本         | RK 不能靠 HID 报告直接写 Windows 剪贴板；需已有电脑助手协作或单独验证输入法方案           |
 
 `scrollUp(500)` 不是可以直接复制的 HID wheel 数值。原生平台对滚动量的解释也不同。迁移接口宜定义清楚的步数和方向，限制每轮幅度，执行后观察实际变化。
 

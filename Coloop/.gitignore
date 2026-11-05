@@ -16,7 +16,10 @@ runtime-data/
 *.tsbuildinfo
 __pycache__/
 *.pyc
+.ruff_cache/
+NVIDIA Corporation/
 android/.gradle/
 android/.kotlin/
 android/local.properties
 android/**/build/
+tmp/

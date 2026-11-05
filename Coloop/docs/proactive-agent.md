@@ -71,14 +71,14 @@ RK 负责任务身份、动作校验、执行回执和执行后的记忆整理�
 
 ## 实际分工与数据流
 
-| 位置 | 本轮职责 |
-| --- | --- |
+| 位置             | 本轮职责                                                                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Windows / Coloop | 读取前台窗口、裁剪截图、RapidOCR；排除自身窗口与胶囊区域；提供观察、焦点/目标守卫和结果回读；呈现建议、问题、进度；保管云端 Key 并转发 RK 组织的云请求。 |
-| RK Agent | 常驻任务循环、观察去重、组织云上下文、接收用户答案；对云端动作做纯程序校验、目标绑定、USB执行和结果核验；维护任务日志、Mem0工具与任务后复盘。 |
-| RK Qwen | 仅对OCR用数字0/1/2输出ignore/suggest/defer门控，命中后程序传OCR原文，不让模型改写；不参与任务动作规划或转换。沿用已部署模型，不替换权重或运行库。 |
-| 云端模型 | 根据OCR原文生成建议；复杂规划并直接给出明确结构化动作；请求用户补充、按tag检索记忆、对已核验回执复盘。Agent控制层仍在RK。 |
-| RK HIDController | 经 `/dev/hidg*` 和 USB 发出真实键盘/鼠标报告；Windows 不用软件键鼠注入代替 USB 输入。 |
-| Mem0 | 普通事实/偏好/流程；目录先给 tag、编号和摘要，云端按需请求正文；总结由 RK 以 agent 来源、未核实状态保存。 |
+| RK Agent         | 常驻任务循环、观察去重、组织云上下文、接收用户答案；对云端动作做纯程序校验、目标绑定、USB执行和结果核验；维护任务日志、Mem0工具与任务后复盘。            |
+| RK Qwen          | 仅对OCR用数字0/1/2输出ignore/suggest/defer门控，命中后程序传OCR原文，不让模型改写；不参与任务动作规划或转换。沿用已部署模型，不替换权重或运行库。        |
+| 云端模型         | 根据OCR原文生成建议；复杂规划并直接给出明确结构化动作；请求用户补充、按tag检索记忆、对已核验回执复盘。Agent控制层仍在RK。                                |
+| RK HIDController | 经 `/dev/hidg*` 和 USB 发出真实键盘/鼠标报告；Windows 不用软件键鼠注入代替 USB 输入。                                                                    |
+| Mem0             | 普通事实/偏好/流程；目录先给 tag、编号和摘要，云端按需请求正文；总结由 RK 以 agent 来源、未核实状态保存。                                                |
 
 ```mermaid
 flowchart TD
@@ -124,24 +124,24 @@ flowchart TD
 
 ## 本轮验收状态与限制
 
-| 层级 | 已获得的证据 | 尚不能声称 |
-| --- | --- | --- |
-| 真实 Qwen | `D:/RK/logs/coloop-proactive-model-20261103-02/result.json`：OCR分类输出正确，7451ms；动作转换输出点击、字符串 `CTRL+END` 和中文粘贴组，18644ms；USB输入数为0。 | 未证明实时/快速。单样本、合成文字/控件元数据，不等于实际屏幕定位和输入成功。 |
-| 先前模型尝试 | `...-01/result.json` 保留快捷键输出为数组的原始结果；后续提示要求单个大写字符串，`...-02`为符合接口的输出。 | 不把首轮脚本 `ok` 字段等同于执行器协议兼容。 |
-| 数字建议门控 | `D:/RK/logs/coloop-proactive-model-20261103-05-digit/result.json`：真实Qwen数字1输出3457ms；`...-04-raw-classify/result.json`旧JSON门控重测16297ms。 | 样本/提示不同，不能作固定倍数提速或稳定延迟承诺；两次均为0USB模型测试。 |
-| text_ref动作转换 | `...-03-ref/result.json`真实转换17438ms，程序正确解析cloud_text；`...-06-frozen-plan/result.json`使用冻结真实观察快照，24864ms，原文绑定正确，USB输入0。 | 仍慢；冻结真实观察不等于实时操作，不能与其他轮次拼接成成功闭环。 |
-| 真实Windows前台观察 | `.qa/foreground-native-1793644879838/verification.json`：实际WinForms多行编辑器被UIA暴露为无patterns的Pane，严格原生win32编辑适配确认焦点与控件身份，被动截图/OCR正常触发；validate/guard均allowed。 | 该验证无云/RK/HID，证明观察与目标守卫，不证明模型能完成输入。 |
-| 真实记事本兼容 | `.qa/notepad-compat-1793645121223/verification.json`：可见Windows记事本11.2607.14.0空白未保存文档，UIA Document路径确认runtime ID及命中身份，validate/guard均allowed。 | 未插入文字，无OCR/云/HID；不能宣称记事本中文写入已通过。 |
-| 临时剪贴板 | `.qa/clipboard-native-1793644066844/verification.json`：3个真实Windows helper场景通过——prepare/guard/finish恢复原内容与格式名、10秒空闲过期恢复并使旧guard失效、dispose恢复活动租约。 | 未据此证明USB粘贴和端到端正文核验成功。 |
-| Mem0 | 20项相关 Python 测试、4项上位机记忆管理测试；真实本机及板端 CPU 存储隔离验收通过，覆盖 tag目录、持久ID重开读取、旧版本及删除失效。 | 没有据此证明完整云端任务已正确使用长期记忆。 |
-| 记忆界面 | `.qa/memory-catalog-ui/`：1200/760宽合成目录实际渲染及tag/摘要编辑提交通过，截图已查看；设计检测无发现。 | 合成UI验收不计为板端桌面任务成功。 |
-| 早期集成失败（历史） | `D:/RK/logs/coloop-proactive-live-20261103-01/`保留实验窗编译失败，`...-02/`保留运行时资源参数失败。`...-03/`、`...-04/`为验收driver未await `clipboard.readText()`，把Promise传入Hash.update；未进入云请求，不能归因为生产capture失败。后续capture全链加await是兼容处理，不构成失败根因证据。 | 早期失败保持原样，后续live09成功不覆盖这些记录。 |
-| live05进展与失败 | `D:/RK/logs/coloop-proactive-live-20261103-05/`已实际通过被动观察/OCR、Qwen判断、云端建议生成和建议接纳；4次云调用后终态为failed/JSONDecodeError。Agent回执含两次click的input_sent；独立实验窗text_changed=0、text_length=6，actual-text仍为原标题，未完成中文写入或记忆保存。 | input_sent仅表示报告已发送，不能替代业务成功；无完整闭环。被动观察无建议的中间状态已被后续建议事件更新，不据此归因光标或复核机制。 |
-| live08失败（历史） | `D:/RK/logs/coloop-proactive-live-20261103-08/`的真实任务在本地动作校验invalid_action失败，0USB，未通过。 | 保留原失败，不计入后续成功样本。 |
+| 层级                     | 已获得的证据                                                                                                                                                                                                                                                                                                                               | 尚不能声称                                                                                                                                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 真实 Qwen                | `D:/RK/logs/coloop-proactive-model-20261103-02/result.json`：OCR分类输出正确，7451ms；动作转换输出点击、字符串 `CTRL+END` 和中文粘贴组，18644ms；USB输入数为0。                                                                                                                                                                            | 未证明实时/快速。单样本、合成文字/控件元数据，不等于实际屏幕定位和输入成功。                                                                                                                                   |
+| 先前模型尝试             | `...-01/result.json` 保留快捷键输出为数组的原始结果；后续提示要求单个大写字符串，`...-02`为符合接口的输出。                                                                                                                                                                                                                                | 不把首轮脚本 `ok` 字段等同于执行器协议兼容。                                                                                                                                                                   |
+| 数字建议门控             | `D:/RK/logs/coloop-proactive-model-20261103-05-digit/result.json`：真实Qwen数字1输出3457ms；`...-04-raw-classify/result.json`旧JSON门控重测16297ms。                                                                                                                                                                                       | 样本/提示不同，不能作固定倍数提速或稳定延迟承诺；两次均为0USB模型测试。                                                                                                                                        |
+| text_ref动作转换         | `...-03-ref/result.json`真实转换17438ms，程序正确解析cloud_text；`...-06-frozen-plan/result.json`使用冻结真实观察快照，24864ms，原文绑定正确，USB输入0。                                                                                                                                                                                   | 仍慢；冻结真实观察不等于实时操作，不能与其他轮次拼接成成功闭环。                                                                                                                                               |
+| 真实Windows前台观察      | `.qa/foreground-native-1793644879838/verification.json`：实际WinForms多行编辑器被UIA暴露为无patterns的Pane，严格原生win32编辑适配确认焦点与控件身份，被动截图/OCR正常触发；validate/guard均allowed。                                                                                                                                       | 该验证无云/RK/HID，证明观察与目标守卫，不证明模型能完成输入。                                                                                                                                                  |
+| 真实记事本兼容           | `.qa/notepad-compat-1793645121223/verification.json`：可见Windows记事本11.2607.14.0空白未保存文档，UIA Document路径确认runtime ID及命中身份，validate/guard均allowed。                                                                                                                                                                     | 未插入文字，无OCR/云/HID；不能宣称记事本中文写入已通过。                                                                                                                                                       |
+| 临时剪贴板               | `.qa/clipboard-native-1793644066844/verification.json`：3个真实Windows helper场景通过——prepare/guard/finish恢复原内容与格式名、10秒空闲过期恢复并使旧guard失效、dispose恢复活动租约。                                                                                                                                                      | 未据此证明USB粘贴和端到端正文核验成功。                                                                                                                                                                        |
+| Mem0                     | 20项相关 Python 测试、4项上位机记忆管理测试；真实本机及板端 CPU 存储隔离验收通过，覆盖 tag目录、持久ID重开读取、旧版本及删除失效。                                                                                                                                                                                                         | 没有据此证明完整云端任务已正确使用长期记忆。                                                                                                                                                                   |
+| 记忆界面                 | `.qa/memory-catalog-ui/`：1200/760宽合成目录实际渲染及tag/摘要编辑提交通过，截图已查看；设计检测无发现。                                                                                                                                                                                                                                   | 合成UI验收不计为板端桌面任务成功。                                                                                                                                                                             |
+| 早期集成失败（历史）     | `D:/RK/logs/coloop-proactive-live-20261103-01/`保留实验窗编译失败，`...-02/`保留运行时资源参数失败。`...-03/`、`...-04/`为验收driver未await `clipboard.readText()`，把Promise传入Hash.update；未进入云请求，不能归因为生产capture失败。后续capture全链加await是兼容处理，不构成失败根因证据。                                              | 早期失败保持原样，后续live09成功不覆盖这些记录。                                                                                                                                                               |
+| live05进展与失败         | `D:/RK/logs/coloop-proactive-live-20261103-05/`已实际通过被动观察/OCR、Qwen判断、云端建议生成和建议接纳；4次云调用后终态为failed/JSONDecodeError。Agent回执含两次click的input_sent；独立实验窗text_changed=0、text_length=6，actual-text仍为原标题，未完成中文写入或记忆保存。                                                             | input_sent仅表示报告已发送，不能替代业务成功；无完整闭环。被动观察无建议的中间状态已被后续建议事件更新，不据此归因光标或复核机制。                                                                             |
+| live08失败（历史）       | `D:/RK/logs/coloop-proactive-live-20261103-08/`的真实任务在本地动作校验invalid_action失败，0USB，未通过。                                                                                                                                                                                                                                  | 保留原失败，不计入后续成功样本。                                                                                                                                                                               |
 | 旧路线live09真实闭环通过 | `D:/RK/logs/coloop-proactive-live-20261103-09/result.json`为ok；`first-result.json`确认第一任务completed、memorySaved=true，独立正文保留原标题并追加五部分中文提纲；`second-result.json`确认第二任务completed、memorySaved=true，目录查询两次后get_many读取记忆正文，再由USB追加“记忆已调用”。两次任务均恢复原剪贴板，合计10次真实云调用。 | 这是旧Qwen动作转换路线。范围为独立WinForms实验文档、真实屏幕/OCR/原生编辑守卫、真实RK/Qwen/云/USB/Mem0及独立QA记忆namespace；不是合成观察，不扩展为新云端直接动作路线、实际Notepad写入、跨应用或物理手机成功。 |
-| 旧路线软件与包 | 上轮601项Vitest、54项RK Python检查通过；`.qa/proactive-package-1793645404518/report.json`隔离配置打包启动smoke通过，胶囊可见且默认不抢焦点。 | 旧测试/包启动不计作本次新路线验收；包启动smoke未连接RK/云/USB。 |
-| 新路线：云端直接动作通过 | `D:/RK/logs/coloop-proactive-live-direct-20261103-01/result.json`为ok、route=cloud_actions_rk_usb；真实被动OCR→Qwen门控→云建议接纳→云结构化动作→RK USB中文追加→全文核验→Mem0保存；第二任务tag目录/get_many取正文并追加“记忆已调用”；两个动作组、9次云调用，两次剪贴板恢复。 | 实际独立WinForms窗口、非合成观察；不扩展为Notepad写入、跨应用或物理手机验收。 |
-| 新路线软件与包通过 | 601项Vitest、58项RK Python、类型检查与build通过；`.qa/proactive-package-1793671451746/report.json`隔离smoke通过；`release/proactive-cloud-direct-0.13.0-20261103/verification.json`核对main/RK/clipboard以及live源码哈希均一致。 | 包启动smoke未连接RK/云/USB；真实任务成功由direct固定报告另证。 |
+| 旧路线软件与包           | 上轮601项Vitest、54项RK Python检查通过；`.qa/proactive-package-1793645404518/report.json`隔离配置打包启动smoke通过，胶囊可见且默认不抢焦点。                                                                                                                                                                                               | 旧测试/包启动不计作本次新路线验收；包启动smoke未连接RK/云/USB。                                                                                                                                                |
+| 新路线：云端直接动作通过 | `D:/RK/logs/coloop-proactive-live-direct-20261103-01/result.json`为ok、route=cloud_actions_rk_usb；真实被动OCR→Qwen门控→云建议接纳→云结构化动作→RK USB中文追加→全文核验→Mem0保存；第二任务tag目录/get_many取正文并追加“记忆已调用”；两个动作组、9次云调用，两次剪贴板恢复。                                                                | 实际独立WinForms窗口、非合成观察；不扩展为Notepad写入、跨应用或物理手机验收。                                                                                                                                  |
+| 新路线软件与包通过       | 601项Vitest、58项RK Python、类型检查与build通过；`.qa/proactive-package-1793671451746/report.json`隔离smoke通过；`release/proactive-cloud-direct-0.13.0-20261103/verification.json`核对main/RK/clipboard以及live源码哈希均一致。                                                                                                           | 包启动smoke未连接RK/云/USB；真实任务成功由direct固定报告另证。                                                                                                                                                 |
 
 ### 当前云端直接动作路线性能与范围
 
@@ -159,7 +159,6 @@ direct首次成功单轮包含两个任务，各自开始至完成（含云复�
 
 建议时效需继续观察：被动光标变化或周期复核可能产生新观察，不能只比较观察对象/编号便把仍适用的结果作废；当前已按实质内容变化及光标扰动处理并在live09成功触发建议，但没有覆盖所有应用和持续编辑场景。该机制风险并非live03/04的driver错误，也未被live05的JSON解析失败证明为根因。
 
-
 ## 顶部常驻与实际切换（2026-11-03）
 
 默认start.cmd及start-proactive.cmd均优先启动proactive-resident独立构建。此前用户实际运行的是旧rk-agent-state，普通start.cmd也未更新，故桌面看不到空闲胶囊；本次已更新默认入口、切换实际运行进程。主窗关闭到托盘后顶部独立窗口仍可见；意外隐藏时每2秒检查恢复，不依赖任务、RK连接或主窗可见。实际Windows观察已确认顶部窗口显示Ready状态。603项Vitest及类型/构建检查通过。
@@ -176,7 +175,6 @@ direct首次成功单轮包含两个任务，各自开始至完成（含云复�
 
 实机r4验证：Computer Use观察到展开宽576、收起宽336的缩放截图；真实手柄拖动截图原点从(921,12)到(1034,62)，并返回顶部(990,12)。当前RK连接状态为Waiting for RK connection；此轮未提交云端/USB任务。
 
-
 ## 2026-11-03：自主规划预算与无进展检测
 
 板端 `resources/rk-proactive-agent.py` 增加确定性的 DecisionBudget，参考开源 Agent 的有界工具循环与中断思路，不新增框架依赖。
@@ -190,13 +188,17 @@ CPU验证：test_rk_proactive_agent.py 共49项通过，包含反复目标过期
 
 参考：[smolagents 工具循环](https://github.com/huggingface/smolagents/blob/main/src/smolagents/agents.py)、[LangGraph 状态编排](https://github.com/langchain-ai/langgraph)。本次是独立实现预算逻辑，没有移植上述项目源码。
 
-
 ## 2026-11-03：控件状态完成条件
 
 云端 action_plan 可用 expected_state 替代 expected_text：
 
 ```json
-{"type":"action_plan","observation_id":"当前观察ID","actions":[{"action":"click","target_id":3}],"expected_state":{"target_id":3,"property":"checked","value":true}}
+{
+  "type": "action_plan",
+  "observation_id": "当前观察ID",
+  "actions": [{ "action": "click", "target_id": 3 }],
+  "expected_state": { "target_id": 3, "property": "checked", "value": true }
+}
 ```
 
 property 仅允许 checked / selected，value 必须为布尔值；目标必须来自当前观察且具有 runtime_id 和 center。RK 从观察绑定控件身份和位置，不接受云端自行提供这两项。主机通过只读 UIA TogglePattern / SelectionItemPattern 回读，Indeterminate 或不支持的状态均不视为 false。
@@ -204,7 +206,6 @@ property 仅允许 checked / selected，value 必须为布尔值；目标必须�
 执行前必须独立读到可观察且尚未达到目标的状态。完成时要求同一窗口、进程、控件 runtime ID、命中位置及目标状态，另保留实际输入回执要求。目标移动或替换会拒绝核验并要求重规划。本接口不覆盖任意网页业务语义、不支持未绑定身份的纯OCR目标，也不以控件状态替代粘贴文本核验。
 
 验证：76项RK Agent Python检查、28项相关Vitest通过；新测试覆盖状态转换、未知/已满足状态拒绝、身份变化及非法条件。尚未真实设备验收或部署。
-
 
 ## 2026-11-03：新版本重启验收
 
@@ -217,7 +218,6 @@ property 仅允许 checked / selected，value 必须为布尔值；目标必须�
 - 首轮验收误把惰性Agent启动视为开机即连接，后续又遇到测试脚本误选control窗口；失败证据分别保留在 `.qa/agent-restart-1793702267520/` 和 `.qa/agent-restart-1793702351374/`。修正了验收脚本主窗选择及最小化步骤，未降低产品就绪门槛。
 - 测试进程退出后另启动正式实例供用户继续使用。此次没有派发业务任务或主动调用USB动作，不声称完成真实业务闭环验收。
 
-
 ## 2026-11-04 云端 OCR 实机验证
 
 固定报告：`D:/RK/logs/coloop-cloud-ocr-20261104-03/result.json`，ok=true。真实 Windows WinForms 独立实验文档、RapidOCR、云端推荐、服务接口接纳、RK USB 中文追加、独立正文读取、第一任务 Mem0 保存、第二任务 catalog/get_many 读取并追加“记忆已调用”通过；两轮剪贴板均恢复。12 次云调用、8 个动作组；本地模型仅两次 memory_review，未调用 OCR 分类或动作转换。
@@ -225,7 +225,6 @@ property 仅允许 checked / selected，value 必须为布尔值；目标必须�
 推荐到达 3780ms（从被动观察开始，单样本）；两任务含记忆整理耗时 128250ms、21041ms。本地记忆总结分别 104298ms、12668ms，首次整理明显偏慢，当前仍同步等待后才发 completed。这不是固定提速倍数或完整任务实时性保证。未实测小窗按钮点击；接纳经 ProactiveAgentService.acceptSuggestion。QA host 显式限制模型使用 USB action_plan，不提供生产脚本执行器，不能扩展为脚本工具或任意应用验收。
 
 01 因实验窗未处于前台在云调用前停止；02 旧 QA host 未声明脚本不可用导致重复请求，停止后保留原证据。03 旧 QA completion.verify 未分派 control_state/visible_text 导致两次工具错误，后续模型重新规划完成；随后已将 QA 分派修正为生产行为。报告源码/driver 哈希为运行时快照，不代表修正后的 driver。运行时现已支持 SCRIPT_EXECUTOR_UNAVAILABLE 清除未启动脚本并重新规划，65 项运行时测试及构建通过。
-
 
 ## 2026-11-04 小窗实机与交付包
 

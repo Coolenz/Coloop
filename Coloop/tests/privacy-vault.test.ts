@@ -8,6 +8,38 @@ function token(text: string): string {
 }
 
 describe('task-local privacy vault', () => {
+  it('keeps cached input isolated and refreshes it after semantic classification', () => {
+    const vault = new PrivacyVault('比较 Acme 项目的两个方案', '')
+    const first = vault.maskInput()
+    first.prompt = 'caller mutation'
+    expect(vault.maskInput().prompt).toContain('Acme')
+    vault.protectProjection({ question: '', facts: [] }, ['Acme'])
+    const masked = vault.maskInput().prompt
+    expect(masked).not.toContain('Acme')
+    expect(vault.restore(token(masked))).toBe('Acme')
+    expect(() => vault.assertSafe('Acme')).toThrow('PRIVACY_UNSAFE_EGRESS')
+    vault.dispose()
+    expect(() => vault.maskInput()).toThrow('PRIVACY_DISPOSED')
+  })
+
+  it.each(['ｐａｓｓｗｏｒｄ＝hiddenValue123', 'Ｂｅａｒｅｒ hiddenValue123'])(
+    'rejects compatibility credential spellings before model processing: %s',
+    (source) => {
+      expect(() => new PrivacyVault(source, '')).toThrow('PRIVACY_UNSAFE_CREDENTIAL_FORM')
+    },
+  )
+
+  it('blocks compatibility secrets in answers and forged compatibility placeholders', () => {
+    const vault = new PrivacyVault('比较排序算法', '')
+    expect(() => vault.restore('ｐａｓｓｗｏｒｄ＝hiddenValue123')).toThrow(
+      'PRIVACY_SECRET_IN_RESULT',
+    )
+    expect(() => new PrivacyVault('［REMOVED_SECRET］', '')).toThrow('PRIVACY_RESERVED_INPUT')
+    expect(() => vault.assertSafe('ｐａｓｓｗｏｒｄ＝hiddenValue123')).toThrow(
+      'PRIVACY_UNSAFE_EGRESS',
+    )
+  })
+
   it('establishes source secrets and explicit private values before any public method call', () => {
     const vault = new PrivacyVault('password=ultraSensitive123 <private>张三</private>', '')
     expect(() => vault.restore('ultraSensitive123')).toThrow('PRIVACY_SECRET_IN_RESULT')

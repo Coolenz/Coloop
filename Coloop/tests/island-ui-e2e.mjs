@@ -47,6 +47,11 @@ try {
         return { ok: true }
       },
       dismissSuggestion: ok,
+      dismissResult: async (taskId, revision) => {
+        window.calls.push(['dismiss-result', taskId, revision])
+        window.setFixture({ mode: 'idle', detail: '已就绪 · 正在观察当前窗口' })
+        return { ok: true }
+      },
       answerQuestion: async (value) => {
         window.calls.push(['answer', value])
         return { ok: true }
@@ -134,6 +139,27 @@ try {
     await send.click()
     await page.waitForFunction(() => document.querySelector('#island-goal').value === '')
     assert.equal((await page.evaluate(() => window.calls)).at(-1)[1], '下一项任务')
+    await page.evaluate(
+      (mode) =>
+        window.setFixture({
+          mode,
+          taskId: 'finished-task',
+          detail: '任务执行未完成',
+          content: '前一个任务已经结束',
+        }),
+      mode,
+    )
+    await page.screenshot({ path: resolve(output, `${mode}-dismiss.png`) })
+    await page
+      .getByRole('button', { name: mode === 'completed' ? '完成' : '取消', exact: true })
+      .click()
+    await page.locator('main[data-mode="idle"]').waitFor()
+    assert.deepEqual((await page.evaluate(() => window.calls)).at(-1).slice(0, 2), [
+      'dismiss-result',
+      'finished-task',
+    ])
+    assert.equal(await page.getByText('任务执行未完成', { exact: true }).count(), 0)
+    await page.screenshot({ path: resolve(output, `${mode}-idle.png`) })
   }
   assert.deepEqual(errors, [])
   await writeFile(

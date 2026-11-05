@@ -16,7 +16,8 @@ const fixture = {
 const configuration = resolve(output, 'fixture.json')
 await writeFile(configuration, JSON.stringify(fixture))
 const app = await electron.launch({
-  executablePath: process.env.COLOOP_EXECUTABLE || resolve(root, 'node_modules/electron/dist/electron.exe'),
+  executablePath:
+    process.env.COLOOP_EXECUTABLE || resolve(root, 'node_modules/electron/dist/electron.exe'),
   args: process.env.COLOOP_EXECUTABLE ? [] : [root],
   env: { ...process.env, COLOOP_DATA_DIR: resolve(output, 'profile'), ELECTRON_RENDERER_URL: '' },
 })

@@ -12,13 +12,23 @@ afterEach(async () => {
 const signal = new AbortController().signal
 it('network-only forwarding leaves semantic JSON validation to the RK Agent', async () => {
   const payload = '{"command":"click","command":"invalid duplicate"}'
-  const fetcher = vi.fn(async () => new Response(JSON.stringify({ choices: [
-    { finish_reason: 'stop', message: { content: payload } },
-  ] })))
+  const fetcher = vi.fn(
+    async () =>
+      new Response(
+        JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: payload } }] }),
+      ),
+  )
   const gateway = new CloudGateway(fetcher as typeof fetch)
-  const config = { name: 'test', protocol: 'openai' as const, baseUrl: 'https://example.com/v1', model: 'test' }
-  await expect(gateway.relayText(config,'dummy','RK policy','RK context',signal)).resolves.toBe(payload)
-  await expect(gateway.relay(config,'dummy','RK policy','RK context',signal)).rejects.toThrow()
+  const config = {
+    name: 'test',
+    protocol: 'openai' as const,
+    baseUrl: 'https://example.com/v1',
+    model: 'test',
+  }
+  await expect(gateway.relayText(config, 'dummy', 'RK policy', 'RK context', signal)).resolves.toBe(
+    payload,
+  )
+  await expect(gateway.relay(config, 'dummy', 'RK policy', 'RK context', signal)).rejects.toThrow()
 })
 it('admits only the browser pilot, never trailing instructions or arbitrary URLs', () => {
   for (const t of ['打开 Bilibili', '帮我在电脑上打开谷歌浏览器，然后进入Bilibili网站', '打开B站'])
@@ -73,7 +83,11 @@ it('rejects wrong cloud target or modified RK command without repairing it', asy
   const relay = new CloudHIDRelay({
     directory,
     rk,
-    cloud: async () => ({ command: 'open_browser', url: 'https://www.bilibili.com', method: 'mouse_same_window' }),
+    cloud: async () => ({
+      command: 'open_browser',
+      url: 'https://www.bilibili.com',
+      method: 'mouse_same_window',
+    }),
   })
   await expect(relay.call('plan', '打开B站', {}, signal)).rejects.toThrow('TRANSLATION_REJECTED')
   const wrong = new CloudHIDRelay({

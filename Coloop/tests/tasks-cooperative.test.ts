@@ -37,7 +37,7 @@ function fixture() {
         _key: string,
         _projection: { question: string; facts: string[] },
       ) => ({
-        summary: '未发布的中间结论',
+        summary: '通过校验的云端结论',
         steps: [],
         uncertainties: [],
       }),
@@ -65,8 +65,15 @@ describe('cooperative task lifecycle and legacy ingress', () => {
       await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
       expect(f.cloud.analyze).toHaveBeenCalledTimes(1)
       expect(f.cloud.generate).not.toHaveBeenCalled()
-      expect(f.store.tasks[0].answer).toBe('已结合本地信息完成分析')
-      expect(JSON.stringify(f.store.tasks)).not.toContain('未发布的中间结论')
+      expect(f.store.tasks[0].answer).toBe('通过校验的云端结论')
+      expect(f.board.privacyAgent).toHaveBeenCalledTimes(target === 'cloud' ? 2 : 3)
+      expect(
+        f.board.privacyAgent.mock.calls.some(
+          ([policy]) =>
+            policy === localAgentPolicies.final ||
+            policy === localAgentPolicies.finalWithoutEntities,
+        ),
+      ).toBe(false)
       expect(JSON.stringify(f.store.tasks)).not.toContain('private_values')
     },
   )
@@ -82,6 +89,11 @@ describe('cooperative task lifecycle and legacy ingress', () => {
   })
   it('records the rendered local identity without sending it or its mapping to the cloud', async () => {
     const f = fixture()
+    f.cloud.analyze.mockImplementation(async (_config, _key, projection) => ({
+      summary: `${projection.facts[0].match(/\[LOCAL_[a-f0-9]{24}_\d+\]/)![0]}：通过校验的云端结论`,
+      steps: [],
+      uncertainties: [],
+    }))
     f.service.start({
       target: 'hybrid',
       prompt: '请分析<private>CLIENT-A97F</private>',
@@ -89,7 +101,7 @@ describe('cooperative task lifecycle and legacy ingress', () => {
       source: 'text',
     })
     await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
-    expect(f.store.tasks[0].answer).toBe('CLIENT-A97F：已结合本地信息完成分析')
+    expect(f.store.tasks[0].answer).toBe('CLIENT-A97F：通过校验的云端结论')
     expect(f.cloud.analyze).toHaveBeenCalledTimes(1)
     const projection = JSON.stringify(f.cloud.analyze.mock.calls[0][2])
     expect(projection).not.toContain('CLIENT-A97F')
@@ -113,6 +125,6 @@ describe('cooperative task lifecycle and legacy ingress', () => {
     finish()
     await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('cancelled'))
     expect(f.store.tasks[0].answer).toBe('')
-    expect(f.board.privacyAgent).toHaveBeenCalledTimes(4)
+    expect(f.board.privacyAgent).toHaveBeenCalledTimes(3)
   })
 })

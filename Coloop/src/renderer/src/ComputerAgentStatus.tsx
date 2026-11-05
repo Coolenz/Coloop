@@ -95,7 +95,7 @@ export function ComputerAgentStatus({ snapshot }: { snapshot: AppSnapshot }) {
     }
   }
   return (
-    <section className="computer-agent-status" aria-label="TARS 电脑操作状态">
+    <section className="computer-agent-status" aria-label="电脑操作状态">
       <div className="computer-status-heading">
         <div className="desktop-status" role="status" aria-live="polite">
           {state?.phase === 'completed' ? (
@@ -202,6 +202,18 @@ export function ComputerAgentStatus({ snapshot }: { snapshot: AppSnapshot }) {
       {(error || state?.error) && (
         <p className="desktop-error" role="alert">
           {error || proactiveErrorLabels[state?.error ?? ''] || state?.error}
+        </p>
+      )}
+      {!state?.active && state?.recommendationError && (
+        <p role="status">
+          {proactiveErrorLabels[state.recommendationError] ?? state.recommendationError}
+        </p>
+      )}
+      {state?.active && state.progress && (
+        <p role="status">
+          已确认 {state.progress.units} 项进展，上次进展{' '}
+          {new Date(state.progress.lastProgressAt).toLocaleTimeString()}。
+          {state.progress.stalled && '已连续15分钟无新进展，正在诊断，任务保留。'}
         </p>
       )}
     </section>

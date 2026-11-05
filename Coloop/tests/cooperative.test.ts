@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CooperativeAgent, localAgentPolicies } from '../src/main/services/cooperative'
-import { CloudGateway } from '../src/main/infrastructure/cloud'
+import { CloudGateway, type CloudAnalysis } from '../src/main/infrastructure/cloud'
 import { cloudProjectionQuestion } from '../src/main/domain/cloud-spans'
 
 const config = {
@@ -9,7 +9,11 @@ const config = {
   baseUrl: 'http://127.0.0.1:12345/v1',
   model: 'test',
 }
-const analysis = { summary: '先比较约束再验证方案。', steps: ['确认结果'], uncertainties: [] }
+const analysis: CloudAnalysis = {
+  summary: '先比较约束再验证方案。',
+  steps: ['确认结果'],
+  uncertainties: [],
+}
 const finalWire = (entity_ids: string[], answer: string) => JSON.stringify({ entity_ids, answer })
 function setup(overrides: Partial<Record<keyof typeof localAgentPolicies, string>> = {}) {
   const calls: string[] = []
@@ -58,7 +62,12 @@ function setup(overrides: Partial<Record<keyof typeof localAgentPolicies, string
     calls,
   }
 }
-function run(fixture: ReturnType<typeof setup>, prompt = '比较方案并给出多步分析', context = '') {
+function run(
+  fixture: ReturnType<typeof setup>,
+  prompt = '比较方案并给出多步分析',
+  context = '',
+  options: { route?: 'cloud'; answerMode?: 'direct' | 'local' } = {},
+) {
   return fixture.agent.run(
     prompt,
     context,
@@ -66,10 +75,148 @@ function run(fixture: ReturnType<typeof setup>, prompt = '比较方案并给出�
     fixture.getKey,
     fixture.controller.signal,
     fixture.stages,
+    options,
   )
 }
 
 describe('local first cooperative pipeline', () => {
+  it('directly presents all cloud answer fields with three local calls for one source span', async () => {
+    const f = setup()
+    f.analyze.mockImplementation(async () => {
+      f.calls.push('cloud')
+      return { ...analysis, uncertainties: ['尚未提供实际测试结果'] }
+    })
+    await expect(run(f, undefined, '', { answerMode: 'direct' })).resolves.toEqual({
+      answer:
+        '先比较约束再验证方案。\n\n建议步骤：\n1. 确认结果\n\n不确定性：\n- 尚未提供实际测试结果',
+      cloudUsed: true,
+    })
+    expect(f.calls).toEqual(['route', 'identify', 'verify', 'cloud'])
+    expect(f.privacyAgent).toHaveBeenCalledTimes(3)
+    expect(f.stages.mock.calls.flat().join(' ')).not.toContain(analysis.summary)
+  })
+
+  it('uses two local checks for a trusted cloud route and still selects multiple source spans', async () => {
+    const single = setup()
+    await run(single, undefined, '', { route: 'cloud', answerMode: 'direct' })
+    expect(single.calls).toEqual(['identify', 'verify', 'cloud'])
+    const multiple = setup()
+    await run(multiple, '比较方案。另一个条件。', '', { answerMode: 'direct' })
+    expect(multiple.calls).toEqual(['route', 'identify', 'sanitize', 'verify', 'cloud'])
+    expect(multiple.analyze.mock.calls[0][2].facts).toEqual(['比较方案。'])
+  })
+
+  it.each(['{"safe":false}', '{"safe":true,"extra":true}', 'null'])(
+    'still blocks one-span egress when verification is rejected: %s',
+    async (verify) => {
+      const f = setup({ verify })
+      await expect(run(f, undefined, '', { answerMode: 'direct' })).rejects.toThrow(
+        '本地隐私检查未通过',
+      )
+      expect(f.calls).toEqual(['route', 'identify', 'verify'])
+      expect(f.analyze).not.toHaveBeenCalled()
+      expect(f.getKey).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rejects an oversized sole source span without invoking the selector or cloud', async () => {
+    const f = setup()
+    await expect(run(f, '字'.repeat(1100), '', { answerMode: 'direct' })).rejects.toThrow(
+      '本地隐私检查未通过',
+    )
+    expect(f.calls).toEqual(['route', 'identify'])
+    expect(f.getKey).not.toHaveBeenCalled()
+    expect(f.analyze).not.toHaveBeenCalled()
+  })
+
+  it('restores only exposed cloud references in direct text, including quotes and newlines', async () => {
+    const f = setup()
+    const entity = '客户"甲\n乙'
+    f.analyze.mockImplementation(async (_config, _key, projection) => ({
+      summary: projection.facts[0],
+      steps: [],
+      uncertainties: [],
+    }))
+    await expect(
+      run(f, `分析<private>${entity}</private>`, '', { answerMode: 'direct' }),
+    ).resolves.toEqual({
+      answer: `分析${entity}`,
+      cloudUsed: true,
+    })
+    expect(JSON.stringify(f.analyze.mock.calls[0][2])).not.toContain('客户')
+    expect(f.privacyAgent).toHaveBeenCalledTimes(3)
+    expect(f.calls).not.toContain('final')
+  })
+
+  it('rejects direct cloud guesses of local entities excluded by source selection', async () => {
+    const f = setup()
+    f.analyze.mockImplementation(async (_config, _key, projection) => ({
+      ...analysis,
+      summary: projection.facts[0].replace(/_1\]/, '_2]'),
+    }))
+    await expect(
+      run(f, '<private>出境实体甲</private>。<private>仅本地实体乙</private>。', '', {
+        answerMode: 'direct',
+      }),
+    ).rejects.toThrow('云端分析未通过校验')
+    expect(f.calls).not.toContain('final')
+  })
+
+  it.each([
+    'ultraSensitive123/+',
+    encodeURIComponent('ultraSensitive123/+'),
+    Buffer.from('ultraSensitive123/+').toString('base64'),
+    '[LOCAL_wrong_1]',
+    '[E1]',
+  ])('blocks unsafe direct output without a local regeneration: %s', async (summary) => {
+    const f = setup()
+    f.analyze.mockResolvedValue({ ...analysis, summary })
+    await expect(
+      run(f, '比较方案。password=ultraSensitive123/+', '', {
+        answerMode: 'direct',
+      }),
+    ).rejects.toThrow('云端分析未通过校验')
+    expect(f.calls).not.toContain('final')
+  })
+
+  it.each(['identify', 'verify', 'cloud', 'display'])(
+    'never publishes direct output after cancellation during %s',
+    async (cancelStage) => {
+      const f = setup()
+      const original = f.privacyAgent.getMockImplementation()!
+      f.privacyAgent.mockImplementation(async (system, input) => {
+        const answer = await original(system, input)
+        if (system === localAgentPolicies[cancelStage as keyof typeof localAgentPolicies])
+          f.controller.abort()
+        return answer
+      })
+      f.analyze.mockImplementation(async () => {
+        if (cancelStage === 'cloud') f.controller.abort()
+        return analysis
+      })
+      f.stages.mockImplementation((stage) => {
+        if (cancelStage === 'display' && stage === '正在呈现分析结果') f.controller.abort()
+      })
+      await expect(run(f, undefined, '', { answerMode: 'direct' })).rejects.toMatchObject({
+        name: 'AbortError',
+      })
+      expect(f.calls).not.toContain('final')
+    },
+  )
+
+  it('keeps local-only answering and default structured output independent of direct mode', async () => {
+    const local = setup({ route: '{"route":"local"}', final: '5' })
+    await expect(run(local, '2+3=?', '', { answerMode: 'direct' })).resolves.toEqual({
+      answer: '5',
+      cloudUsed: false,
+    })
+    expect(local.calls).toEqual(['route', 'final'])
+    const plan = '{"observation_id":"o1","actions":[{"action":"finish"}]}'
+    const desktop = setup({ final: plan })
+    await expect(run(desktop)).resolves.toEqual({ answer: plan, cloudUsed: true })
+    expect(desktop.calls.at(-1)).toBe('final')
+  })
+
   it('a trusted cloud routing result still runs all privacy checks before using the network', async () => {
     const f = setup()
     const result = await f.agent.run(
@@ -82,7 +229,7 @@ describe('local first cooperative pipeline', () => {
       { route: 'cloud' },
     )
     expect(result.cloudUsed).toBe(true)
-    expect(f.calls).toEqual(['identify', 'sanitize', 'verify', 'cloud', 'final'])
+    expect(f.calls).toEqual(['identify', 'verify', 'cloud', 'final'])
   })
   it('supports a fixed desktop routing policy without changing other local-first agents', async () => {
     const f = setup({ route: '{"route":"local"}', final: '5' })
@@ -121,7 +268,7 @@ describe('local first cooperative pipeline', () => {
       answer: '综合本地信息，建议先做最小验证。',
       cloudUsed: true,
     })
-    expect(f.calls).toEqual(['route', 'identify', 'sanitize', 'verify', 'cloud', 'final'])
+    expect(f.calls).toEqual(['route', 'identify', 'verify', 'cloud', 'final'])
     expect(f.stages.mock.calls.flat().join(' ')).not.toContain(analysis.summary)
     expect(Object.isFrozen(f.analyze.mock.calls[0][2])).toBe(true)
     expect(f.analyze.mock.calls[0][2].question).toBe(cloudProjectionQuestion)
@@ -213,7 +360,7 @@ describe('local first cooperative pipeline', () => {
     ['verify', '{"safe":true,"safe":false}'],
   ] as const)('stops before cloud for invalid or unsafe %s', async (stage, value) => {
     const f = setup({ [stage]: value })
-    await expect(run(f)).rejects.toThrow('本地隐私检查未通过')
+    await expect(run(f, '比较方案。另一个条件。')).rejects.toThrow('本地隐私检查未通过')
     expect(f.analyze).not.toHaveBeenCalled()
     expect(f.getKey).not.toHaveBeenCalled()
   })
@@ -228,7 +375,7 @@ describe('local first cooperative pipeline', () => {
       }
       return result
     })
-    await expect(run(f)).rejects.toThrow('本地隐私检查未通过')
+    await expect(run(f, '比较方案。另一个条件。')).rejects.toThrow('本地隐私检查未通过')
     expect(f.analyze).not.toHaveBeenCalled()
     expect(f.getKey).not.toHaveBeenCalled()
   })
@@ -247,7 +394,7 @@ describe('local first cooperative pipeline', () => {
         }
         return result
       })
-      await expect(run(f)).rejects.toThrow('本地隐私检查未通过')
+      await expect(run(f, '比较方案。另一个条件。')).rejects.toThrow('本地隐私检查未通过')
       expect(f.analyze).not.toHaveBeenCalled()
       expect(f.getKey).not.toHaveBeenCalled()
     },
@@ -353,7 +500,7 @@ describe('local first cooperative pipeline', () => {
   it('fails without falling back to the original prompt or exposing model errors', async () => {
     const f = setup()
     f.privacyAgent.mockRejectedValue(new Error('private-provider-body'))
-    await expect(run(f)).rejects.toThrow('本地隐私检查未通过')
+    await expect(run(f, '比较方案。另一个条件。')).rejects.toThrow('本地隐私检查未通过')
     expect(f.analyze).not.toHaveBeenCalled()
   })
   it.each(['route', 'identify', 'sanitize', 'verify', 'cloud', 'final'])(
@@ -375,7 +522,7 @@ describe('local first cooperative pipeline', () => {
         if (cancelStage === 'cloud') f.controller.abort()
         return analysis
       })
-      await expect(run(f)).rejects.toMatchObject({ name: 'AbortError' })
+      await expect(run(f, '比较方案。另一个条件。')).rejects.toMatchObject({ name: 'AbortError' })
       expect(f.calls.at(-1)).toBe(cancelStage)
     },
   )
@@ -498,7 +645,7 @@ describe('local first cooperative pipeline', () => {
     expect(finalInputs).toHaveLength(2)
     expect(finalInputs[1]).toBe(finalInputs[0])
     expect(finalInputs[1]).not.toContain('REJECTED_WIRE_CANARY')
-    expect(f.calls).toEqual(['route', 'identify', 'sanitize', 'verify', 'cloud', 'final', 'final'])
+    expect(f.calls).toEqual(['route', 'identify', 'verify', 'cloud', 'final', 'final'])
     expect(
       f.privacyAgent.mock.calls.filter(([system]) => system === localAgentPolicies.finalRetry),
     ).toHaveLength(1)
@@ -510,7 +657,7 @@ describe('local first cooperative pipeline', () => {
     await expect(run(f, '<private>CLIENT-A97F</private>，请给建议')).rejects.toThrow(
       'RK 本地答案生成失败',
     )
-    expect(f.calls).toEqual(['route', 'identify', 'sanitize', 'verify', 'cloud', 'final', 'final'])
+    expect(f.calls).toEqual(['route', 'identify', 'verify', 'cloud', 'final', 'final'])
     expect(
       f.privacyAgent.mock.calls.filter(([system]) => system === localAgentPolicies.finalRetry),
     ).toHaveLength(1)
@@ -568,7 +715,7 @@ describe('local first cooperative pipeline', () => {
     await expect(run(f, '<private>CLIENT-A97F</private>')).rejects.toMatchObject({
       name: 'AbortError',
     })
-    expect(f.calls).toEqual(['route', 'identify', 'sanitize', 'verify', 'cloud', 'final', 'final'])
+    expect(f.calls).toEqual(['route', 'identify', 'verify', 'cloud', 'final', 'final'])
     expect(f.analyze).toHaveBeenCalledTimes(1)
     expect(f.stages.mock.calls.flat().join(' ')).not.toContain('取消后的迟答')
   })

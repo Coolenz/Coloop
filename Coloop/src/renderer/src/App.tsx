@@ -913,7 +913,10 @@ export function App() {
               </li>
               <li>
                 <strong>连接 RK 设备</strong>
-                <p>使用 USB 数据线连接 OTG 接口，在「设备管理」导入 RK 配置，输入设备 SSH 密码。</p>
+                <p>
+                  首次使用时，在「设备管理」导入 RK 配置并输入密码。之后启动上位机或重新插入 USB
+                  时会自动连接，无需重复配对。
+                </p>
               </li>
               <li>
                 <strong>识别与分析</strong>
@@ -925,7 +928,7 @@ export function App() {
             <div className="info-line">
               <ShieldCheck size={16} />
               <span>
-                API Key 使用 Windows 加密存储；设备密码只用于当前连接。「电脑操作」已接入 RK
+                API Key 和设备密码使用 Windows 加密存储，设备密码用于自动连接。「电脑操作」已接入 RK
                 HID，同页动作一次规划、统一验证。首版限单屏、单窗口和英文数字输入。
               </span>
             </div>

@@ -11,7 +11,8 @@ const output = resolve(root, '.qa', `mobile-${Date.now()}`)
 await mkdir(output, { recursive: true })
 const checks = []
 const ownedServer = process.env.COLOOP_SERVER_CONFIG
-  ? JSON.parse(await readFile(process.env.COLOOP_SERVER_CONFIG, 'utf8')) : undefined
+  ? JSON.parse(await readFile(process.env.COLOOP_SERVER_CONFIG, 'utf8'))
+  : undefined
 let app, page, connection, failure
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 function request(url, body, accessKey = ownedServer?.accessKey) {
@@ -21,8 +22,10 @@ function request(url, body, accessKey = ownedServer?.accessKey) {
       url,
       {
         method: body ? 'POST' : 'GET',
-        headers: { ...(body ? { 'content-type': 'application/json' } : {}),
-          ...(accessKey ? { 'x-coloop-access-key': accessKey } : {}) },
+        headers: {
+          ...(body ? { 'content-type': 'application/json' } : {}),
+          ...(accessKey ? { 'x-coloop-access-key': accessKey } : {}),
+        },
         timeout: 20_000,
       },
       (response) => {
@@ -135,7 +138,9 @@ try {
   connection = JSON.parse(await readFile((await snapshot()).coordinator.connectionPath, 'utf8'))
   assert.equal((await snapshot()).mobile.tunnel.status, 'stopped')
   if (ownedServer) {
-    await app.evaluate(({ dialog }, file) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] }) }, process.env.COLOOP_SERVER_CONFIG)
+    await app.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
+    }, process.env.COLOOP_SERVER_CONFIG)
     assert.equal((await page.evaluate(() => window.coloop.importMobileServer())).ok, true)
   }
   const enabled = page.evaluate(() => window.coloop.enableMobile())
@@ -149,15 +154,19 @@ try {
   if (ownedServer) {
     assert.equal(endpoint, ownedServer.endpoint)
     assert.equal((await request(endpoint + '/v1/remote/hello', undefined, '')).status, 401)
-    assert.equal((await request(endpoint + '/v1/remote/hello', undefined, 'incorrect-key')).status, 401)
+    assert.equal(
+      (await request(endpoint + '/v1/remote/hello', undefined, 'incorrect-key')).status,
+      401,
+    )
   } else assert.match(endpoint, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/)
   const hello = await until(async () => {
     const response = await request(endpoint + '/v1/remote/hello')
     return response.status === 200 && response.body.epoch ? response.body : false
   }, 'public HTTPS gateway hello')
   checks.push({
-    check:
-      ownedServer ? 'Real owned server HTTPS requires the access key before discovery' : 'Real Cloudflare Quick Tunnel provides an external HTTPS path to the dedicated remote gateway',
+    check: ownedServer
+      ? 'Real owned server HTTPS requires the access key before discovery'
+      : 'Real Cloudflare Quick Tunnel provides an external HTTPS path to the dedicated remote gateway',
     passed: true,
   })
   const invitation = await page.evaluate(() => window.coloop.createMobilePairing())
@@ -183,7 +192,8 @@ try {
   const device = paired.value
   assert.equal(JSON.stringify(await snapshot()).includes(pairing.secret), false)
   assert.equal(JSON.stringify(await snapshot()).includes(device.secret), false)
-  if (ownedServer) assert.equal(JSON.stringify(await snapshot()).includes(ownedServer.accessKey), false)
+  if (ownedServer)
+    assert.equal(JSON.stringify(await snapshot()).includes(ownedServer.accessKey), false)
   let counter = 0
   async function rpc(operation, payload = {}) {
     const requestFrame = encrypt(
@@ -319,30 +329,30 @@ try {
   })
   if (!ownedServer) {
     const interrupted = await app.evaluate(() => {
-    const child = process
-      ._getActiveHandles()
-      .find(
-        (handle) =>
-          typeof handle.spawnfile === 'string' && /cloudflared\.exe$/i.test(handle.spawnfile),
-      )
-    if (!child) return false
-    child.kill()
-    return true
-  })
-  assert.equal(interrupted, true)
-  await until(
-    async () => (await snapshot()).mobile.tunnel.status === 'error',
-    'interrupted tunnel status',
-  )
-  assert.equal((await snapshot()).mobile.gateway.status, 'listening')
-  const reconnected = await page.evaluate(() => window.coloop.enableMobile())
-  assert.equal(reconnected.ok, true, reconnected.error)
-  assert.equal(reconnected.value.gateway.hostId, hello.hostId)
+      const child = process
+        ._getActiveHandles()
+        .find(
+          (handle) =>
+            typeof handle.spawnfile === 'string' && /cloudflared\.exe$/i.test(handle.spawnfile),
+        )
+      if (!child) return false
+      child.kill()
+      return true
+    })
+    assert.equal(interrupted, true)
+    await until(
+      async () => (await snapshot()).mobile.tunnel.status === 'error',
+      'interrupted tunnel status',
+    )
+    assert.equal((await snapshot()).mobile.gateway.status, 'listening')
+    const reconnected = await page.evaluate(() => window.coloop.enableMobile())
+    assert.equal(reconnected.ok, true, reconnected.error)
+    assert.equal(reconnected.value.gateway.hostId, hello.hostId)
     checks.push({
-    check:
-      'A crashed tunnel can reconnect while preserving the existing authenticated gateway and host identity',
-    passed: true,
-  })
+      check:
+        'A crashed tunnel can reconnect while preserving the existing authenticated gateway and host identity',
+      passed: true,
+    })
   }
   const disabled = await page.evaluate(() => window.coloop.disableMobile())
   assert.equal(disabled.ok, true)
@@ -369,8 +379,9 @@ try {
         passed: !failure,
         checks,
         error: failure?.message,
-        scope:
-          ownedServer ? 'Real Electron + owned server authenticated HTTPS; controlled native source fixture, no real model' : 'Real Electron + actual public encrypted HTTPS tunnel; controlled native source fixture, no real model',
+        scope: ownedServer
+          ? 'Real Electron + owned server authenticated HTTPS; controlled native source fixture, no real model'
+          : 'Real Electron + actual public encrypted HTTPS tunnel; controlled native source fixture, no real model',
         output,
       },
       null,

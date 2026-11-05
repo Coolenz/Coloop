@@ -9,37 +9,42 @@
       "id": "checkbox",
       "goal": "单击一次当前窗口中名为 Enable feature 的复选框，让它保持勾选状态，以界面显示 Feature enabled 为完成标志。只完成这一项，不操作其他控件。",
       "required_actions": ["click"],
-      "expected": {"checked": true, "mouse_down_count": 1, "mouse_up_count": 1}
+      "expected": { "checked": true, "mouse_down_count": 1, "mouse_up_count": 1 }
     },
     {
       "id": "double_click",
       "goal": "双击当前窗口列表中的 Double click target 项一次，让界面显示 Double click verified；不要再重复双击。",
       "required_actions": ["double_click"],
-      "expected": {"doubleclick_count": 1, "mouse_down_count": 2, "mouse_up_count": 2}
+      "expected": { "doubleclick_count": 1, "mouse_down_count": 2, "mouse_up_count": 2 }
     },
     {
       "id": "hover",
       "goal": "将鼠标移动到当前窗口的 Hover target 按钮上，让界面显示 Hover verified。不要点击按钮，整个过程不按鼠标键。",
       "required_actions": ["move"],
-      "expected": {"mouse_down_count": 0, "mouse_up_count": 0, "new_mouse_enter": true}
+      "expected": { "mouse_down_count": 0, "mouse_up_count": 0, "new_mouse_enter": true }
     },
     {
       "id": "scroll",
       "goal": "使用鼠标滚轮向下滚动当前窗口的 Scroll list 文档，直到真正到达最后一行并显示 Bottom reached。不要改写文档，不要用键盘跳到末尾。",
       "required_actions": ["scroll"],
-      "expected": {"bottom_visible": true, "new_native_scroll": true}
+      "expected": { "bottom_visible": true, "new_native_scroll": true }
     },
     {
       "id": "two_fields",
       "goal": "把当前窗口 Field A 编辑框的全文替换为“订单甲-731”，再把另一个 Field B 编辑框的全文替换为“项目乙-842”。两个字段分别填写，不要把两段文字填到同一个框里。",
       "required_actions": ["paste"],
-      "expected": {"fields": {"a": "订单甲-731", "b": "项目乙-842"}, "minimum_pastes": 2}
+      "expected": { "fields": { "a": "订单甲-731", "b": "项目乙-842" }, "minimum_pastes": 2 }
     },
     {
       "id": "replace_undo_redo",
       "goal": "把当前窗口 Revision editor 的全文替换为“Revision Beta 中文”，然后用 Ctrl+Z 撤销，确认恢复为“Original revision”，再用 Ctrl+Y 重做，最终保留“Revision Beta 中文”。必须实际完成替换、撤销、重做三个阶段。",
       "required_actions": ["paste", "hotkey"],
-      "expected": {"initial_revision": "Original revision", "final_revision": "Revision Beta 中文", "required_hotkeys": ["CTRL+Z", "CTRL+Y"], "text_sequence": ["Revision Beta 中文", "Original revision", "Revision Beta 中文"]}
+      "expected": {
+        "initial_revision": "Original revision",
+        "final_revision": "Revision Beta 中文",
+        "required_hotkeys": ["CTRL+Z", "CTRL+Y"],
+        "text_sequence": ["Revision Beta 中文", "Original revision", "Revision Beta 中文"]
+      }
     }
   ]
 }

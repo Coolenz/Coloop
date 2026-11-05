@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserWindow, desktopCapturer, screen, nativeImage } from 'electron'
 import type { OcrResult } from '../../shared/contracts'
+import { cleanSuggestionOcr } from '../domain/suggestion-ocr'
 
 const foregroundScript = `
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -14,13 +15,15 @@ Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName UIAutomationClientsideProviders
+Add-Type -AssemblyName Accessibility
 $proxyAssembly=[AppDomain]::CurrentDomain.GetAssemblies() | Where-Object { $_.GetName().Name -eq 'UIAutomationClientsideProviders' } | Select-Object -First 1
 [System.Windows.Automation.ClientSettings]::RegisterClientSideProviderAssembly($proxyAssembly.GetName())
-Add-Type @'
+Add-Type -ReferencedAssemblies ([Accessibility.IAccessible].Assembly.Location) -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
 public class ColoopForeground {
  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int left,top,right,bottom; }
  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int x,y; }
+ [StructLayout(LayoutKind.Sequential)] public struct MSG { public IntPtr hwnd; public uint message; public UIntPtr wParam; public IntPtr lParam; public uint time; public POINT point; public uint privateData; }
  [StructLayout(LayoutKind.Sequential)] public struct GUIINFO { public int cbSize; public uint flags; public IntPtr hwndActive,hwndFocus,hwndCapture,hwndMenuOwner,hwndMoveSize,hwndCaret; public RECT rcCaret; }
  [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint thread,ref GUIINFO info);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h,System.Text.StringBuilder name,int count);
@@ -33,26 +36,37 @@ public class ColoopForeground {
  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h,uint flags);
  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int n);
  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+ [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+ [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr h);
+ [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
+ [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern bool PeekMessage(out MSG message,IntPtr h,uint first,uint last,uint flags);
  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
  [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h,int command);
  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint from,uint to,bool attach);
  public static void RestoreTarget(IntPtr target,uint expectedPid) {
-  uint pid;GetWindowThreadProcessId(target,out pid);
+  uint pid;uint targetThread=GetWindowThreadProcessId(target,out pid);
   if(!IsWindow(target)||pid!=expectedPid||!IsWindowVisible(target))return;
   if(IsIconic(target))ShowWindowAsync(target,9);
   uint current=GetCurrentThreadId();
   uint foreground=GetWindowThreadProcessId(GetForegroundWindow(),out pid);
-  bool attached=false;
+  MSG message;PeekMessage(out message,IntPtr.Zero,0,0,0);
+  bool attached=false,targetAttached=false;
   try {
    if(foreground!=0&&foreground!=current)attached=AttachThreadInput(current,foreground,true);
+   if(targetThread!=0&&targetThread!=current&&targetThread!=foreground)targetAttached=AttachThreadInput(current,targetThread,true);
+   BringWindowToTop(target);
+   SetActiveWindow(target);
+   SetFocus(target);
    SetForegroundWindow(target);
   } finally {
+   if(targetAttached)AttachThreadInput(current,targetThread,false);
    if(attached)AttachThreadInput(current,foreground,false);
   }
  }
  [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+ [DllImport("user32.dll")] public static extern bool IsWindowUnicode(IntPtr h);
  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h,ref POINT p);
  [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr h,ref POINT p);
@@ -68,8 +82,29 @@ public class ColoopForeground {
  [DllImport("user32.dll",CharSet=CharSet.Unicode,EntryPoint="SendMessageTimeoutW")] static extern IntPtr TextMsg(IntPtr h,uint m,IntPtr w,System.Text.StringBuilder l,uint f,uint t,out IntPtr result);
  [DllImport("user32.dll",EntryPoint="SendMessageTimeoutW")] static extern IntPtr SelMsg(IntPtr h,uint m,ref uint w,ref uint l,uint f,uint t,out IntPtr result);
  [DllImport("user32.dll",EntryPoint="SendMessageTimeoutW")] static extern IntPtr RectMsg(IntPtr h,uint m,IntPtr w,ref RECT l,uint f,uint t,out IntPtr result);
+ [DllImport("oleacc.dll")] static extern int AccessibleObjectFromWindow(IntPtr h,uint objectId,ref Guid iid,[MarshalAs(UnmanagedType.Interface)] out Accessibility.IAccessible accessible);
+ // Owner-drawn WinForms checkboxes use BS_OWNERDRAW, so BM_GETCHECK cannot
+ // identify their role or state. Read the same HWND's MSAA client object only.
+ // https://learn.microsoft.com/en-us/windows/win32/api/oleacc/nf-oleacc-accessibleobjectfromwindow
+ // https://learn.microsoft.com/en-us/windows/win32/winauto/object-state-constants
+ static int? OwnerDrawnCheckState(IntPtr h,IntPtr top,uint expectedPid) {
+  Accessibility.IAccessible accessible=null;
+  try {
+   Guid iid=new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
+   if(AccessibleObjectFromWindow(h,0xFFFFFFFC,ref iid,out accessible)!=0||accessible==null)return null;
+   object role=accessible.get_accRole(0),state=accessible.get_accState(0);
+   uint pid;GetWindowThreadProcessId(h,out pid);
+   if(!IsWindow(h)||pid!=expectedPid||GetAncestor(h,2)!=top||!IsWindowVisible(h)||!IsWindowEnabled(h))return null;
+   if(!(role is int)||!(state is int)||(int)role!=0x2C)return null;
+   int flags=(int)state;
+   if((flags&(0x20000000|0x1|0x8000|0x10000))!=0)return null;
+   return (flags&0x20)!=0?2:(flags&0x10)!=0?1:0;
+  } catch { return null; }
+  finally { if(accessible!=null&&Marshal.IsComObject(accessible))Marshal.ReleaseComObject(accessible); }
+ }
  public static bool IsNativeEdit(IntPtr h,IntPtr top,uint expectedPid) {
   uint p;GetWindowThreadProcessId(h,out p);if(p!=expectedPid || GetAncestor(h,2)!=top || !IsWindowEnabled(h))return false;
+  if(!IsWindowUnicode(h))return false;
   var c=new System.Text.StringBuilder(256);GetClassName(h,c,256);string name=c.ToString();
   if(!(name=="Edit" || name.StartsWith("WindowsForms10.EDIT.") || name.StartsWith("WindowsForms10.RichEdit20W.") || name.StartsWith("RichEdit20") || name=="RICHEDIT50W" || name=="RichEditD2DPT"))return false;
   long style=GetWindowLongPtr(h,-16).ToInt64();return (style&0x0800)==0 && (style&0x0020)==0;
@@ -78,18 +113,53 @@ public class ColoopForeground {
   IntPtr length;if(Msg(h,0xE,IntPtr.Zero,IntPtr.Zero,2,250,out length)==IntPtr.Zero)throw new Exception("EDIT_READ_TIMEOUT");
   int count=length.ToInt32();if(count<0||count>200000)throw new Exception("EDIT_TEXT_TOO_LARGE");
   var text=new System.Text.StringBuilder(count+1);IntPtr copied;
-  if(TextMsg(h,0xD,new IntPtr(count+1),text,2,250,out copied)==IntPtr.Zero)throw new Exception("EDIT_READ_TIMEOUT");return text.ToString();
+  if(TextMsg(h,0xD,new IntPtr(count+1),text,2,250,out copied)==IntPtr.Zero)throw new Exception("EDIT_READ_TIMEOUT");
+  string value=text.ToString();
+  var cls=new System.Text.StringBuilder(256);GetClassName(h,cls,256);string name=cls.ToString();
+  if(name.StartsWith("WindowsForms10.RichEdit20W.")||name.StartsWith("RichEdit20")||name=="RICHEDIT50W"||name=="RichEditD2DPT") {
+   if(!IsWindowUnicode(h))throw new Exception("EDITOR_TEXT_INDEX_UNSUPPORTED");
+   // Rich Edit 2+ normally indexes a paragraph as one CR, while WM_GETTEXT
+   // exposes CRLF. Confirm the actual index length using system messages;
+   // never send cross-process pointers in WM_USER-range EM_GETTEXTEX.
+   // https://learn.microsoft.com/en-us/windows/win32/controls/about-rich-edit-controls
+   IntPtr lines,last,lineLength;
+   if(Msg(h,0xBA,IntPtr.Zero,IntPtr.Zero,2,250,out lines)==IntPtr.Zero||lines.ToInt64()<1||lines.ToInt64()>200001||
+      Msg(h,0xBB,new IntPtr(lines.ToInt64()-1),IntPtr.Zero,2,250,out last)==IntPtr.Zero||last.ToInt64()<0||
+      Msg(h,0xC1,last,IntPtr.Zero,2,250,out lineLength)==IntPtr.Zero||lineLength.ToInt64()<0)
+    throw new Exception("EDITOR_TEXT_INDEX_UNSUPPORTED");
+   long nativeLength=last.ToInt64()+lineLength.ToInt64();
+   if(value.Length!=nativeLength) {
+    string indexed=value.Replace(String.Concat((char)13,(char)10),((char)13).ToString());
+    if(indexed.Length!=nativeLength)throw new Exception("EDITOR_TEXT_INDEX_UNSUPPORTED");
+    value=indexed;
+   }
+  }
+  return value;
  }
  public static uint[] ReadEditSelection(IntPtr h) {
   uint start=0,end=0;IntPtr result;if(SelMsg(h,0xB0,ref start,ref end,2,250,out result)==IntPtr.Zero)throw new Exception("EDIT_SELECTION_TIMEOUT");return new uint[]{start,end};
  }
+ public static uint[] ReadEditSelection(IntPtr h,string indexedText) {
+  uint[] selection=ReadEditSelection(h);
+  // Native Ctrl+A can include Rich Edit's implicit final paragraph marker,
+  // which is not part of the text returned by WM_GETTEXT. Map that ONE marker
+  // to the already validated document end; never clamp arbitrary offsets.
+  // https://learn.microsoft.com/en-us/windows/win32/controls/em-settextmode
+  if(selection[0]<=indexedText.Length&&selection[1]==indexedText.Length+1&&IsWindowUnicode(h)) {
+   var cls=new System.Text.StringBuilder(256);GetClassName(h,cls,256);string name=cls.ToString();
+   if(name.StartsWith("WindowsForms10.RichEdit20W.")||name.StartsWith("RichEdit20")||name=="RICHEDIT50W"||name=="RichEditD2DPT")
+    selection[1]=(uint)indexedText.Length;
+  }
+  return selection;
+ }
  public static System.Collections.Generic.Dictionary<string,object> NativePointTarget(IntPtr h,IntPtr top,uint expectedPid,int x,int y) {
   uint p;GetWindowThreadProcessId(h,out p);if(p!=expectedPid||GetAncestor(h,2)!=top||!IsWindowEnabled(h)||!IsWindowVisible(h))return null;
-  var c=new System.Text.StringBuilder(256);GetClassName(h,c,256);string cls=c.ToString();string type=null,name=null;int item=-1;
+  var c=new System.Text.StringBuilder(256);GetClassName(h,c,256);string cls=c.ToString();string type=null,name=null;int item=-1;int? accessibleCheck=null;
   RECT rect;GetWindowRect(h,out rect);
   if(cls=="Button"||cls.StartsWith("WindowsForms10.BUTTON.")) {
    long style=GetWindowLongPtr(h,-16).ToInt64()&15;
    type=(style==2||style==3||style==5||style==6)?"CheckBox":(style==4||style==9)?"RadioButton":"Button";
+   if(style==11) { accessibleCheck=OwnerDrawnCheckState(h,top,expectedPid);if(accessibleCheck.HasValue)type="CheckBox"; }
    name=ReadEditText(h);if(name.Length>300)return null;
   } else if(cls=="ListBox"||cls.StartsWith("WindowsForms10.LISTBOX.")) {
    POINT point=new POINT();point.x=x;point.y=y;if(!ScreenToClient(h,ref point))return null;
@@ -104,7 +174,9 @@ public class ColoopForeground {
   } else return null;
   var target=new System.Collections.Generic.Dictionary<string,object>{{"name",name},{"type",type},{"source","win32"},{"rect",new int[]{rect.left,rect.top,rect.right,rect.bottom}},{"runtime_id",item<0?new long[]{42,h.ToInt64()}:new long[]{42,h.ToInt64(),item}},{"enabled",true},{"process_id",expectedPid}};
   IntPtr state;
-  if((type=="CheckBox"||type=="RadioButton")&&Msg(h,0xF0,IntPtr.Zero,IntPtr.Zero,2,250,out state)!=IntPtr.Zero) {
+  if(accessibleCheck.HasValue) {
+   if(accessibleCheck.Value!=2)target["checked"]=accessibleCheck.Value==1;
+  } else if((type=="CheckBox"||type=="RadioButton")&&Msg(h,0xF0,IntPtr.Zero,IntPtr.Zero,2,250,out state)!=IntPtr.Zero) {
    long check=state.ToInt64();
    if(check==0||check==1)target[type=="RadioButton"?"selected":"checked"]=check==1;
   }
@@ -200,15 +272,15 @@ while ($null -ne ($line = [Console]::ReadLine())) {
   if ($null -ne $editText -and $editText.Length -gt 200000) { $editText = $null }
  }
  } catch {}
- if (!$editable) { try {
+ try {
   $gui=New-Object ColoopForeground+GUIINFO;$gui.cbSize=[Runtime.InteropServices.Marshal]::SizeOf($gui)
   if([ColoopForeground]::GetGUIThreadInfo($threadId,[ref]$gui) -and [ColoopForeground]::IsNativeEdit($gui.hwndFocus,$handle,$processId)) {
-   $editText=[ColoopForeground]::ReadEditText($gui.hwndFocus);$selection=[ColoopForeground]::ReadEditSelection($gui.hwndFocus)
+   $editText=[ColoopForeground]::ReadEditText($gui.hwndFocus);$selection=[ColoopForeground]::ReadEditSelection($gui.hwndFocus,$editText)
    $nativeRect=New-Object ColoopForeground+RECT;[void][ColoopForeground]::GetWindowRect($gui.hwndFocus,[ref]$nativeRect)
    $editRect=@($nativeRect.left,$nativeRect.top,$nativeRect.right,$nativeRect.bottom);$editRuntime=@(42,$gui.hwndFocus.ToInt64())
    $selectionStart=$selection[0];$selectionEnd=$selection[1];$editableSource='win32';$editable=$true
   }
- } catch {} }
+ } catch {}
  $pointOwner = $handle.ToInt64()
  if ($null -ne $request.x) { $p = New-Object ColoopForeground+POINT; $p.x = $request.x; $p.y = $request.y; $hit = [ColoopForeground]::WindowFromPoint($p); $pointOwner = [ColoopForeground]::GetAncestor($hit,2).ToInt64() }
  [uint32]$pointProcessId=0;[void][ColoopForeground]::GetWindowThreadProcessId([IntPtr]::new($pointOwner),[ref]$pointProcessId)
@@ -266,7 +338,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
   foreach($nativeEditor in [ColoopForeground]::NativeEditors($handle,$processId)) {
    $er=New-Object ColoopForeground+RECT;[void][ColoopForeground]::GetWindowRect($nativeEditor,[ref]$er)
    $editorName='Native text editor'
-   try {$label=[System.Windows.Automation.AutomationElement]::FromHandle($nativeEditor).Current.Name;if($label -and $label.Length-le 120 -and $label-ne [ColoopForeground]::ReadEditText($nativeEditor)){$editorName=$label}}catch{}
+   try {$label=[System.Windows.Automation.AutomationElement]::FromHandle($nativeEditor).Current.Name;$body=[ColoopForeground]::ReadEditText($nativeEditor);$crlf=[string]::Concat([char]13,[char]10);$cr=[string][char]13;if($label -and $label.Length-le 120 -and $label.Replace($crlf,$cr)-cne $body.Replace($crlf,$cr)){$editorName=$label}}catch{}
    $editorTargets+=@{type='Edit';name=$editorName;source='win32';runtime_id=@(42,$nativeEditor.ToInt64());rect=@($er.left,$er.top,$er.right,$er.bottom)}
   }
   foreach($target in [ColoopForeground]::NativeControlTargets($handle,$processId)) {
@@ -332,6 +404,14 @@ export interface ForegroundFrame extends ForegroundMetadata {
   scale: number[]
 }
 export interface ForegroundObservation extends ForegroundMetadata {
+  /** Bounded local Cua UIA enrichment; raw element values and tokens stay private. */
+  cua?: {
+    status: 'ready' | 'unavailable'
+    elements?: number
+    truncated?: boolean
+    text?: string
+    error?: string
+  }
   observation_id: string
   captured_at: number
   content_hash: string
@@ -368,6 +448,8 @@ export function hasMeaningfulVisualChange(before: Buffer, after: Buffer) {
 }
 
 /** One read-only Windows worker; this class has no input injection API. */
+const isAssistantProcess = (name?: string) => /^(chatgpt|codex)$/i.test(name ?? '')
+
 export class WindowsObservationCapture {
   private child?: ChildProcessWithoutNullStreams
   private serial: Promise<unknown> = Promise.resolve()
@@ -375,6 +457,8 @@ export class WindowsObservationCapture {
   private textBaseline = new Map<string, ForegroundMetadata>()
   private lastExternalTarget?: { window_id: string; process_id: number }
   private inputBindings = new Map<string, ForegroundMetadata>()
+  private targetIds = new Map<string, number>()
+  private nextTargetId = 1_000_000
   private visual?: { identity: string; sample: Buffer; fingerprint: string }
   constructor(
     private options: {
@@ -464,17 +548,26 @@ export class WindowsObservationCapture {
     this.serial = run
     return run
   }
-  async captureFrame(signal?: AbortSignal): Promise<ForegroundFrame | null> {
+  async captureFrame(
+    signal?: AbortSignal,
+    restoreBlockedTarget = false,
+  ): Promise<ForegroundFrame | null> {
     signal?.throwIfAborted()
-    const meta = await this.metadata()
-    const own = BrowserWindow.getAllWindows().some((window) => {
-      const raw = window.getNativeWindowHandle()
-      return (
-        raw.length >= 4 &&
-        String(raw.length >= 8 ? raw.readBigUInt64LE() : raw.readUInt32LE()) === meta.window_id
-      )
-    })
-    if (own || meta.window_id === '0') return null
+    const ownWindow = (id: string) =>
+      BrowserWindow.getAllWindows().some((window) => {
+        const raw = window.getNativeWindowHandle()
+        return (
+          raw.length >= 4 &&
+          String(raw.length >= 8 ? raw.readBigUInt64LE() : raw.readUInt32LE()) === id
+        )
+      })
+    let meta = await this.metadata()
+    if (isAssistantProcess(meta.process_name) || ownWindow(meta.window_id)) {
+      if (!restoreBlockedTarget || !(await this.restoreTarget())) return null
+      meta = await this.metadata()
+      if (isAssistantProcess(meta.process_name) || ownWindow(meta.window_id)) return null
+    }
+    if (meta.window_id === '0') return null
     this.lastExternalTarget = { window_id: meta.window_id, process_id: meta.process_id }
     const [left, top, right, bottom] = meta.window_rect
     const dip = screen.screenToDipRect(null, {
@@ -636,6 +729,34 @@ export class WindowsObservationCapture {
               ? ''
               : ocr.text)
         : ocr.text
+    if (ocrItems.length >= 1_000_000) throw new Error('OBSERVATION_TOO_MANY_OCR_ITEMS')
+    const currentTargetIds = new Map<string, number>()
+    const targets = distinctEditors.map((editor) => {
+      const key = `${frame.process_id}:${frame.window_id}:${editor.runtime_id.join()}`
+      const id = this.targetIds.get(key) ?? this.nextTargetId++
+      currentTargetIds.set(key, id)
+      const label = ['Native text editor', 'Focused text editor'].includes(editor.name)
+        ? ocrItems
+            .filter(
+              (item) =>
+                item.text.length <= 120 &&
+                item.rect[3] <= editor.rect[1] + 3 &&
+                editor.rect[1] - item.rect[3] < 60 &&
+                item.center[0] >= editor.rect[0] &&
+                item.center[0] <= editor.rect[2],
+            )
+            .sort((a, b) => b.rect[3] - a.rect[3])[0]
+        : undefined
+      return {
+        ...editor,
+        name: label?.text ?? editor.name,
+        id,
+        center: [(editor.rect[0] + editor.rect[2]) / 2, (editor.rect[1] + editor.rect[3]) / 2],
+      }
+    })
+    // Keep only controls in the current view. OCR line-count changes must not
+    // turn an editor ID into another editor or an OCR label in the next view.
+    this.targetIds = currentTargetIds
     return {
       ...meta,
       observation_id: randomUUID(),
@@ -658,30 +779,11 @@ export class WindowsObservationCapture {
         .digest('hex'),
       ocr_text: ocr.text,
       ocr_items: ocrItems,
-      targets: distinctEditors.map((editor, index) => {
-        const label = ['Native text editor', 'Focused text editor'].includes(editor.name)
-          ? ocrItems
-              .filter(
-                (item) =>
-                  item.text.length <= 120 &&
-                  item.rect[3] <= editor.rect[1] + 3 &&
-                  editor.rect[1] - item.rect[3] < 60 &&
-                  item.center[0] >= editor.rect[0] &&
-                  item.center[0] <= editor.rect[2],
-              )
-              .sort((a, b) => b.rect[3] - a.rect[3])[0]
-          : undefined
-        return {
-          ...editor,
-          name: label?.text ?? editor.name,
-          id: ocr.items.length + index,
-          center: [(editor.rect[0] + editor.rect[2]) / 2, (editor.rect[1] + editor.rect[3]) / 2],
-        }
-      }),
+      targets,
     }
   }
-  async capture(signal?: AbortSignal) {
-    const frame = await this.captureFrame(signal)
+  async capture(signal?: AbortSignal, restoreBlockedTarget = false) {
+    const frame = await this.captureFrame(signal, restoreBlockedTarget)
     return frame ? this.recognize(frame, signal) : null
   }
   async rememberTarget() {
@@ -690,7 +792,7 @@ export class WindowsObservationCapture {
       const raw = window.getNativeWindowHandle()
       return String(raw.length >= 8 ? raw.readBigUInt64LE() : raw.readUInt32LE()) === live.window_id
     })
-    if (!own && live.window_id !== '0')
+    if (!own && live.window_id !== '0' && !isAssistantProcess(live.process_name))
       this.lastExternalTarget = { window_id: live.window_id, process_id: live.process_id }
   }
   async restoreTarget() {
@@ -704,6 +806,18 @@ export class WindowsObservationCapture {
       // is available next instead of aborting submission or a user answer.
       return false
     }
+  }
+  async focusTaskWindow(windowId: string, processId: number) {
+    if (!/^[1-9]\d*$/.test(windowId) || !Number.isInteger(processId) || processId <= 0)
+      throw new Error('ARTIFACT_WINDOW_INVALID')
+    const live = await this.metadata(undefined, windowId, false, processId)
+    if (
+      live.window_id !== windowId ||
+      live.process_id !== processId ||
+      isAssistantProcess(live.process_name)
+    )
+      throw new Error('ARTIFACT_WINDOW_NOT_FOREGROUND')
+    this.lastExternalTarget = { window_id: windowId, process_id: processId }
   }
   private async inspectInput(
     snapshot: ForegroundObservation,
@@ -727,14 +841,16 @@ export class WindowsObservationCapture {
       (Number.isFinite(action.x) && Number.isFinite(action.y)
         ? [action.x!, action.y!]
         : target?.center)
-    const live = await this.metadata(center)
+    const live = await this.inputMetadata(snapshot, center, guard)
     const same =
       live.window_id === snapshot.window_id &&
       live.process_id === snapshot.process_id &&
       live.window_rect.join() === snapshot.window_rect.join()
     const kind = action.kind || action.action || action.type || ''
-    const needsEdit = ['paste', 'type', 'fill', 'paste_text', 'type_text', 'hotkey'].includes(kind)
-    if (needsEdit && kind !== 'hotkey' && same && live.editable_focus && !guard) {
+    // Application shortcuts also operate menus, lists and document surfaces.
+    // Text insertion needs an edit binding; hotkeys use the observed window.
+    const needsEdit = ['paste', 'type', 'fill', 'paste_text', 'type_text'].includes(kind)
+    if (needsEdit && same && live.editable_focus && !guard) {
       this.textBaseline.clear()
       this.textBaseline.set(snapshot.observation_id, live)
     }
@@ -794,6 +910,8 @@ export class WindowsObservationCapture {
           (baseline.editable_runtime_id?.join() === live.editable_runtime_id?.join() &&
             baseline.editable_rect?.join() === live.editable_rect?.join())))
     const allowed = !!(
+      !isAssistantProcess(live.process_name) &&
+      !isAssistantProcess(snapshot.process_name) &&
       same &&
       inside &&
       elementValid &&
@@ -815,6 +933,50 @@ export class WindowsObservationCapture {
   }
   validate(snapshot: ForegroundObservation, action: ObservationAction) {
     return this.inspectInput(snapshot, action, false)
+  }
+  private async inputMetadata(snapshot: ForegroundObservation, point?: number[], guard = false) {
+    const live = await this.metadata(point)
+    if (
+      !guard &&
+      isAssistantProcess(live.process_name) &&
+      !isAssistantProcess(snapshot.process_name)
+    ) {
+      await this.metadata(undefined, snapshot.window_id, false, snapshot.process_id)
+      return this.metadata(point)
+    }
+    return live
+  }
+  async readEditor(snapshot: ForegroundObservation, targetId: number) {
+    const live = await this.inputMetadata(snapshot)
+    if (live.editable_text === '' && (live.selection_start == null || live.selection_end == null)) {
+      live.selection_start = 0
+      live.selection_end = 0
+    }
+    const target = (snapshot.targets as { id: number; runtime_id?: number[] }[]).find(
+      (item) => item.id === targetId,
+    )
+    if (
+      isAssistantProcess(live.process_name) ||
+      live.window_id !== snapshot.window_id ||
+      live.process_id !== snapshot.process_id ||
+      live.window_rect.join() !== snapshot.window_rect.join() ||
+      !live.editable_focus ||
+      !target?.runtime_id?.length ||
+      target.runtime_id.join() !== live.editable_runtime_id?.join() ||
+      snapshot.editable_runtime_id?.join() !== live.editable_runtime_id?.join() ||
+      typeof live.editable_text !== 'string' ||
+      !Number.isInteger(live.selection_start) ||
+      !Number.isInteger(live.selection_end) ||
+      live.selection_start! < 0 ||
+      live.selection_end! < live.selection_start! ||
+      live.selection_end! > live.editable_text.length
+    )
+      throw new Error('EDITOR_BINDING_CHANGED')
+    return {
+      text: live.editable_text,
+      selection_start: live.selection_start!,
+      selection_end: live.selection_end!,
+    }
   }
   async verifyText(snapshot: ForegroundObservation, text: string) {
     const live = await this.metadata(),
@@ -863,7 +1025,7 @@ export class WindowsObservationCapture {
       observation_id: snapshot.observation_id,
     }
   }
-  async verifyCurrentText(snapshot: ForegroundObservation, expectedText: string) {
+  async verifyCurrentText(snapshot: ForegroundObservation, expectedText: string, exact = false) {
     const live = await this.metadata()
     const normalize = (text: string) => text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const verified =
@@ -872,8 +1034,11 @@ export class WindowsObservationCapture {
       live.process_id === snapshot.process_id &&
       live.editable_focus &&
       !!live.editable_runtime_id?.length &&
+      live.editable_runtime_id.join() === snapshot.editable_runtime_id?.join() &&
       typeof live.editable_text === 'string' &&
-      normalize(live.editable_text).includes(normalize(expectedText))
+      (exact
+        ? normalize(live.editable_text) === normalize(expectedText)
+        : normalize(live.editable_text).includes(normalize(expectedText)))
     return { verified, source: live.editable_source ?? 'uia' }
   }
   guard(snapshot: ForegroundObservation, action: ObservationAction) {
@@ -955,6 +1120,7 @@ interface ObservationOptions {
   intervalMs?: number
   stableMs?: number
   minOcrIntervalMs?: number
+  minRecommendationIntervalMs?: number
   now?: () => number
 }
 /** Latest-only passive loop. Explicit observations bypass debounce, never the OCR mutex. */
@@ -968,12 +1134,17 @@ export class ForegroundObservationService {
   private stableSince = 0
   private emitted = ''
   private emittedObservationId?: string
-  private lastContentHash = ''
-  private retryCount = 0
-  private retryAfter = 0
+  private emittedKey?: string
+  private recentSubmissions = new Map<
+    string,
+    { at: number; attempts: number; retryAfter?: number }
+  >()
+  private lastRecommendationAt = -Infinity
   private running = false
   private busy = false
   private lastOcrAt = -Infinity
+  private editorText?: string
+  private lastEditAt = -Infinity
   constructor(private options: ObservationOptions) {}
   start() {
     if (this.running) return
@@ -984,6 +1155,9 @@ export class ForegroundObservationService {
     if (this.pauses.has(reason)) return
     this.pauses.add(reason)
     this.abort?.abort()
+    // A task can interrupt analysis or consume the suggestion for this page.
+    // Allow a fresh recommendation when task observation resumes.
+    if (reason === 'task' && this.emittedKey) this.recentSubmissions.delete(this.emittedKey)
     this.invalidate()
   }
   resume(reason = 'user') {
@@ -998,14 +1172,15 @@ export class ForegroundObservationService {
   invalidate() {
     this.emitted = ''
     this.emittedObservationId = undefined
-    this.retryCount = 0
-    this.retryAfter = 0
+    this.emittedKey = undefined
     this.options.onInvalidated?.()
   }
   retryObservation(observationId: string) {
-    if (observationId !== this.emittedObservationId || this.retryCount >= 3) return
-    this.retryAfter = (this.options.now?.() ?? Date.now()) + 5000 * 2 ** this.retryCount
-    this.retryCount += 1
+    if (observationId !== this.emittedObservationId || !this.emittedKey) return
+    const submission = this.recentSubmissions.get(this.emittedKey)
+    if (!submission || submission.attempts >= 4 || submission.retryAfter !== undefined) return
+    submission.retryAfter =
+      (this.options.now?.() ?? Date.now()) + 30_000 * 2 ** (submission.attempts - 1)
     this.emitted = ''
   }
   private schedule() {
@@ -1026,8 +1201,16 @@ export class ForegroundObservationService {
       const identity = `${frame.process_id}:${frame.window_id}:${frame.window_rect.join()}`
       if (identity !== this.targetIdentity) {
         this.targetIdentity = identity
+        this.editorText = undefined
+        this.lastEditAt = -Infinity
         this.invalidate()
       }
+      if (frame.editable_focus && typeof frame.editable_text === 'string') {
+        if (this.editorText !== undefined && this.editorText !== frame.editable_text)
+          this.lastEditAt = now
+        this.editorText = frame.editable_text
+      } else this.editorText = undefined
+      if (now - this.lastEditAt < 1500) return
       if (this.options.isInteracting?.()) {
         // The island changes its own mask while hovered or edited. Continue
         // checking the target, then compare page text once that mask settles.
@@ -1042,7 +1225,6 @@ export class ForegroundObservationService {
         // the page. Keep the recommendation until OCR confirms new content.
         return
       }
-      if (now < this.retryAfter) return
       if (frame.fingerprint === this.processedFingerprint && now - this.lastOcrAt < 5000) return
       if (now - this.stableSince < (this.options.stableMs ?? 800)) return
       if (now - this.lastOcrAt < (this.options.minOcrIntervalMs ?? 1500)) return
@@ -1060,10 +1242,37 @@ export class ForegroundObservationService {
         snapshot.content_hash === this.emitted
       )
         return
-      if (snapshot.content_hash !== this.lastContentHash) this.invalidate()
-      this.lastContentHash = snapshot.content_hash
+      const suggestionText = cleanSuggestionOcr(snapshot)
+      if (!suggestionText) {
+        if (this.emitted) this.invalidate()
+        return
+      }
+      // Window switches, geometry changes and OCR/UIA hash jitter must not reset
+      // the inference budget. Cache the text actually used for recommendations.
+      const key = createHash('sha256')
+        .update(`${snapshot.process_id}:${snapshot.window_id}\n`)
+        .update(suggestionText.replace(/\s+/g, ' ').trim())
+        .digest('hex')
+      if (this.emittedKey && key !== this.emittedKey) this.invalidate()
+      const submittedAt = this.options.now?.() ?? Date.now()
+      for (const [cachedKey, submission] of this.recentSubmissions) {
+        if (submittedAt - submission.at >= 600_000) this.recentSubmissions.delete(cachedKey)
+      }
+      const previous = this.recentSubmissions.get(key)
+      if (
+        (previous && (previous.retryAfter === undefined || submittedAt < previous.retryAfter)) ||
+        submittedAt - this.lastRecommendationAt <
+          (this.options.minRecommendationIntervalMs ?? 30_000)
+      )
+        return
+      this.recentSubmissions.delete(key)
+      this.recentSubmissions.set(key, { at: submittedAt, attempts: (previous?.attempts ?? 0) + 1 })
+      if (this.recentSubmissions.size > 128)
+        this.recentSubmissions.delete(this.recentSubmissions.keys().next().value!)
+      this.lastRecommendationAt = submittedAt
       this.emitted = snapshot.content_hash
       this.emittedObservationId = snapshot.observation_id
+      this.emittedKey = key
       await this.options.onObservation(snapshot)
     } catch (error) {
       if (!this.abort.signal.aborted) {

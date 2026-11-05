@@ -1,6 +1,6 @@
 {
   "name": "coloop",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Coloop · RK 智能设备桌面工作台",
   "private": true,
   "type": "module",
@@ -27,10 +27,20 @@
     "package:dir": "npm run build && electron-builder --dir",
     "postinstall": "node node_modules/electron/install.js",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "setup:docling": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-docling.ps1",
+    "setup:stagehand": "node scripts/setup-stagehand.mjs",
+    "setup:node": "node scripts/setup-node.mjs",
+    "setup:cua": "node scripts/setup-cua.mjs",
+    "prepare:runtime": "npm run setup:node && npm run setup:cua && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-docling.ps1"
   },
   "dependencies": {
     "@agent-tars/core": "0.3.1",
+    "@browserbasehq/stagehand": "4.4.0",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-sdk-client": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-session-checkpoint-policy": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
     "lucide-react": "^0.468.0",
     "openai": "6.0.0",
     "playwright-core": "1.64.1",
@@ -57,6 +67,7 @@
     "vitest": "^4.0.0"
   },
   "build": {
+    "afterPack": "scripts/after-pack.cjs",
     "npmRebuild": false,
     "appId": "ai.coloop.desktop",
     "productName": "Coloop",
@@ -68,6 +79,30 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "resources/office-window.ps1",
+        "to": "office-window.ps1"
+      },
+      {
+        "from": "resources/document-runtime.ps1",
+        "to": "document-runtime.ps1"
+      },
+      {
+        "from": "resources/voice-runtime.ps1",
+        "to": "voice-runtime.ps1"
+      },
+      {
+        "from": "resources/pdf-runtime.ps1",
+        "to": "pdf-runtime.ps1"
+      },
+      {
+        "from": "resources/file-runtime.ps1",
+        "to": "file-runtime.ps1"
+      },
+      {
+        "from": "resources/office-runtime.ps1",
+        "to": "office-runtime.ps1"
+      },
       {
         "from": "resources/rk-proactive-agent.py",
         "to": "rk-proactive-agent.py"
@@ -123,6 +158,36 @@
       {
         "from": "resources/remote/LICENSE-cloudflared.txt",
         "to": "runtime/LICENSE-cloudflared.txt"
+      },
+      {
+        "from": "resources/harness",
+        "to": "harness",
+        "filter": [
+          "coloop-plugin.mjs"
+        ]
+      },
+      {
+        "from": "resources/docling-worker.py",
+        "to": "docling-worker.py"
+      },
+      {
+        "from": ".cache/docling-portable",
+        "to": "runtime/docling",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/*.pyo",
+          "!runtime-probe.json"
+        ]
+      },
+      {
+        "from": ".cache/node-runtime",
+        "to": "runtime/node"
+      },
+      {
+        "from": ".cache/cua-driver",
+        "to": "runtime/cua-driver"
       }
     ],
     "win": {
@@ -131,6 +196,7 @@
       "artifactName": "Coloop-${version}-Windows-${arch}.${ext}",
       "signExecutable": false
     },
-    "electronDist": "node_modules/electron/dist"
+    "electronDist": "node_modules/electron/dist",
+    "asar": false
   }
 }

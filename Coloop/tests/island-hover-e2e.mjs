@@ -1,4 +1,4 @@
-import { _electron as electron } from '@playwright/test'
+import { _electron as electron, expect } from '@playwright/test'
 import { build } from 'esbuild'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -26,36 +26,41 @@ try {
   const bounds = () => app.evaluate(() => global.indicator.getBounds())
   await main.waitFor()
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setPosition(100, 350))
-  assert.equal((await bounds()).width, 280)
+  assert.ok(Math.abs((await bounds()).width - 280) <= 1)
   assert.equal(await command.isVisible(), false)
   await page.screenshot({ path: resolve(output, 'collapsed.png') })
   await main.dispatchEvent('mouseover')
   await command.waitFor()
-  await page.waitForTimeout(120)
-  assert.equal((await bounds()).width, 480)
+  await page.waitForTimeout(260)
+  assert.ok(Math.abs((await bounds()).width - 480) <= 1)
   assert.equal((await bounds()).height, 128)
   const beforeDrag = await bounds()
   const handle = await page.getByLabel('拖动灵动岛', { exact: true }).boundingBox()
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
   await page.mouse.down()
-  await page.mouse.move(handle.x + handle.width / 2 + 80, handle.y + handle.height / 2 + 40, { steps: 8 })
+  await page.mouse.move(handle.x + handle.width / 2 + 80, handle.y + handle.height / 2 + 40, {
+    steps: 8,
+  })
   await page.mouse.up()
-  await page.waitForTimeout(150)
+  await page.waitForTimeout(260)
   const afterDrag = await bounds()
-  assert.ok(afterDrag.x !== beforeDrag.x || afterDrag.y !== beforeDrag.y, 'pointer drag moves real window')
+  assert.ok(
+    afterDrag.x !== beforeDrag.x || afterDrag.y !== beforeDrag.y,
+    'pointer drag moves real window',
+  )
   await page.screenshot({ path: resolve(output, 'expanded.png') })
   await main.dispatchEvent('mouseout')
-  await page.waitForTimeout(500)
-  assert.equal((await bounds()).width, 280)
+  await page.waitForTimeout(650)
+  assert.ok(Math.abs((await bounds()).width - 280) <= 1)
   await main.dispatchEvent('mouseover')
   await command.click()
   await command.fill('保留输入草稿')
   await main.dispatchEvent('mouseout')
-  await page.waitForTimeout(500)
-  assert.equal((await bounds()).width, 480, 'focused input stays expanded')
+  await page.waitForTimeout(650)
+  assert.ok(Math.abs((await bounds()).width - 480) <= 1, 'focused input stays expanded')
   await page.getByRole('button', { name: '收起灵动岛' }).click()
-  await page.waitForTimeout(150)
-  assert.equal((await bounds()).width, 280)
+  await page.waitForTimeout(260)
+  assert.ok(Math.abs((await bounds()).width - 280) <= 1)
   await main.dispatchEvent('mouseover')
   assert.equal(await command.inputValue(), '保留输入草稿')
   await page.getByRole('button', { name: '收起灵动岛' }).click()
@@ -63,29 +68,72 @@ try {
     const area = screen.getPrimaryDisplay().workArea
     BrowserWindow.getAllWindows()[0].setPosition(area.x + 150, area.y + 200)
   })
-  await page.waitForTimeout(150)
+  await page.waitForTimeout(260)
   const moved = await bounds()
   await app.evaluate(async () => {
     await global.indicator.update({ mode: 'idle', detail: 'Background update' })
   })
   assert.deepEqual(await bounds(), moved, 'status refresh preserves dragged position')
   await main.dispatchEvent('mouseover')
-  await page.waitForTimeout(120)
+  await page.waitForTimeout(260)
   const opened = await bounds()
   assert.equal(opened.y, moved.y)
-  assert.equal(
-    opened.x + opened.width / 2,
-    moved.x + moved.width / 2,
+  assert.ok(
+    Math.abs(opened.x + opened.width / 2 - (moved.x + moved.width / 2)) <= 1,
     'hover expands around dragged anchor',
   )
   await main.dispatchEvent('mouseout')
-  await page.waitForTimeout(500)
+  await page.waitForTimeout(650)
+  // Reverse an in-flight resize while a routine snapshot arrives.
+  const sampling = app.evaluate(async () => {
+    const samples = []
+    const frame = () => new Promise((resolve) => setTimeout(resolve, 20))
+    for (let i = 0; i < 24; i++) {
+      await frame()
+      samples.push(global.indicator.getBounds().width)
+    }
+    return samples
+  })
+  await page.evaluate(() => window.coloopControl.setRevealed(true, false))
+  await page.waitForTimeout(60)
+  await page.evaluate(() => window.coloopControl.setRevealed(false, false))
+  await page.waitForTimeout(25)
+  await page.evaluate(() => window.coloopControl.setRevealed(true, false))
+  await app.evaluate(() => global.indicator.update({ mode: 'idle', detail: 'Motion refresh' }))
+  const trajectory = await sampling
+  assert.ok(
+    trajectory.some((width) => width > 281 && width < 479),
+    'real intermediate sizes',
+  )
+  assert.ok(Math.abs(trajectory.at(-1) - 480) <= 1, 'reversal reaches expanded target')
+  await main.dispatchEvent('mouseover')
+  await main.dispatchEvent('mouseout')
+  await page.waitForTimeout(650)
   await app.evaluate(async () => {
     await global.indicator.update({ mode: 'controlling', startedAt: new Date().toISOString() })
   })
-  assert.equal((await bounds()).width, 320)
+  assert.ok(Math.abs((await bounds()).width - 320) <= 1)
   assert.equal(await page.getByRole('button', { name: 'Stop', exact: true }).isVisible(), true)
   await page.screenshot({ path: resolve(output, 'active-collapsed.png') })
+  await app.evaluate(async () => {
+    await global.indicator.update({ mode: 'idle' })
+  })
+  await main.dispatchEvent('mouseover')
+  await page.waitForTimeout(260)
+  await page.getByRole('button', { name: '关闭灵动岛', exact: true }).click()
+  await expect.poll(() => app.evaluate(() => global.indicator.visible)).toBe(false)
+  await app.evaluate(async () => {
+    await global.indicator.update({ mode: 'idle', detail: 'refresh' })
+  })
+  assert.equal(
+    await app.evaluate(() => global.indicator.visible),
+    false,
+    'refresh respects dismissal',
+  )
+  await app.evaluate(async () => {
+    await global.indicator.preview()
+  })
+  assert.equal(await app.evaluate(() => global.indicator.visible), true, 'tray can reopen')
   await writeFile(
     resolve(output, 'verification.json'),
     JSON.stringify(

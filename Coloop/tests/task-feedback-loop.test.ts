@@ -6,7 +6,7 @@ import type { CloudGateway } from '../src/main/infrastructure/cloud'
 const request = {
   prompt: '打开 Edge 收集 Bilibili 视频',
   context: '',
-  target: 'rk' as const,
+  target: 'cloud' as const,
   source: 'text' as const,
 }
 function fixture() {
@@ -26,7 +26,7 @@ function fixture() {
         _update: (text: string) => void,
       ) => '我不能控制设备',
     ),
-    privacyAgent: vi.fn(async () => '{"decision":"execute","feedback":"实际调用工具完成目标"}'),
+    privacyAgent: vi.fn(async () => '{"type":"execute"}'),
   }
   const execute = vi.fn(
     async (_id: string, _goal: string, _signal: AbortSignal, _stage: (text: string) => void) =>
@@ -47,6 +47,46 @@ function fixture() {
   return { service, store, board, cloud, execute, screen }
 }
 describe('cloud task planning and verified execution', () => {
+  it('plans explicit local-mode requests without contacting the cloud', async () => {
+    const f = fixture()
+    f.board.state.qwenReady = true
+    f.board.state.modelPrivacyReady = true
+    const id = f.service.start({ ...request, target: 'rk' })
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
+    expect(f.cloud.generate).not.toHaveBeenCalled()
+    expect(f.board.privacyAgent).toHaveBeenCalledOnce()
+    expect(f.execute).toHaveBeenCalledWith(
+      id,
+      request.prompt,
+      expect.any(AbortSignal),
+      expect.any(Function),
+      'rk',
+      undefined,
+      undefined,
+    )
+  })
+  it('answers local-mode questions without desktop input or cloud traffic', async () => {
+    const f = fixture()
+    f.board.privacyAgent.mockResolvedValueOnce('{"type":"answer","answer":"本地答案"}')
+    f.service.start({ ...request, target: 'rk' })
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
+    expect(f.store.tasks[0].answer).toBe('本地答案')
+    expect(f.execute).not.toHaveBeenCalled()
+    expect(f.cloud.generate).not.toHaveBeenCalled()
+  })
+  it('keeps a hybrid task local even when a cloud credential is configured', async () => {
+    const f = fixture()
+    f.board.state.qwenReady = true
+    f.board.state.modelPrivacyReady = true
+    // An available cloud credential must not change hybrid planning into raw-data egress.
+    Object.defineProperty(f.store, 'apiKey', { value: 'synthetic-key' })
+    f.cloud.generate.mockRejectedValueOnce(new Error('模型服务返回 HTTP 402。'))
+    const id = f.service.start({ ...request, target: 'hybrid' })
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
+    expect(f.cloud.generate).not.toHaveBeenCalled()
+    expect(f.board.privacyAgent).toHaveBeenCalledOnce()
+    expect(f.execute.mock.calls[0][0]).toBe(id)
+  })
   it('runs explicit computer tasks through the execution entry and records their capability', async () => {
     const f = fixture()
     const id = f.service.start({ ...request, intent: 'execute' })
@@ -58,6 +98,9 @@ describe('cloud task planning and verified execution', () => {
       request.prompt,
       expect.any(AbortSignal),
       expect.any(Function),
+      'cloud',
+      undefined,
+      undefined,
     )
     expect(f.store.tasks[0].execution).toBe('desktop')
   })

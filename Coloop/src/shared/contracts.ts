@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { modelLimitsSchema, type ModelUsageSnapshot } from './model-usage'
 import type { VioloopSnapshot } from './violoop'
 import type { AutoConnectionSnapshot } from './connection'
 import type { CoordinatorSnapshot } from './coordinator'
@@ -70,13 +71,38 @@ export const settingsSchema = z.object({
   provider: providerSchema,
   board: boardSchema,
   ocrWorkspace: z.string().trim().min(1).max(1024).default('D:/RK'),
+  taskWorkspace: z.string().trim().min(1).max(2048).optional(),
+  modelLimits: modelLimitsSchema.optional(),
+  agentEngine: z.enum(['harness', 'tars']).optional(),
+  browserEngine: z.enum(['stagehand', 'playwright']).optional(),
 })
+export const cloudFieldSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[\p{L}\p{N}_ -]+$/u),
+    type: z.enum(['identifier', 'number']),
+  })
+  .strict()
+export type CloudField = z.infer<typeof cloudFieldSchema>
 export const taskRequestSchema = z.object({
   prompt: z.string().trim().min(1, '请先输入任务').max(24000),
   target: z.enum(['hybrid', 'cloud', 'rk']),
   context: z.string().max(50000).default(''),
   source: z.enum(['text', 'screen']).default('text'),
   intent: z.literal('execute').optional(),
+  workspace: z.string().trim().min(1).max(2048).optional(),
+  cloudFields: z
+    .array(cloudFieldSchema)
+    .max(16)
+    .refine(
+      (fields) => new Set(fields.map((field) => field.name)).size === fields.length,
+      'Duplicate approved fields',
+    )
+    .optional(),
 })
 export type ProviderConfig = z.infer<typeof providerSchema>
 export type BoardConfig = z.infer<typeof boardSchema>
@@ -85,6 +111,40 @@ export type Settings = Omit<SettingsInput, 'provider'> & {
   provider: Omit<ProviderConfig, 'apiKey' | 'clearKey'> & { hasKey: boolean }
 }
 export type TaskRequest = z.infer<typeof taskRequestSchema>
+export const scheduleRequestSchema = z
+  .object({
+    runAt: z.string().datetime({ offset: true }),
+    timezone: z.string().min(1).max(100),
+    request: taskRequestSchema,
+    sourceTaskId: z.string().uuid().optional(),
+  })
+  .strict()
+export type ScheduleRequest = z.infer<typeof scheduleRequestSchema>
+export interface ScheduledTask extends ScheduleRequest {
+  id: string
+  taskId: string
+  createdAt: string
+  startedAt?: string
+  finishedAt?: string
+  status:
+    | 'pending'
+    | 'waiting'
+    | 'dispatching'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'unconfirmed'
+  error?: string
+}
+export interface VoiceTranscript {
+  text: string
+  confidence: number
+  language: 'zh-CN'
+  engine: 'windows_offline_speech'
+  rejected_segments: number
+  segments: { text: string; confidence: number }[]
+}
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 export interface Task {
   id: string
@@ -120,6 +180,9 @@ export interface DeviceState {
   modelServiceError?: string
   updatedAt?: string
   latencyMs?: number
+  clockOffsetMs?: number
+  clockSyncedAt?: string
+  clockSyncError?: string
 }
 export interface OcrItem {
   text: string
@@ -145,6 +208,7 @@ export interface Capture {
   height: number
 }
 export interface AppSnapshot {
+  modelUsage?: ModelUsageSnapshot
   settings: Settings
   device: DeviceState
   tasks: Task[]
@@ -160,10 +224,12 @@ export interface AppSnapshot {
   violoop?: VioloopSnapshot
   autoConnection?: AutoConnectionSnapshot
   proactive?: ProactiveState
+  schedules?: { entries: ScheduledTask[]; error?: string }
 }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 export interface DesktopApi {
   startProactiveTask(goal: string): Promise<Result<string>>
+  resumeProactiveTask(taskId: string): Promise<Result<string>>
   stopProactiveTask(): Promise<Result<void>>
   pauseProactiveObservation(paused: boolean): Promise<Result<void>>
   acceptProactiveSuggestion(id: string): Promise<Result<void>>
@@ -191,6 +257,9 @@ export interface DesktopApi {
   openCredentialLogin(id: string): Promise<Result<void>>
   snapshot(): Promise<Result<AppSnapshot>>
   saveSettings(input: SettingsInput): Promise<Result<Settings>>
+  chooseTaskWorkspace(): Promise<Result<string | undefined>>
+  transcribeVoice(audio: string): Promise<Result<VoiceTranscript>>
+  cancelVoiceTranscription(): Promise<Result<void>>
   importRk(): Promise<Result<Settings>>
   connect(password: string): Promise<Result<DeviceState>>
   retryRkConnection(): Promise<Result<void>>
@@ -202,6 +271,8 @@ export interface DesktopApi {
   openImage(): Promise<Result<Capture | null>>
   recognize(id: string): Promise<Result<OcrResult>>
   dispatchTask(request: TaskRequest): Promise<Result<{ id: string }>>
+  scheduleTask(request: ScheduleRequest): Promise<Result<ScheduledTask>>
+  cancelScheduledTask(id: string): Promise<Result<void>>
   runTask(request: TaskRequest): Promise<Result<string>>
   cancelTask(id: string): Promise<Result<void>>
   controlSession(input: SessionCommandInput): Promise<Result<CommandSnapshot>>
