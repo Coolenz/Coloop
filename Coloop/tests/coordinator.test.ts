@@ -16,6 +16,7 @@ beforeEach(async () => {
   await writeFile(file, 'export const sum = (a: number, b: number) => a + b\n')
 })
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(services.splice(0).map((service) => service.dispose()))
   await rm(root, { recursive: true, force: true })
 })
@@ -316,10 +317,11 @@ describe('coordinator policy and decision binding', () => {
     expect(generate).toHaveBeenCalledOnce()
   })
   it('keeps the timed-out request and model slot occupied until the ignored cancellation actually settles', async () => {
+    vi.useFakeTimers()
     let finish!: (answer: string) => void
     let attempts = 0
     const { service, generate } = setup({
-      timeout: 15,
+      timeout: 10000,
       generate: () => {
         attempts++
         return attempts === 1
@@ -330,7 +332,10 @@ describe('coordinator policy and decision binding', () => {
       },
     })
     const request = event()
-    expect((await service.review(request)).reasonCode).toBe('REVIEW_TIMEOUT')
+    const pending = service.review(request)
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    await vi.advanceTimersByTimeAsync(10000)
+    expect((await pending).reasonCode).toBe('REVIEW_TIMEOUT')
     expect((await service.review(request)).reasonCode).toBe('REQUEST_IN_PROGRESS')
     expect((await service.review(event({ id: 'not-queued' }))).reasonCode).toBe('MODEL_BUSY')
     expect(generate).toHaveBeenCalledOnce()
@@ -341,20 +346,30 @@ describe('coordinator policy and decision binding', () => {
     expect(generate).toHaveBeenCalledTimes(2)
   })
   it('bounds latency even if generate ignores cancellation; late replies cannot allow', async () => {
+    vi.useFakeTimers()
     let finish!: (answer: string) => void
-    const { service } = setup({
-      timeout: 15,
+    const { service, generate } = setup({
+      timeout: 10000,
       generate: () =>
         new Promise((resolve) => {
           finish = resolve
         }),
     })
     const request = event()
-    const result = await service.review(request)
+    const pending = service.review(request)
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce())
+    await vi.advanceTimersByTimeAsync(10000)
+    const result = await pending
     expect(result.decision).toBe('defer')
     finish('{"decision":"allow"}')
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    expect((await service.review(request)).decision).toBe('defer')
+    await vi.waitFor(() => expect(service.snapshot().reviewing).toBe(false))
+    expect(service.snapshot().audit[0].decision).toBe('defer')
+    const retry = service.review(request)
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(2))
+    await vi.advanceTimersByTimeAsync(10000)
+    expect((await retry).decision).toBe('defer')
+    finish('{"decision":"allow"}')
+    await vi.waitFor(() => expect(service.snapshot().reviewing).toBe(false))
   })
   it('never allows an expired request and rejects overlong event lifetimes', async () => {
     const { service, generate } = setup()
