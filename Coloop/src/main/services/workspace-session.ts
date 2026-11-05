@@ -304,7 +304,9 @@ export class WorkspaceSession {
   }
   private async path(value: string) {
     const absolute = resolve(this.root, value)
-    if (!this.inside(absolute)) throw new Error('PATH_OUTSIDE_TASK_WORKSPACE')
+    // Absolute paths can use Windows 8.3 names or another alias for this root.
+    // Resolve those before containment checks; relative traversal is rejected early.
+    if (!isAbsolute(value) && !this.inside(absolute)) throw new Error('PATH_OUTSIDE_TASK_WORKSPACE')
     let ancestor = absolute
     while (true) {
       try {

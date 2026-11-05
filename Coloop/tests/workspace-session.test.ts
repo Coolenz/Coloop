@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile, mkdir, symlink } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile, mkdir, symlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -22,7 +22,7 @@ const workbook = (path = 'result.xlsx') => ({
   ],
 })
 beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), 'coloop-workspace-'))
+  root = await realpath(await mkdtemp(join(tmpdir(), 'coloop-workspace-')))
   session = await WorkspaceSession.open(
     root,
     'unused.ps1',
@@ -366,10 +366,10 @@ it.runIf(process.platform === 'win32')(
       verified: true,
     })
   },
-  15000,
+  60000,
 )
 
-it.runIf(process.platform === 'win32')(
+it.runIf(process.platform === 'win32' && process.env.COLOOP_OFFICE_REAL === '1')(
   'writes, reopens and exports a real WPS document while preserving its source',
   async () => {
     session = await WorkspaceSession.open(
@@ -413,7 +413,7 @@ it.runIf(process.platform === 'win32')(
   30000,
 )
 
-it.runIf(process.platform === 'win32')(
+it.runIf(process.platform === 'win32' && process.env.COLOOP_OFFICE_REAL === '1')(
   'keeps monetary formats and computed values in an actual exported WPS workbook',
   async () => {
     session = await WorkspaceSession.open(

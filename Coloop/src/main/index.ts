@@ -560,9 +560,11 @@ async function initialize() {
           title: 'Coloop',
           detail: observationPaused
             ? '屏幕观察已暂停'
-            : ai.connected
-              ? '已就绪 · 正在观察当前窗口'
-              : '等待连接 RK',
+            : board.state.status === 'connected'
+              ? 'RK 已连接 · 等待任务'
+              : board.state.status === 'connecting'
+                ? '正在连接 RK'
+                : '等待连接 RK',
           observationPaused,
           error: ai.recommendationError ? proactiveErrorLabels[ai.recommendationError] : undefined,
         }

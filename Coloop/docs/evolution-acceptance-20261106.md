@@ -10,13 +10,17 @@
 - 保留原有间隔、任务次数、日额度、输入/输出预算、无进展停止、单飞和中断预留。新增 6 项回归覆盖缺价、累计预算、服务端冷却和账本审计。
 - 本轮发布包含工作区此前尚未发布的 Harness、Docling、Stagehand、CUA、任务恢复、自动连接与灵动岛改进；这些不是全在本轮新写。测试覆盖该最终源码整体。
 - 清理代码格式；历史 UI 证据目录排除格式化，保留原始字节。CI 固定 Node 24.14.0，负责源码测试/格式/build；完整包依赖本机准备的离线模型、Node、CUA 等资源，不在缺少资源的 GitHub runner 上伪造 portable 包。
+- 修复 Windows 工作区绝对路径别名的恢复：先解析真实路径，再检查目录授权；相对越界、目录链接逃逸仍拒绝，覆盖已存在文件与尚不存在输出的祖先路径。
+- 修复空闲灵动岛提示：依据真实 RK 设备状态显示“RK 已连接 · 等待任务”，不再把观察服务的连接状态当作设备断开。
 
 ## 软件与包内验证
 
 | 检查                 | 结果                                                                                         |
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | 初始 Vitest 基线     | 66 文件，1198 通过，1 可选跳过                                                               |
-| 最终 Vitest          | 66 文件，1204 通过，1 可选跳过                                                               |
+| 首次本机 Vitest      | 66 文件，1204 通过，1 可选跳过                                                               |
+| CI 修复后 Vitest     | 66 文件，1203 通过，3 可选跳过；CI 并发模式，含新增路径别名/越界回归                         |
+| 本机 Office 定向验收 | COLOOP_OFFICE_REAL=1；30 通过、1 Docling 可选跳过，包含真实 WPS 文档/表格/PDF 与 ZIP         |
 | npm run build        | 两套 TypeScript 检查及 main/preload/renderer 构建通过                                        |
 | npm run format:check | 通过；首次发现的格式问题已修复                                                               |
 | Python               | 随包 Python 运行 187 项，成功，2 跳过；系统 Python 首次缺 numpy 失败，未将其算通过           |
@@ -53,13 +57,13 @@
 
 历史 26 业务场景仍为 5 完整通过、13 类似场景通过、7 部分完成、1 未执行；本轮不宣称全部解决。手机协议、真实 QQ 邮箱、真实会议两小时延迟、地图链接恢复和另一台干净 Windows 均未在本轮完整重验。有限控件任务通过不等于任意电脑任务可靠。
 
-## 最终安装与复验结论
+## 首轮安装与模型复验记录
 
-最终目录包为 `release/evolution-0.14.0-20261106-final/win-unpacked`，已用安装脚本完整部署到 `%LOCALAPPDATA%\Programs\Coloop`，148867 文件逐项哈希校验通过。main bundle SHA-256：`10b7e165d9fb485a385db4177f2939684a3a6dd66268621115129f644930ef6d`。旧 app.asar 不存在。
+首轮发布前的目录包为 `release/evolution-0.14.0-20261106-final/win-unpacked`，已用安装脚本完整部署到 `%LOCALAPPDATA%\Programs\Coloop`，148867 文件逐项哈希校验通过。其 main bundle SHA-256：`10b7e165d9fb485a385db4177f2939684a3a6dd66268621115129f644930ef6d`。后续 CI 修复包另列于文末，不把前一包的模型实测冒充修复包实测。
 
-最终包的独立运行时与 UI 证据为 `.qa/runtime-package-windows-no-credentials-1793902409411/report.json`、`.qa/proactive-package-1793902436019/report.json`；实际安装路径 smoke 为 `.qa/proactive-package-1793902758893/report.json`。部署记录 `.qa/evolution-final-install.json`；脚本保留原安装备份 `Coloop-backup-20261106-021402`。
+该包的独立运行时与 UI 证据为 `.qa/runtime-package-windows-no-credentials-1793902409411/report.json`、`.qa/proactive-package-1793902436019/report.json`；实际安装路径 smoke 为 `.qa/proactive-package-1793902758893/report.json`。部署记录 `.qa/evolution-final-install.json`；脚本保留原安装备份 `Coloop-backup-20261106-021402`。
 
-最终包真实 DeepSeek → RK 两例均通过：
+该包真实 DeepSeek → RK 两例均通过：
 
 - 中文局部修改，37.70 秒，5 次模型请求；正文精确为三行“项目：Coloop / 状态：已完成 / 备注：保留这一行 😀”。证据 `.qa/harness-live-cloud-rk-partial_editor-1793902809982/report.json`。
 - 空白原生编辑框中文输入，28.40 秒，4 次模型请求；完整读回指定中文文本。证据 `.qa/harness-live-cloud-rk-blank_editor-1793902849123/report.json`。
@@ -75,3 +79,25 @@ GitHub 仅发布本轮最终源码快照到既有私有仓库 `Coolenz/Coloop`�
 清理仍受阻：批量删除和一个明确路径旧包的删除均被自动审批以 `blocked by policy` 拒绝，未给更具体原因。没有绕过审批或删除其他数据，旧包仍在磁盘上。
 
 启动状态补充：保存设置会短暂重连，`evolution-production-verification.json` 捕获到的是重连过渡态（deviceConnected=false），不能用该字段声称设备就绪。随后从统一 start.cmd 正常启动，使用当前新进程窗口的 Windows 可访问性树独立读取到“已连接”“qwen35-4b-rkllm”“已就绪”“工作区已就绪”。证据为 `.qa/evolution-unified-startup-verification.json`；最终安装路径进程已核对。生产配置核对前后均为 104 条任务，密钥密文完全一致。
+
+## GitHub CI 发现与修复
+
+[首次源码发布](https://github.com/Coolenz/Coloop/commit/622f3c6bd91f52c860c9a2362a017872155c402b) 的 [干净 Windows runner 验证](https://github.com/Coolenz/Coloop/actions/runs/42084847961) 失败：7 项失败、1197 项通过、1 跳过。原因包括 runner 临时目录的 RUNNER~1 短路径与 canonical 长路径不一致、全并发下 PowerShell ZIP 启动超时，以及 runner 没有 WPS。没有把这些失败改记为通过。
+
+修复后，工作区绝对路径别名会在真实路径解析后核对授权，新增恢复/创建/越界回归；测试期望使用 canonical fixture 路径。CI 并发限制为 2，ZIP 超时上限为 60 秒。WPS 集成测试改为显式 `COLOOP_OFFICE_REAL=1`，在有 WPS 的本机实际执行通过；干净 runner 不假装具有 Office。
+
+对应证据：`.qa/evolution-r2-tests.log` 与最终源码 `.qa/evolution-r3-tests.log`（均为 1203 通过、3 可选跳过）、`.qa/evolution-path-office-tests.log`（30 通过、1 可选跳过）、`.qa/evolution-r3-build.log`。只交付同一 0.14.0 版本；针对远端发现的问题追加修复提交，保留真实历史。修复提交的远端结果以 [GitHub Actions](https://github.com/Coolenz/Coloop/actions/workflows/ci.yml) 对应提交为准。
+
+## 当前最终安装包（r3）
+
+当前固定安装目录运行的来源为 `release/evolution-0.14.0-20261106-r3/win-unpacked`。安装前核对 104 条任务、无运行任务，从 File → Exit 正常退出；`install-local.ps1` 完整部署并逐项校验 **148867** 个文件，备份为 `Coloop-backup-20261106-025734`。实际安装的 main SHA-256 为 `aaad28077b0e8fa3fa3f4e3d4bb96d7b9afbfadfd2f73c9ec708e9e924e6ea3e`，与暂存包一致；不存在旧 `resources/app.asar`。
+
+- 开发目录之外的独立运行时通过：`.qa/runtime-package-windows-no-credentials-1793904994590/report.json`。官方 Harness 工具循环、Stagehand 实际页面读写、Docling 中文解析均在包内依赖运行。
+- 开发目录外界面/恢复 smoke 通过：`.qa/proactive-package-1793905026376/report.json`。
+- 实际安装路径 smoke 通过：`.qa/proactive-package-1793905372785/report.json`。
+- 安装记录：`.qa/evolution-r3-install.json`。最终源码全套测试与 build 通过；单独 Office 验收未跳过本机 WPS。
+- 生产配置连续三次快照核对设备 connected、Qwen ready、Harness 空闲、灵动岛“RK 已连接 · 等待任务”。104 条历史任务、原密钥密文和完整费用配置保持不变；`.qa/evolution-r3-production-verification.json`。此检查只读，不派发任务或请求付费模型。
+- 最终安装包追加真实本地 Qwen → RK 复选框验收：**212.96 秒，completed，checked=true，click_count=1**；`.qa/harness-live-rk-rk-checkbox-1793905431704/report.json`。沿用同一测试 profile，云端密钥为空，不开放付费调用；重新审计账本仍 within_limits，无新云模型请求。此耗时说明本地推理仍有明显性能限制，不能按云端路线的响应速度承诺。
+- 最后从 `D:\Coloop\start.cmd` 启动日常配置，以新进程的 Windows 可访问性树再次核对主窗口已连接/Qwen 已就绪、灵动岛“RK 已连接 · 等待任务”和 104 条历史任务。证据 `.qa/evolution-r3-unified-startup-verification.json`；安装版保留运行，测试实例已退出。
+
+清理限制仍有效：此前清单只统计当时的 12 个旧包；继续构建产生的暂存目录也保留。当前 `release` 中有 16 个桌面目录包（含当前 r3），另有 android 目录，没有达到“磁盘只保留最新版本”。不能把安装脚本保留备份视为已清理。

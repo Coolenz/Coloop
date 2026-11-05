@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 async function directory() {
-  const path = await mkdtemp(join(tmpdir(), 'coloop-workspace-migration-'))
+  const path = await realpath(await mkdtemp(join(tmpdir(), 'coloop-workspace-migration-')))
   directories.push(path)
   return path
 }
@@ -127,6 +127,46 @@ it('rejects changed artifacts and paths outside the restored workspace', async (
     ),
   ).rejects.toThrow('PATH_OUTSIDE_TASK_WORKSPACE')
   expect(session.checkpointArtifacts()).toEqual([])
+})
+
+it('accepts an absolute workspace alias for recovery and new outputs without permitting escapes', async () => {
+  const root = await directory()
+  const aliases = await directory()
+  const outside = await directory()
+  const alias = join(aliases, 'workspace-alias')
+  await symlink(root, alias, 'junction')
+  await symlink(outside, join(root, 'escape'), 'junction')
+  await writeFile(join(root, 'output.txt'), 'original')
+  await writeFile(join(outside, 'secret.txt'), 'private')
+  const session = await WorkspaceSession.open(alias, 'unused', async () => '')
+  const artifact = {
+    id: randomUUID(),
+    path: join(alias, 'output.txt'),
+    sha256: hash('original'),
+  }
+  await session.restoreArtifacts([artifact], signal())
+  expect(session.checkpointArtifacts()).toEqual([{ ...artifact, path: join(root, 'output.txt') }])
+  const created = await session.call(
+    { operation: 'write_text', arguments: { path: join(alias, 'new', 'result.txt'), text: 'new' } },
+    signal(),
+  )
+  expect(created).toMatchObject({ committed: true })
+  expect(await readFile(join(root, 'new', 'result.txt'), 'utf8')).toBe('new')
+  for (const path of [join(alias, 'escape', 'secret.txt'), join(outside, 'secret.txt')]) {
+    await expect(
+      session.call({ operation: 'read_text', arguments: { path } }, signal()),
+    ).rejects.toThrow('PATH_OUTSIDE_TASK_WORKSPACE')
+  }
+  await expect(
+    session.call(
+      {
+        operation: 'write_text',
+        arguments: { path: join(alias, 'escape', 'new', 'secret.txt'), text: 'bad' },
+      },
+      signal(),
+    ),
+  ).rejects.toThrow('PATH_OUTSIDE_TASK_WORKSPACE')
+  expect(await readFile(join(outside, 'secret.txt'), 'utf8')).toBe('private')
 })
 
 it.runIf(process.env.COLOOP_DOCLING_REAL === '1')(
