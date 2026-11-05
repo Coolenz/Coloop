@@ -16,6 +16,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { parseCsv } from '../domain/csv'
 import { runJsonWorker } from '../infrastructure/json-worker'
+import { createVerifiedZip } from '../infrastructure/zip-archive'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { Readable } from 'node:stream'
 import { basename, extname } from 'node:path'
@@ -377,17 +378,15 @@ export class WorkspaceSession {
   }
   private worker(value: unknown, signal: AbortSignal): Promise<Record<string, unknown>> {
     const operation = (value as { operation: string }).operation
-    const independent = ['create_zip', 'render_pdf'].includes(operation)
+    const independent = operation === 'render_pdf'
     const script =
-      operation === 'create_zip'
-        ? join(dirname(this.script), 'file-runtime.ps1')
-        : operation === 'render_pdf'
-          ? join(dirname(this.script), 'pdf-runtime.ps1')
-          : ['write_document', 'read_document', 'export_document_pdf', 'show_document'].includes(
-                operation,
-              )
-            ? join(dirname(this.script), 'document-runtime.ps1')
-            : this.script
+      operation === 'render_pdf'
+        ? join(dirname(this.script), 'pdf-runtime.ps1')
+        : ['write_document', 'read_document', 'export_document_pdf', 'show_document'].includes(
+              operation,
+            )
+          ? join(dirname(this.script), 'document-runtime.ps1')
+          : this.script
     // COM work drains before cancellation is acknowledged so owned books close.
     return runJsonWorker(script, value, {
       signal,
@@ -775,10 +774,7 @@ export class WorkspaceSession {
               return { ...entry, path: full, name: relative(source, full).replace(/\\/g, '/') }
             }),
           )
-          result = await this.worker(
-            { operation: 'create_zip', path: staged, entries: manifest },
-            signal,
-          )
+          result = await createVerifiedZip(staged, manifest, signal)
         }
         return await this.commit(staged, path, result, 'host_filesystem', signal)
       } finally {

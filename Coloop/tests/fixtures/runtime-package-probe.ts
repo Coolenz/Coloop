@@ -12,6 +12,7 @@ import { createHarnessRuntime } from '../../src/main/infrastructure/harness-runt
 import { StagehandRuntime } from '../../src/main/infrastructure/stagehand-runtime'
 import type { StagehandCompletionRequest } from '../../src/main/infrastructure/stagehand-model'
 import { DoclingService } from '../../src/main/infrastructure/docling'
+import { WorkspaceSession } from '../../src/main/services/workspace-session'
 
 const resources = resolve(process.argv[2])
 const output = resolve(process.argv[3])
@@ -41,6 +42,8 @@ for (const name of [
   '@browserbasehq/stagehand',
   'playwright-core',
   'zod',
+  'yazl',
+  'yauzl',
 ]) {
   const path =
     name === '@deepseek-ai/dsh'
@@ -320,6 +323,16 @@ try {
     sourceSha256: parsed.source_sha256,
     cacheHit: cached.cache_hit,
   }
+  console.log('Package probe: streamed ZIP with Chinese names, empty directory and readback')
+  const workspace = await WorkspaceSession.open(output, 'unused.ps1', async () => '')
+  const archiveSignal = new AbortController().signal
+  await workspace.call({ operation: 'make_directory', arguments: { path: '归档/空目录' } }, archiveSignal)
+  await workspace.call({ operation: 'write_text', arguments: { path: '归档/内容😀.txt', text: '包内 ZIP 中文校验' } }, archiveSignal)
+  const zipped = await workspace.call({ operation: 'create_zip', arguments: { source: '归档', path: '结果.zip' } }, archiveSignal)
+  assert.equal(zipped.verified, true)
+  assert.equal(zipped.entries, 2)
+  assert.equal((await workspace.verify(String(zipped.artifact_id), archiveSignal)).verified, true)
+  report.zip = { passed: true, entries: 2, readbackVerified: true, subprocess: false }
   report.ok = true
 } catch (error) {
   report.error =

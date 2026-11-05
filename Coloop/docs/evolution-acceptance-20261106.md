@@ -1,6 +1,8 @@
 # Coloop 演进与验收报告（2026-11-06）
 
-本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并完整构建安装版。报告持续补入最终安装和 GitHub 结果；未列为通过的项目不视为完成。
+本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复干净 Windows CI 暴露的路径、测试时钟与 ZIP 问题。**0.14.0 r4 已完整安装并从统一入口启动，RK 与本地 Qwen 就绪；本机 1210 项测试通过、3 项可选跳过。** 本轮付费测试共 19 次，最小请求间隔 5001 ms，保守费用估算 0.292452 元。旧包删除被自动审批阻止，尚未达到“磁盘只留最新版”；r4 GitHub CI 结果待远端复验，不提前记为通过。
+
+新目标见 [开发方向](development-direction.md)，插件与记忆取舍见 [生态评估](dsh-ecosystem-20261106.md)。当前安装包证据在文末；前面各轮失败和安装记录保留用于追溯。未列为通过的项目不视为完成。
 
 ## 改进与合并范围
 
@@ -88,9 +90,9 @@ GitHub 仅发布本轮最终源码快照到既有私有仓库 `Coolenz/Coloop`�
 
 对应证据：`.qa/evolution-r2-tests.log` 与最终源码 `.qa/evolution-r3-tests.log`（均为 1203 通过、3 可选跳过）、`.qa/evolution-path-office-tests.log`（30 通过、1 可选跳过）、`.qa/evolution-r3-build.log`。只交付同一 0.14.0 版本；针对远端发现的问题追加修复提交，保留真实历史。修复提交的远端结果以 [GitHub Actions](https://github.com/Coolenz/Coloop/actions/workflows/ci.yml) 对应提交为准。
 
-## 当前最终安装包（r3）
+## 上一轮安装与模型复验（r3）
 
-当前固定安装目录运行的来源为 `release/evolution-0.14.0-20261106-r3/win-unpacked`。安装前核对 104 条任务、无运行任务，从 File → Exit 正常退出；`install-local.ps1` 完整部署并逐项校验 **148867** 个文件，备份为 `Coloop-backup-20261106-025734`。实际安装的 main SHA-256 为 `aaad28077b0e8fa3fa3f4e3d4bb96d7b9afbfadfd2f73c9ec708e9e924e6ea3e`，与暂存包一致；不存在旧 `resources/app.asar`。
+上一轮部署的来源为 `release/evolution-0.14.0-20261106-r3/win-unpacked`，现已由文末 r4 替换。安装前核对 104 条任务、无运行任务，从 File → Exit 正常退出；`install-local.ps1` 完整部署并逐项校验 **148867** 个文件，备份为 `Coloop-backup-20261106-025734`。该轮实际安装的 main SHA-256 为 `aaad28077b0e8fa3fa3f4e3d4bb96d7b9afbfadfd2f73c9ec708e9e924e6ea3e`，与暂存包一致；不存在旧 `resources/app.asar`。
 
 - 开发目录之外的独立运行时通过：`.qa/runtime-package-windows-no-credentials-1793904994590/report.json`。官方 Harness 工具循环、Stagehand 实际页面读写、Docling 中文解析均在包内依赖运行。
 - 开发目录外界面/恢复 smoke 通过：`.qa/proactive-package-1793905026376/report.json`。
@@ -100,6 +102,31 @@ GitHub 仅发布本轮最终源码快照到既有私有仓库 `Coolenz/Coloop`�
 - 最终安装包追加真实本地 Qwen → RK 复选框验收：**212.96 秒，completed，checked=true，click_count=1**；`.qa/harness-live-rk-rk-checkbox-1793905431704/report.json`。沿用同一测试 profile，云端密钥为空，不开放付费调用；重新审计账本仍 within_limits，无新云模型请求。此耗时说明本地推理仍有明显性能限制，不能按云端路线的响应速度承诺。
 - 最后从 `D:\Coloop\start.cmd` 启动日常配置，以新进程的 Windows 可访问性树再次核对主窗口已连接/Qwen 已就绪、灵动岛“RK 已连接 · 等待任务”和 104 条历史任务。证据 `.qa/evolution-r3-unified-startup-verification.json`；安装版保留运行，测试实例已退出。
 
-清理限制仍有效：此前清单只统计当时的 12 个旧包；继续构建产生的暂存目录也保留。当前 `release` 中有 16 个桌面目录包（含当前 r3），另有 android 目录，没有达到“磁盘只保留最新版本”。不能把安装脚本保留备份视为已清理。
+清理限制仍有效：此前清单只统计当时的 12 个旧包；继续构建产生的暂存目录也保留。r4 安装后 `release` 中有 17 个桌面目录包（含当前 r4），另有 android 目录，没有达到“磁盘只保留最新版本”。不能把安装脚本保留备份视为已清理。
 
 远端复验补充：[第二轮 CI](https://github.com/Coolenz/Coloop/actions/runs/42091137858) 为 1201 通过、2 失败、3 跳过；路径与 WPS 问题已消失，ZIP 超时仍在，另暴露协调器测试把磁盘读取也压入 15 ms 实时时限的问题。协调器单测改用受控时钟，保留超时、未结束请求占位和迟到回复拒绝判据；ZIP 测试追加不含请求内容的进程/管道阶段日志继续定位。未把第二轮远端 CI 记作通过。这些测试/报告改动不改变已部署 r3 应用包。
+
+## ZIP 运行时修复
+
+[第三轮 CI](https://github.com/Coolenz/Coloop/actions/runs/42093950210) 为 1202 通过、1 失败、3 跳过。协调器时钟测试通过；ZIP 的阶段日志显示源目录与源文件已准备好，PowerShell 工作进程已创建，但未收到输出或退出事件。只定位到这个进程边界，未声称已证明 Windows 内部卡住的具体原因。
+
+ZIP 已改为宿主 Node 流式生成与独立读回，固定 [yazl 3.3.1](https://github.com/thejoshwolfe/yazl) 和 [yauzl 3.4.0](https://github.com/thejoshwolfe/yauzl)，不再启动 PowerShell。保留工作区授权、路径/链接限制、源哈希核对、原子发布、500 项限制、100 MB 产物上限和取消处理；按文件顺序读流，避免把整个归档放进内存。Office 与 PDF 工具不因 ZIP 改动而取消其原有运行时。
+
+新增 7 项 ZIP 回归覆盖 Unicode/emoji、空文件与空目录、源文件等长替换/增长、读回哈希与项数不符、路径穿越/重名、目标已存在以及取消后的句柄释放。新源码全套 **67 文件、1210 通过、3 可选跳过**，typecheck、build、format 通过；证据 `.qa/evolution-r4-tests.log`、`.qa/evolution-r4-build.log`。包内验证新增真实 ZIP 归档与读回，同时断言 yazl/yauzl 从包内加载。
+
+## 当前最终安装包（r4）
+
+最终来源为 `release/evolution-0.14.0-20261106-r4/win-unpacked`。旧应用通过 File → Exit 正常退出，无活动任务；`install-local.ps1` 部署完整目录到 `%LOCALAPPDATA%\Programs\Coloop`，逐项校验 **148880 个文件**。安装记录 `.qa/evolution-r4-install.json`，回退备份 `Coloop-backup-20261106-035611`，用户数据未删除。
+
+实际安装 main SHA-256 为 `690d8e16f87cc2728f78846028337f7c87da36d3ebe51df1a4ab6ed37e4d2fee`，与已验证暂存包一致；不存在旧 `resources/app.asar`。afterPack 补齐并校验生产依赖与必要 peerDependencies，完整包含离线运行资源。
+
+| 验证                  | 结果与本机证据                                                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 开发目录外运行时      | 通过；`.qa/runtime-package-windows-no-credentials-1793908515409/report.json`                                                                             |
+| 开发目录外界面/恢复   | 通过；`.qa/proactive-package-1793908547264/report.json`                                                                                                  |
+| 实际安装路径界面/恢复 | 通过；`.qa/proactive-package-1793908930955/report.json`                                                                                                  |
+| 实际安装路径运行时    | 通过；`.qa/runtime-package-windows-no-credentials-1793908930661/report.json`；Harness、Stagehand、Docling、ZIP 均从包内加载                              |
+| 生产配置              | 连续三次快照通过；104 条任务、原密钥与费用配置保留，RK connected / Qwen ready / Harness idle；`.qa/evolution-r4-production-verification.json`            |
+| 统一入口启动          | 从 `D:\Coloop\start.cmd` 启动，Windows 可访问性独立核对设备/模型就绪及灵动岛“RK 已连接 · 等待任务”；`.qa/evolution-r4-unified-startup-verification.json` |
+
+r4 增加 ZIP 运行时依赖与实现，Harness 推理路线和费用保护未变。上文真实模型任务属于其各自标注的安装包；r4 的包内测试使用合成模型响应，不把它冒充新增自主模型任务。为控制费用，没有重复付费验收，累计仍为 19 次。正式安装版保持运行，隔离测试实例已退出。

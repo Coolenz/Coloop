@@ -4,34 +4,6 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { WorkspaceSession } from '../src/main/services/workspace-session'
 
-// Native worker diagnostics contain process lifecycle only, never request content.
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>()
-  return {
-    ...actual,
-    spawn(
-      command: string,
-      args: readonly string[],
-      options: import('node:child_process').SpawnOptions,
-    ) {
-      const child = actual.spawn(command, args, options)
-      if (process.env.CI && command === 'powershell.exe') {
-        console.info('native-zip: worker spawned', {
-          pid: child.pid,
-          systemRootPresent: !!options.env?.SystemRoot,
-          pathPresent: !!options.env?.PATH,
-        })
-        child.stdout?.on('data', (chunk) => console.info('native-zip: stdout bytes', chunk.length))
-        child.stderr?.on('data', (chunk) => console.info('native-zip: stderr bytes', chunk.length))
-        child.on('error', (error) => console.info('native-zip: spawn error', error.name))
-        child.on('exit', (code, signal) => console.info('native-zip: exit', { code, signal }))
-        child.on('close', (code, signal) => console.info('native-zip: close', { code, signal }))
-      }
-      return child
-    },
-  }
-})
-
 let root: string
 let session: WorkspaceSession
 const signal = () => new AbortController().signal
@@ -373,36 +345,20 @@ it('rejects archives inside their own source and executable text outputs', async
     'TEXT_OUTPUT_EXTENSION_UNSUPPORTED',
   )
 })
-it.runIf(process.platform === 'win32')(
-  'creates and reads back a native ZIP including emoji and empty directories',
-  async () => {
-    const progress = (stage: string) => {
-      if (process.env.CI) console.info('native-zip:', stage)
-    }
-    progress('open workspace')
-    session = await WorkspaceSession.open(
-      root,
-      join(process.cwd(), 'resources/office-runtime.ps1'),
-      async () => '',
-    )
-    await call('make_directory', { path: '整理/空目录' })
-    progress('directory ready')
-    await call('write_text', { path: '整理/照片🌤️.txt', text: '中文归档内容' })
-    progress('source ready')
-    const result = await call('create_zip', { source: '整理', path: '备份.zip' })
-    progress('archive committed')
-    expect(result).toMatchObject({
-      verified: true,
-      entries: 2,
-      channel: 'host_filesystem',
-      committed: true,
-    })
-    expect(await session.verify(String(result.artifact_id), signal())).toMatchObject({
-      verified: true,
-    })
-  },
-  60000,
-)
+it('creates and reads back a ZIP including emoji and empty directories without a PowerShell worker', async () => {
+  await call('make_directory', { path: '整理/空目录' })
+  await call('write_text', { path: '整理/照片🌤️.txt', text: '中文归档内容' })
+  const result = await call('create_zip', { source: '整理', path: '备份.zip' })
+  expect(result).toMatchObject({
+    verified: true,
+    entries: 2,
+    channel: 'host_filesystem',
+    committed: true,
+  })
+  expect(await session.verify(String(result.artifact_id), signal())).toMatchObject({
+    verified: true,
+  })
+}, 15000)
 
 it.runIf(process.platform === 'win32' && process.env.COLOOP_OFFICE_REAL === '1')(
   'writes, reopens and exports a real WPS document while preserving its source',
