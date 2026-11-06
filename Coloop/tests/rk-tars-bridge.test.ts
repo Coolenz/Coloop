@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import { RkTarsBridge } from '../src/main/infrastructure/rk-tars-bridge'
+import { RkTarsBridge, rkMemoryNamespace } from '../src/main/infrastructure/rk-tars-bridge'
 import { DesktopPipeError } from '../src/main/infrastructure/desktop-pipe'
 
 const cleanups: (() => Promise<unknown>)[] = []
@@ -11,7 +11,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
 })
 
-async function fixture() {
+async function fixture(namespace?: string) {
   const dir = await mkdtemp(join(tmpdir(), 'coloop-tars-bridge-'))
   await writeFile(join(dir, 'support.py'), 'class Agent: pass')
   await writeFile(join(dir, 'executor.py'), '# executor')
@@ -26,6 +26,7 @@ async function fixture() {
   const releaseClipboard = vi.fn(async () => {})
   const prepareInput = vi.fn(async () => {})
   const bridge = new RkTarsBridge({
+    namespace,
     supportScript: join(dir, 'support.py'),
     executorScript: join(dir, 'executor.py'),
     memoryScript: join(dir, 'memory.py'),
@@ -121,11 +122,34 @@ it('starts an executor without starting the memory model process and shares conc
   await Promise.all([f.bridge.connect(), f.bridge.connect()])
   expect(f.sources).toHaveLength(1)
   expect(f.sources[0]).toContain("types.ModuleType('coloop_rk_support')")
+  expect(f.sources[0]).toContain('os.environ[\'COLOOP_MEMORY_NAMESPACE\']="production"')
   await f.bridge.begin(f.task)
   await f.execute()
   await f.bridge.stop(f.task)
   expect(f.received.filter((row) => row.op === 'execute')).toHaveLength(1)
   await expect(f.execute()).rejects.toThrow('RK_ADAPTER_STALE_TASK')
+})
+
+it('keeps isolated profile memory stable across restart and separate from other profiles', () => {
+  const profile = join(tmpdir(), 'coloop-profile-a')
+  const namespace = rkMemoryNamespace(profile)
+  expect(rkMemoryNamespace()).toBe('production')
+  expect(namespace).toMatch(/^qa:profile:[a-f0-9]{64}$/)
+  expect(rkMemoryNamespace(join(profile, 'nested', '..'))).toBe(namespace)
+  expect(rkMemoryNamespace(join(tmpdir(), 'coloop-profile-b'))).not.toBe(namespace)
+  if (process.platform === 'win32') expect(rkMemoryNamespace(profile.toUpperCase())).toBe(namespace)
+})
+
+it('uses the isolated profile namespace for both executor reads and queued memory writes', async () => {
+  const namespace = rkMemoryNamespace(join(tmpdir(), 'coloop-memory-isolation'))
+  const f = await fixture(namespace)
+  await f.bridge.connect()
+  await f.bridge.enqueue({ task_id: 'isolated-task', verified: true })
+  expect(f.sources).toHaveLength(2)
+  for (const source of f.sources) {
+    expect(source).toContain(`os.environ['COLOOP_MEMORY_NAMESPACE']=${JSON.stringify(namespace)}`)
+    expect(source).not.toContain('os.environ[\'COLOOP_MEMORY_NAMESPACE\']="production"')
+  }
 })
 
 it('rejects cloud RPC and unbound observation requests from the executor', async () => {

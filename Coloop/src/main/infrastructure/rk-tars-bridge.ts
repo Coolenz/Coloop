@@ -1,11 +1,21 @@
 import { readFile } from 'node:fs/promises'
 import { deflateSync } from 'node:zlib'
+import { createHash } from 'node:crypto'
+import { resolve } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { DesktopPipe, DesktopPipeError } from './desktop-pipe'
 import type { ProactiveObservation } from '../services/proactive-agent'
 
 type Channel = Readable & Writable & { close(): void }
 type Row = Record<string, unknown>
+/** Test/custom data directories must not read or enqueue production memories. */
+export function rkMemoryNamespace(isolatedDirectory?: string): string {
+  if (!isolatedDirectory) return 'production'
+  const path = resolve(isolatedDirectory)
+  const identity = process.platform === 'win32' ? path.toLowerCase() : path
+  return 'qa:profile:' + createHash('sha256').update(identity).digest('hex')
+}
+
 const errorCode = (error: unknown, fallback: string) => {
   const code =
     error instanceof DesktopPipeError ? error.code : error instanceof Error ? error.message : ''

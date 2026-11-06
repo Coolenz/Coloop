@@ -76,7 +76,7 @@ import { TaskScheduler } from './services/task-scheduler'
 import { projectTaskProgress } from './domain/task-progress'
 import { cloudConsultQuestions } from './domain/cloud-fields'
 import { localSuggestionSystem } from './domain/proactive-suggestion'
-import { RkTarsBridge } from './infrastructure/rk-tars-bridge'
+import { RkTarsBridge, rkMemoryNamespace } from './infrastructure/rk-tars-bridge'
 import { createAgentRuntime } from './infrastructure/agent-runtime'
 import { ExecutionCheckpointStore } from './infrastructure/execution-checkpoints'
 import { DoclingService } from './infrastructure/docling'
@@ -827,6 +827,7 @@ async function initialize() {
     return checked
   }
   const tarsBridge = new RkTarsBridge({
+    namespace: rkMemoryNamespace(process.env.COLOOP_DATA_DIR ? directory : undefined),
     executorScript: join(resourceDirectory, 'rk-execution-adapter.py'),
     memoryScript: join(resourceDirectory, 'rk-memory-worker.py'),
     supportScript: join(resourceDirectory, 'rk-proactive-agent.py'),
