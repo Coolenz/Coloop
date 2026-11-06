@@ -39,6 +39,7 @@ import { CloudGateway } from './infrastructure/cloud'
 import { createRkTarsFetch, rkTarsModel } from './infrastructure/rk-tars-model'
 import { OcrEngine } from './infrastructure/ocr'
 import { TaskService } from './services/tasks'
+import { syncRecoveredTaskHistory } from './services/recovered-task-history'
 import { CoordinatorService, ReviewInputError } from './services/coordinator'
 import { AgentHookService } from './services/agent-hooks'
 import { ManagedApprovalAuthority } from './services/managed-approvals'
@@ -1023,6 +1024,14 @@ async function initialize() {
     readEditor: (observation, targetId) =>
       foregroundCapture!.readEditor(observation as unknown as ForegroundObservation, targetId),
     onChange: () => {
+      if (proactive && !tasks.running) {
+        const state = proactive.snapshot()
+        try {
+          syncRecoveredTaskHistory(store, state, proactivePhaseLabels[state.phase] ?? state.phase)
+        } catch (error) {
+          console.error('RECOVERED_TASK_HISTORY_SAVE_FAILED', error)
+        }
+      }
       violoop?.observeDesktop()
       if (proactive?.active) foreground?.pause('task')
       else foreground?.resume('task')
