@@ -134,6 +134,31 @@ async function hasPersistedContent(path: string): Promise<boolean> {
 /** The RK transport is text-only. Keep its existing XML protocol and compaction
  * vocabulary while the official Harness remains the sole tool-loop owner. */
 export function harnessRkRequest(body: Row): Row {
+  const fileOnly =
+    body.tools?.some((tool: Row) => tool.function?.name === 'coloop_copy_file') &&
+    !body.tools?.some((tool: Row) => tool.function?.name === 'coloop_execute')
+  const visualResult = (name: string | undefined, content: string): string => {
+    if (
+      !fileOnly ||
+      !['coloop_observe', 'coloop_execute', 'coloop_patch_text'].includes(name ?? '')
+    )
+      return content
+    try {
+      const value = JSON.parse(content)
+      const view = value.observation ?? value
+      if (!view || typeof view.observation_id !== 'string') return content
+      const superseded = {
+        observation_id: view.observation_id,
+        window_id: view.window_id,
+        superseded: true,
+        instruction: '当前为文件工具上下文。切回桌面操作时必须重新观察，不使用此旧观察。',
+      }
+      // Preserve action receipts; only the model-facing visual payload is reduced.
+      return JSON.stringify(value.observation ? { ...value, observation: superseded } : superseded)
+    } catch {
+      return content
+    }
+  }
   const names = new Map<string, string>()
   for (const message of body.messages ?? [])
     for (const call of message.tool_calls ?? []) names.set(call.id, call.function.name)
@@ -141,7 +166,7 @@ export function harnessRkRequest(body: Row): Row {
     if (message.role === 'tool')
       return {
         role: 'user',
-        content: `Tool: ${names.get(message.tool_call_id) ?? 'unknown'}\nResult:\n${textContent(message.content)}`,
+        content: `Tool: ${names.get(message.tool_call_id) ?? 'unknown'}\nResult:\n${visualResult(names.get(message.tool_call_id), textContent(message.content))}`,
       }
     const calls = (message.tool_calls ?? [])
       .map(

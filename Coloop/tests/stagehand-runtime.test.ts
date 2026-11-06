@@ -296,6 +296,10 @@ it.runIf(process.platform === 'win32')(
         runtime,
       )
       const view = await session.call({ operation: 'navigate', url })
+      // Establish the extension's view before testing an in-flight navigation.
+      // This reads the real page; it does not dispatch or retry a click.
+      const page = runtime.context.pages().find((candidate) => candidate.url() === view.source_url)!
+      expect((await runtime.snapshot(page)).formattedTree).toContain('保存一次')
       const result = await session.call({
         operation: 'act',
         observation_id: view.observation_id,

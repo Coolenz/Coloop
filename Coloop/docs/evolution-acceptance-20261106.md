@@ -225,3 +225,17 @@ r7 已安装至固定目录，148880 个文件完整校验通过，不创建安�
 新增回归使用不同的运行状态目录与任务子目录，验证恢复输入绑定任务目录、绝对父目录和 `..` 均被拒绝、`.` 只读到授权文件，并且列目录不会取得完成证据。全套 68 文件、1224 项通过、3 可选跳过，build/typecheck/format 通过。新包及真实模型复验仍在进行；证据 `.qa/evolution-r8-tests.log`、`.qa/evolution-r8-build.log`、`.qa/evolution-r8-format.log`。
 
 D 盘已清除 19 个旧 release 目录或手动删除后的残留，以及项目外的 r6 验证副本，共 20 个目标；逻辑文件大小 6808644170 字节，净释放 7299698688 字节。当前安装主程序和真实用户状态哈希不变。证据 `.qa/evolution-r7-d-cleanup-result.json`。本轮正在验证的 `release/current` 尚保留，必须在最终实际安装验收后删除，不能作为最新备份留存。
+
+## r8 实际安装、上下文阻塞与 r9 修复
+
+r8 已完整安装，148880 文件校验通过；main SHA-256 为 `38bd71166e1d435310068d0ecda3f0473546b6fc87de4d779dba91ac0b50d4ad`。实际安装路径启动和运行时验证通过，分别见 `.qa/proactive-package-1793955892371/report.json` 与 `.qa/runtime-package-windows-no-credentials-1793955891265/report.json`。
+
+原任务恢复 9.41 秒后失败，实际本地模型请求数为 0。SDK 会话明确记录 `OBSERVATION_CONTEXT_BUDGET`：旧桌面观察仍作为最新视觉上下文保留，在已积累的文件任务历史中无法投影到 RK 的 16384 字节限制内。测试 driver 首先显示了任务历史中的旧“无进展”错误，不能用它解释本次失败；以 SDK 错误及当前主动任务状态为准。证据 `.qa/harness-workspace-resume-1793955987425/report.json` 和相同任务的持久 SDK 会话。原账本不变，没有为规避上限新建任务或清空历史。
+
+r9 仅在当前工具集合明确为文件能力、没有 native execute 时，缩减模型输入中的旧视觉载荷；仍保存原始宿主/SDK 日志、动作回执、文件摘要和产物证据。切回 native 后保留正常视觉投影，旧观察不得复用。没有提高 RK 上下文或云端调用额度。新回归覆盖完整输入不被修改、回执/文件证据不丢、native 模式仍保留观察，并经过实际 RK 请求适配器验证。
+
+[r8 源码 CI](https://github.com/Coolenz/Coloop/actions/runs/42191412796) 为 1223 通过、1 失败、3 跳过；新目录恢复回归通过，失败是既有延迟 POST 场景在 unknown 后未观察到请求。该测试现在先用 Stagehand 扩展读取导航返回的实际页面，确认按钮可见，再测一次延迟提交；仍要求 posts=1、unknown、真实页面读回和模型调用=0，不重试点击。此预观察排除测试开始时的扩展就绪差异，不能证明所有未知提交均已发网。
+
+r9 本机完整回归 68 文件、1225 项通过、3 可选跳过；10 项定向回归、build/typecheck/format 通过。证据 `.qa/evolution-r9-tests.log`、`.qa/evolution-r9-targeted.log`、`.qa/evolution-r9-build.log`。真实任务及对应 CI 仍待复验。
+
+按最新零构建备份规则，已删除完成验收用途的两个同哈希 0.6.0 APK 副本，合计 37873832 字节；保留 Android 源码、SDK、验收记录及哈希元数据，`latest.json` 标记 artifactRetained=false。未重新声称 Android 硬件验收通过。证据 `.qa/evolution-r8-android-final-cleanup.json`。

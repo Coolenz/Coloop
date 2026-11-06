@@ -4,9 +4,76 @@ import { join, resolve } from 'node:path'
 import { expect, it, vi } from 'vitest'
 import { TarsAgentService, type TarsAgentOptions } from '../src/main/services/tars-agent'
 import { createTarsRuntime, type TarsRuntimeOptions } from '../src/main/infrastructure/tars-runtime'
-import { createHarnessRuntime } from '../src/main/infrastructure/harness-runtime'
+import { createHarnessRuntime, harnessRkRequest } from '../src/main/infrastructure/harness-runtime'
 import { rkTarsModel, createRkTarsFetch } from '../src/main/infrastructure/rk-tars-model'
 import { projectObservationContext } from '../src/main/infrastructure/observation-context'
+
+it('drops obsolete visual payloads only from file-only model context while preserving receipts and file evidence', async () => {
+  const observation = {
+    observation_id: 'old-screen',
+    window_id: 'window',
+    ocr_items: [],
+    ocr_text: '旧屏幕'.repeat(6000),
+  }
+  const receipt = { command_id: 'once', outcome: 'effect_verified' }
+  const source = {
+    model: rkTarsModel.id,
+    messages: [
+      { role: 'user', content: '恢复授权目录中的文件任务' },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [{ id: 'action', function: { name: 'coloop_execute', arguments: '{}' } }],
+      },
+      { role: 'tool', tool_call_id: 'action', content: JSON.stringify({ receipt, observation }) },
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id: 'file',
+            function: { name: 'coloop_copy_file', arguments: '{"source":"a","path":"b"}' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'file',
+        content: '{"committed":true,"artifact_id":"existing-copy","sha256":"file-proof"}',
+      },
+    ],
+    tools: [
+      { type: 'function', function: { name: 'coloop_copy_file', parameters: { type: 'object' } } },
+    ],
+  }
+  const original = JSON.stringify(source)
+  const request = harnessRkRequest(source)
+  const projected = JSON.parse(
+    request.messages
+      .find((m: { content: string }) => m.content.startsWith('Tool: coloop_execute'))
+      .content.split('Result:\n')[1],
+  )
+  expect(projected.receipt).toEqual(receipt)
+  expect(projected.observation).toMatchObject({ observation_id: 'old-screen', superseded: true })
+  expect(projected.observation.ocr_text).toBeUndefined()
+  expect(JSON.stringify(request)).toContain('file-proof')
+  expect(JSON.stringify(source)).toBe(original)
+  const infer = vi.fn(async () => '继续核对文件')
+  const response = await createRkTarsFetch(infer)(rkTarsModel.baseURL + '/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+  expect(response.ok).toBe(true)
+  expect(infer).toHaveBeenCalledTimes(1)
+  const native = harnessRkRequest({
+    ...source,
+    tools: [
+      ...source.tools,
+      { type: 'function', function: { name: 'coloop_execute', parameters: { type: 'object' } } },
+    ],
+  })
+  expect(JSON.stringify(native)).toContain(observation.ocr_text)
+})
 
 it('fits the current full grouped service catalog into the RK byte budget through real Harness', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'coloop-harness-local-budget-'))
