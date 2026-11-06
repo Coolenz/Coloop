@@ -182,6 +182,54 @@ describe('TarsAgentService official runtime facade', () => {
     expect(await options.checkpoints.listRecoverable()).toEqual([])
   })
 
+  it('restores a local tool selection while refusing stale observations and invalid group state', async () => {
+    useLocalModel()
+    options.runtimeName = 'harness'
+    options.createRuntime = factory.create
+    options.checkpoints = new ExecutionCheckpointStore(join(directory, 'checkpoints'))
+    options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
+    scripts.push(async (runtime) => {
+      await call(runtime, 'coloop_enable_tools', { group: 'files' })
+      throw new Error('simulated interruption')
+    })
+    const id = await service.startTask('恢复文件工具', undefined, 'rk', directory)
+    await settled()
+    await service.dispose()
+    service = new TarsAgentService(options)
+    let checked = false
+    scripts.push(async (runtime) => {
+      const restore = (name: string, args: unknown, result: unknown) =>
+        runtime.options.onEvent?.({
+          type: 'coloop_recovered_tool_state',
+          name,
+          arguments: args,
+          result,
+        })
+      restore('coloop_observe', {}, { observation_id: 'stale-observation' })
+      await expect(
+        call(runtime, 'coloop_execute', {
+          observation_id: 'stale-observation',
+          action: { action: 'paste', target_id: 1, text: 'do not replay' },
+        }),
+      ).rejects.toThrow('FRESH_OBSERVATION_REQUIRED')
+      restore('coloop_enable_tools', { group: 'files' }, { enabled: ['files'] })
+      expect(runtime.options.visibleTool!('coloop_list')).toBe(true)
+      expect(runtime.options.visibleTool!('coloop_make_directory')).toBe(true)
+      restore('coloop_enable_tools', { group: 'archive' }, { enabled: ['native'] })
+      restore('coloop_enable_tools', { group: '__proto__' }, { enabled: ['__proto__'] })
+      expect(runtime.options.visibleTool!('coloop_list')).toBe(true)
+      expect(runtime.options.visibleTool!('coloop_create_zip')).toBe(false)
+      expect(runtime.options.completion?.().finished).toBe(false)
+      expect(await call(runtime, 'coloop_list', { path: '.' })).toHaveProperty('entries')
+      checked = true
+      return { content: 'only inspected restored tools', finishReason: 'stop' }
+    })
+    expect(await service.resumeTask(id)).toBe(id)
+    await settled()
+    expect(checked).toBe(true)
+    expect(options.execution.execute).not.toHaveBeenCalled()
+  })
+
   it('stops on checkpoint write failure and releases its tool lock', async () => {
     options.runtimeName = 'harness'
     options.createRuntime = factory.create

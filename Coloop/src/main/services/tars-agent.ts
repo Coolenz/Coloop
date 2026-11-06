@@ -1044,6 +1044,26 @@ export class TarsAgentService {
   private event(task: Task, event: TarsRuntimeEvent) {
     this.record(task.task_id, event)
     if (this.task !== task || task.stopped || task.unknown || this.disposed) return
+    if (event.type === 'coloop_recovered_tool_state' && task.resume && task.localRoute) {
+      const group = row(event.arguments).group
+      const result = row(event.result)
+      if (
+        event.name === 'coloop_enable_tools' &&
+        typeof group === 'string' &&
+        Object.hasOwn(localToolGroups, group) &&
+        Array.isArray(result.enabled) &&
+        result.enabled.length === 1 &&
+        result.enabled[0] === group
+      ) {
+        task.toolGroups.clear()
+        task.toolGroups.add(group as keyof typeof localToolGroups)
+      } else if (event.name === 'coloop_observe' && typeof result.observation_id === 'string') {
+        task.toolGroups.clear()
+        task.toolGroups.add('native')
+      }
+      // Observations, editor readbacks and completion proofs are never restored.
+      return
+    }
     if (event.type === 'agent_run_start') this.changed({ phase: 'planning' })
     if (event.type === 'tool_call') {
       const phases: Record<string, string> = {

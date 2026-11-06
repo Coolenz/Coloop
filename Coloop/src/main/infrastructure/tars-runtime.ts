@@ -43,7 +43,7 @@ export interface TarsRuntimeOptions {
   model: TarsRuntimeModel
   instructions: string
   tools: TarsRuntimeTool[]
-  onEvent?: (event: AgentEventStream.Event) => void
+  onEvent?: (event: TarsRuntimeEvent) => void
   fetch?: typeof globalThis.fetch
   maxIterations?: number
   maxTokens?: number
@@ -201,4 +201,11 @@ export function createTarsRuntime(options: TarsRuntimeOptions): AgentTARS {
   return agent
 }
 
-export type TarsRuntimeEvent = AgentEventStream.Event
+export type TarsRuntimeEvent =
+  | AgentEventStream.Event
+  | {
+      type: 'coloop_recovered_tool_state'
+      name: string
+      arguments: unknown
+      result: unknown
+    }

@@ -1,6 +1,8 @@
 # Coloop 0.14.0 运行架构
 
-2026-11-06 演进交付使用 `release/evolution-0.14.0-20261106-r5/win-unpacked`，安装路径仍为 `%LOCALAPPDATA%\Programs\Coloop`。新增缺价拒绝、累计费用上限、服务端持久冷却，以及 Windows 路径别名、空闲设备提示、ZIP 流式生成/独立读回和隔离 profile 的任务记忆范围修复；最新结果见 [本轮验收](evolution-acceptance-20261106.md)。下文 r13、autoconnect 等包名为历史记录，不是当前启动入口。
+2026-11-06 演进交付已安装 `release/evolution-0.14.0-20261106-r6/win-unpacked`，安装路径仍为 `%LOCALAPPDATA%\Programs\Coloop`。新增缺价拒绝、累计费用上限、服务端持久冷却，以及 Windows 路径别名、空闲设备提示、ZIP 流式生成/独立读回、隔离 profile 的任务记忆范围和目录读取进展统计修复；业务复验随进化任务暂停，不能把安装成功视为业务通过。各轮结果见 [本轮验收](evolution-acceptance-20261106.md)。下文 r13、autoconnect 等包名为历史记录，不是当前启动入口。
+
+用户随后更新磁盘约定：不再保留任何安装或构建备份，C 盘仅保留当前 Coloop 安装目录；开发、测试和下载缓存归入本机 `D:\Coloop\.cache`。默认构建输出为 `release/current`，安装脚本直接同步并逐文件校验；实际安装路径验收成功后清理所有桌面暂存包，包括最新一份。APK 仅在当前安装或交付仍需要时临时保留，用途完成后删除。系统拒绝的清理必须如实列出；旧报告的“保留备份”描述不再是后续操作要求。用户数据、任务记录和累计费用账本不作为缓存删除；具体约定见根目录 AGENTS.md。
 
 2026-11-05：主任务循环默认采用 DeepSeek Harness；文档理解采用 Docling；交互网页默认采用 Stagehand。本次迁移保留 RK 执行器、独立结果核验、模型路由、费用台账和任务目录授权。
 
@@ -56,11 +58,11 @@ npm run prepare:runtime
 npm run package:dir
 ```
 
-2026-11-06 起，桌面快捷方式和所有 `start*.cmd` 统一指向 `%LOCALAPPDATA%\Programs\Coloop\Coloop.exe`。本轮最终合并目录包为 `release/autoconnect-0.14.0-20261106/win-unpacked`（含灵动岛动效/关闭与自动连接修复）；灵动岛单独冻结包保留在 `release/installed-island-0.14.0-20261106/win-unpacked`；通过包内运行验证后，用 `scripts/install-local.ps1 -PackageDirectory <win-unpacked目录>` 替换安装目录。脚本逐文件校验并保留旧安装备份；不要仅复制 exe，也不要混入旧 `app.asar`。后续修改默认直接部署，详见根目录 `AGENTS.md`。r13、r7 和 r60 为历史回退包。
+2026-11-06 起，桌面快捷方式和所有 `start*.cmd` 统一指向 `%LOCALAPPDATA%\Programs\Coloop\Coloop.exe`。构建暂存于 `release/current`；通过包内运行验证后，用 `scripts/install-local.ps1 -PackageDirectory <win-unpacked目录>` 替换安装目录，完成实际安装路径验收后删除暂存包。脚本逐文件校验，不创建旧安装备份；不要仅复制 exe，也不要混入旧 `app.asar`。后续修改默认直接部署，详见根目录 `AGENTS.md`。autoconnect、installed-island、r13、r7 和 r60 等名称仅为历史记录，不要求保留相应目录包。
 
 Docling 使用内置 Python 3.12.10 与离线模型，运行时约 1.86 GB。Harness 使用内置标准 Node 24.14.0；上游原生模块不支持当前 Electron 45.1.0 的 V8，因此没有使用 Electron 内嵌 Node。为让标准 Node 读取官方 CLI、原生依赖和浏览器扩展，目录包采用 `asar:false`。SDK 可执行文件适配涉及精确版本的构造器注入点，详见 [Harness 实现与升级约束](harness-runtime.md)。
 
-本机需安装兼容 Chrome/Edge；WPS、RK 连接与原有 OCR 能力仍沿用现有环境。Docling 可通过 `COLOOP_DOCLING_HOME` 指定另一份完整运行时。恢复旧主循环设置 `COLOOP_AGENT_RUNTIME=tars`，恢复旧网页实现设置 `COLOOP_BROWSER_RUNTIME=playwright`；需要重新启动进程。原 r60 目录包保留。
+本机需安装兼容 Chrome/Edge；WPS、RK 连接与原有 OCR 能力仍沿用现有环境。Docling 可通过 `COLOOP_DOCLING_HOME` 指定另一份完整运行时。切换兼容主循环设置 `COLOOP_AGENT_RUNTIME=tars`，切换兼容网页实现设置 `COLOOP_BROWSER_RUNTIME=playwright`；需要重新启动进程。需要旧代码时通过 Git 恢复并重新构建，不保留历史目录包。
 
 ## 验证边界
 

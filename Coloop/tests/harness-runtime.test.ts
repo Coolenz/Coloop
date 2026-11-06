@@ -1,5 +1,5 @@
 import { createServer, request as httpRequest, type ServerResponse } from 'node:http'
-import { HarnessClient } from '@deepseek-ai/dsh-sdk-client'
+import { DeepSeekHarness, HarnessClient } from '@deepseek-ai/dsh-sdk-client'
 import { mkdtemp, rm, readFile, readdir, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -372,6 +372,26 @@ describe('official DeepSeek Harness integration', () => {
     expect(execute).not.toHaveBeenCalled()
   }, 120_000)
 
+  it('reports host cancellation when the SDK concurrently resolves a structured error', async () => {
+    const { runtime, fetcher, execute } = await agent('https://fixture.invalid/v1')
+    const sdkRun = vi.spyOn(DeepSeekHarness.prototype, 'run').mockImplementation(async () => {
+      runtime.abort()
+      // The real SDK can resolve this result while close() is settling, instead
+      // of rejecting its Promise. Exercise that ordering without a timing race.
+      return {
+        finalResponse: '',
+        events: [{ type: 'turn/end', data: { reason: { kind: 'error' } } }],
+      } as Awaited<ReturnType<DeepSeekHarness['run']>>
+    })
+    try {
+      expect((await runtime.run('Stop at the SDK completion boundary.')).finishReason).toBe('abort')
+      expect(fetcher).not.toHaveBeenCalled()
+      expect(execute).not.toHaveBeenCalled()
+    } finally {
+      sdkRun.mockRestore()
+    }
+  }, 120_000)
+
   it('keeps the text-only RK request protocol and parses its tool reply through Harness', async () => {
     const api = await fixture((body, response) => {
       expect(body.tools).toBeUndefined()
@@ -535,6 +555,88 @@ describe('official DeepSeek Harness integration', () => {
     const resumed = createHarnessRuntime({ ...original.options, resume: true })
     cleanup.push(() => resumed.dispose())
     expect((await resumed.run('continue')).content).toBe('history restored')
+  }, 120_000)
+
+  it('recovers successful tool selections in order without replaying calls or restoring failed selections', async () => {
+    const selections = [
+      ['coloop_enable_tools', { group: 'files' }],
+      ['coloop_observe', {}],
+      ['coloop_enable_tools', { group: 'archive' }],
+    ] as const
+    let turn = 0
+    const api = await fixture((_body, response) => {
+      const selection = selections[turn++]
+      reply(
+        response,
+        selection
+          ? {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'selection-' + turn,
+                  type: 'function',
+                  function: { name: selection[0], arguments: JSON.stringify(selection[1]) },
+                },
+              ],
+            }
+          : { content: 'selection saved' },
+      )
+    })
+    const enable = vi.fn(async (args: any) => ({ enabled: [args.group] }))
+    const observe = vi.fn(async () => ({ observation_id: 'stale-observation' }))
+    const original = await agent(api.baseURL, {
+      tools: [
+        {
+          name: 'coloop_enable_tools',
+          description: 'Select a tool group',
+          parameters: {
+            type: 'object',
+            properties: { group: { type: 'string' } },
+            required: ['group'],
+          },
+          execute: enable,
+        },
+        {
+          name: 'coloop_observe',
+          description: 'Observe fixture',
+          parameters: { type: 'object', properties: {} },
+          execute: observe,
+        },
+      ],
+    })
+    expect((await original.runtime.run('Switch tool groups.')).finishReason).toBe('stop')
+    await original.runtime.dispose()
+    const [taskFolder] = await readdir(original.home)
+    await appendFile(
+      join(original.home, taskFolder, 'host-events.jsonl'),
+      [
+        {
+          type: 'tool_intent',
+          callId: 'failed-selection',
+          signature: JSON.stringify(['coloop_enable_tools', { group: 'files' }]),
+        },
+        { type: 'tool_error', callId: 'failed-selection', error: 'interrupted' },
+      ]
+        .map((event) => JSON.stringify(event) + '\n')
+        .join(''),
+    )
+    const events: any[] = []
+    const resumed = createHarnessRuntime({
+      ...original.options,
+      resume: true,
+      reconcileUnknown: () => ({ kind: 'retry_read_only' }),
+      onEvent: (event) => events.push(event),
+    })
+    cleanup.push(() => resumed.dispose())
+    await resumed.initialize()
+    expect(
+      events
+        .filter((event) => event.type === 'coloop_recovered_tool_state')
+        .map((event) => [event.name, event.arguments]),
+    ).toEqual(selections)
+    expect(enable).toHaveBeenCalledTimes(2)
+    expect(observe).toHaveBeenCalledOnce()
+    expect(original.fetcher).toHaveBeenCalledTimes(4)
   }, 120_000)
 
   it('can safely resume a queued task that failed before any SDK session was created', async () => {

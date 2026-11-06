@@ -1,5 +1,6 @@
 param([string]$Destination)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'workspace-cache.ps1')
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $cacheRoot = [IO.Path]::GetFullPath((Join-Path $taskRoot '.cache'))
 $source = Join-Path $cacheRoot 'docling'

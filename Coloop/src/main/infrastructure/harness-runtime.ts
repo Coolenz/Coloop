@@ -641,6 +641,19 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
         }
         if ([...calls.values()].some((call) => !('result' in call) && !call.safeToRetry))
           throw new Error('HARNESS_TOOL_OUTCOME_UNKNOWN_REQUIRES_VERIFICATION')
+        // Restore presentation state only after recipient binding and unresolved
+        // effects have been checked. Never execute a historical tool again.
+        for (const call of calls.values()) {
+          if (!('result' in call) || call.error) continue
+          const [name, args] = JSON.parse(call.signature)
+          if (tools.has(name) && ['coloop_enable_tools', 'coloop_observe'].includes(name))
+            emit({
+              type: 'coloop_recovered_tool_state',
+              name,
+              arguments: args,
+              result: call.result,
+            })
+        }
       }
       await new Promise<void>((yes, no) => {
         server.once('error', no)
@@ -845,6 +858,9 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
           sessionId: options.id,
           onNotification: notification,
         })
+        // SDK shutdown can resolve a structured error instead of rejecting.
+        // Host cancellation still owns the terminal state and must drain work.
+        controller.signal.throwIfAborted()
         const end = [...result.events].reverse().find((event) => event.type === 'turn/end') as
           Row | undefined
         const reason = end?.data?.reason?.kind

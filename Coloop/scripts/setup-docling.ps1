@@ -1,5 +1,6 @@
 param([string]$Python = 'python', [switch]$SkipModels)
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'workspace-cache.ps1')
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $runtimeRoot = Join-Path $taskRoot '.cache/docling'
 $runtimePython = Join-Path $runtimeRoot '.venv/Scripts/python.exe'

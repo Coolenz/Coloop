@@ -4,10 +4,11 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { workspaceCacheEnvironment } from '../scripts/with-workspace-cache.mjs'
 const root = resolve(import.meta.dirname, '..')
 const output = resolve(root, '.qa', 'proactive-package-' + Date.now())
 await mkdir(output, { recursive: true })
-const env = { ...process.env, COLOOP_DATA_DIR: resolve(output, 'profile') }
+const env = { ...workspaceCacheEnvironment(root), COLOOP_DATA_DIR: resolve(output, 'profile') }
 const recoveryId = randomUUID()
 const checkpointDirectory = resolve(env.COLOOP_DATA_DIR, 'execution-checkpoints')
 await mkdir(checkpointDirectory, { recursive: true })
