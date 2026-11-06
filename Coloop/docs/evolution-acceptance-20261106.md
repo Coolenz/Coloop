@@ -1,8 +1,8 @@
 # Coloop 演进与验收报告（2026-11-06）
 
-更新状态：r9 实际安装路径及本地 RK 原生控件任务通过；r10 已完整安装、对应源码 CI 通过，r11 正在补齐恢复任务历史状态同步并准备最终安装验收。原文件归档任务尚未通过，失败记录保留。用户已取消全部构建备份策略，代码历史使用 Git，缓存优先 D:\Coloop。C 盘清理净释放 25.31 GiB，D 盘已清理 20 个旧构建目标、净释放 6.80 GiB；旧段落的备份保留或删除受阻仅描述当时状态，最新证据见文末。
+更新状态：r11（0.14.0）已完整安装并从统一入口启动；对应源码 CI、实际安装路径 smoke/runtime、原生 RK 复选框任务通过。完整目标尚未达到：原文件归档恢复仍失败；正式 profile 最终检查显示 RK 已连接但 qwenReady=false，不能声称生产模型就绪。本轮已停止继续演进，保留失败证据。AGENTS.md 已记录持续适用的无构建备份、D 盘缓存及数据保护规则；全部完整构建副本已清理。最终证据见文末。
 
-本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留 r3/r4/r5 等各轮交付记录；当前进展以上方状态和文末为准。本轮付费测试仍共 19 次，最小请求间隔 5001 ms，保守费用估算 0.292452 元；后续恢复验收只用本地模型。最新业务与 CI 尚未全部通过，整项目标不标记完成。
+本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮交付记录；当前进展以上方状态和文末为准。付费测试仍共 19 次，最小请求间隔 5001 ms，保守费用估算 0.292452 元；后续恢复验收只用本地模型。最终源码 CI 已通过，但真实业务与正式 profile 模型就绪尚未全部通过，整项目标不标记完成。
 
 新目标见 [开发方向](development-direction.md)，插件与记忆取舍见 [生态评估](dsh-ecosystem-20261106.md)。当前安装包证据在文末；前面各轮失败和安装记录保留用于追溯。未列为通过的项目不视为完成。
 
@@ -11,8 +11,8 @@
 | G1 费用与频率保护 | 通过回归与共享账本实测；正式配置已启用限制                              |
 | G2 安装版真实任务 | 已标注安装包的复选框、中文输入/局部编辑通过；不代表历史 26 场景全部通过 |
 | G3 DSH 生态评估   | 完成；暂不挂载第三方插件或迁移真实记忆，理由与适配路线已记录            |
-| G4 本机交付       | r9 实际安装路径检查通过；r11 最终候选包待安装验收                       |
-| G5 可复查交付     | r10 源码 CI 通过；C 盘与旧 D 盘副本已清理，最终候选包待验收后删除       |
+| G4 本机交付       | r11 安装路径 smoke/runtime 通过；正式 profile 模型就绪未通过            |
+| G5 可复查交付     | r11 源码 CI 通过；完整构建副本已清理；失败项和最终证据见文末            |
 
 ## 改进与合并范围
 
@@ -250,10 +250,25 @@ r9 本机完整回归 68 文件、1225 项通过、3 可选跳过；10 项定向
 
 核对当前锁定的 DSH token-meter 源码后，确认其按字符数启发式估算 token，而 RK 传输按 UTF-8 字节执行 16384 上限。r10 将本地路由对 Harness 声明的 contextWindow 上限调至 4096，使官方 compaction 更早工作；这不是精确字节换算，也不替代字节硬限制。摘要仍走同一宿主本地路由和请求计数，不增加云端额度，不删除原始审计或重放工具。
 
-新增真实 SDK + RK 适配器的合成回归证明：增长历史触发 compaction/end、只读工具仅调用一次、完整原始证据仍存在宿主审计中；它不是实机模型成功声明。完整回归 68 文件、1226 项通过、3 可选跳过，build/typecheck/format 通过。证据 `.qa/evolution-r10-tests.log`、`.qa/evolution-r10-compaction-tests.log`、`.qa/evolution-r10-build.log`。最后的真实归档复验设置总等待预算 15 分钟以遵守本轮六小时上限；原判据不变，超时仍算未通过。
+新增真实 SDK + RK 适配器的合成回归证明：增长历史触发 compaction/end、只读工具仅调用一次、完整原始证据仍存在宿主审计中；它不是实机模型成功声明。完整回归 68 文件、1226 项通过、3 可选跳过，build/typecheck/format 通过。证据 `.qa/evolution-r10-tests.log`、`.qa/evolution-r10-compaction-tests.log`、`.qa/evolution-r10-build.log`。最后的真实归档复验按本轮六小时剩余额度设置有界等待；每次实际秒数记录在报告 timeBudgetSeconds，原判据不变，超时仍算未通过。
 
 ## r11 恢复任务历史状态同步
 
 核对恢复入口后确认：原主动执行服务会继续运行，但先前 TaskService 的等待者已经退出，历史任务记录可能一直保留旧失败。r11 在没有原 TaskService 等待者时，将同一主动任务的真实状态同步回已有 desktop 记录；不会新建任务、重新派发动作或重复调用模型。恢复时清除旧终态，结束时按 completed/failed/blocked/cancelled/input_unknown 写入对应状态。写盘失败会恢复内存中的旧记录并明确记录错误，不把旧记录覆盖丢失。
 
 六项新增回归覆盖同一记录与原创建时间、完成内容、四种非成功终态、无关任务忽略及写盘失败恢复。全套 69 文件、1232 项通过、3 可选跳过；build/typecheck/format 通过。证据 `.qa/evolution-r11-tests.log`、`.qa/evolution-r11-history-tests.log`、`.qa/evolution-r11-build.log`。r10 的 [源码 CI](https://github.com/Coolenz/Coloop/actions/runs/42196719039) 已成功，r11 最终安装与实机结果随后记录。
+
+## 本轮收尾结果（2026-11-06 18:15）
+
+应用版本仍为 0.14.0，最终应用源码提交为 `e7e776cd9db0daa81bb6b8bd1b7d2b236b70f0c3`。[GitHub CI 42198405537](https://github.com/Coolenz/Coloop/actions/runs/42198405537) 成功：69 个测试文件、1232 项通过、3 项可选跳过，类型检查、构建和格式检查通过。后续收尾提交仅修改文档，不改变已安装应用。
+
+- 安装：148880 个文件完成全量同步与哈希核对；固定安装目录的 main SHA256 为 `2b461dc08e875aadf4471af1f99a9cfdca2f5c4f0a96ccd7be2d11301788c81f`。无旧 app.asar、无安装备份。实际安装路径 smoke/runtime 通过，依赖从包内加载；runtime 使用合成模型端点，不代表真实业务成功。
+- 真实模型：r11 原生 RK 复选框任务 completed，335.95 秒，checked=true、click_count=1。同一任务记忆队列的只读审计显示 QA namespace 1 条、production namespace 0 条；没有迁移真实记忆或安装第三方 DSH 插件。
+- **归档恢复未通过**：继续原 taskId `5c4c2dd3-652d-4c2d-9807-36a5f4372c99`、原 workspace 和审计历史。一次本地模型调用 182564 ms 后出错，整体 192.13 秒，最终 TARS_TASK_FAILED，4 个输入文件均未改变，完成副本 0 个。“四文件分类 → 中途停止 → 恢复 → ZIP”未通过；没有重置任务或使用付费模型替代失败。新历史同步正确反映本次 failed。
+- **正式 profile 就绪未通过**：RK connected，界面显示“RK 已连接 · 等待任务”，Harness 无活动任务，104 条任务保留，但 qwenReady=false，连续就绪断言失败。此前密钥和任务保护审计通过；本次完整生产就绪验收未通过，不能把正常启动等同于模型可用。已从 `D:\Coloop\start.cmd` 启动当前安装版，没有强杀用户任务。
+- 费用：同一测试 profile 仍为 19 请求、19 回执，最小间隔 5001 ms，按配置价格保守估算 0.292452 元。最终审计 within_limits，无警告、违规、重复或未结算请求。最后两项实机复测未增加付费调用；不把先前余额查询当作当前余额。累计费用账本保留。
+- 清理：C 盘旧安装与测试缓存净释放 25.31 GiB；D 盘旧完整包约 6.80 GiB，最终 release/current 又释放约 3.38 GiB。完成用途的 APK 和生成 out 均已删除，桌面完整构建副本 0、APK 副本 0。收尾时 C 盘空闲 46.28 GiB、D 盘空闲 130.50 GiB。源码、必要工具链/模型、用户数据和累计费用账本保留；未确认可替代的 RK 固件未盲删。
+
+本地证据：`.qa/evolution-r11-install.log`、`.qa/proactive-package-1793959180124/report.json`、`.qa/runtime-package-windows-no-credentials-1793959186104/report.json`、`.qa/harness-live-rk-rk-checkbox-1793959221105/report.json`、`.qa/evolution-r11-memory-namespace-audit.log`、`.qa/harness-workspace-resume-1793959558437/report.json`、`.qa/evolution-r11-production-observation.json`、`.qa/evolution-r11-production.log`、`.qa/evolution-r11-protection-audit.json`、`.qa/evolution-r11-final-package-cleanup.json`、`.qa/evolution-final-delivery-cloud-audit.json`、`.qa/evolution-final-delivery-state.json`。最后一个文件的 ok 仅表示安装文件检查、清理和启动完成；productionReadyVerified=false 明确表示模型就绪未通过。证据含运行数据，不上传 GitHub。
+
+后续需先处理本地模型长历史请求失败和正式 profile 的 Qwen 就绪状态，再重跑同一归档任务。历史 26 项任务、手机/邮件场景和全新 Windows 环境没有在本轮全部重新验收，不得标记完成。
