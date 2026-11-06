@@ -168,3 +168,24 @@ RK 烧录记录 `D:\RK\flash\flash-plan.json` 指定实际成功启动的镜像�
 新增两项回归核对范围稳定性、不同 profile 分离，以及检索执行器和写入服务的真实启动源码配置。源码全套 **1212 通过、3 可选跳过**，format、typecheck 和 build 通过；证据 `.qa/evolution-r5-tests.log`、`.qa/evolution-r5-memory-tests.log`、`.qa/evolution-r5-build.log`。r5 完整包已构建，正在开发目录外验证；尚未在本节声明安装或真实业务案例通过。
 
 [隔离修复首轮 CI](https://github.com/Coolenz/Coloop/actions/runs/42156373622) 为 1211 通过、1 失败、3 跳过。失败位于既有 Stagehand 延迟 POST 测试：固定等待 1800 ms 后页面还未出现结果，独立核验拒绝通过。测试改为服务器等待明确释放信号，在确认动作 outcome=unknown 且 POST 计数为 1 后放行响应，再有界等待实际页面文字；不重试点击，不降低最终验证、POST=1 和模型调用=0 的判据。5 项 Stagehand 定向测试通过，证据 `.qa/evolution-r5-stagehand-tests.log`。此修复只修改测试，不改变 r5 应用包。
+
+## 最新安装包（r5，业务复验进行中）
+
+r5 已完整安装到固定路径，`install-local.ps1` 核对 148880 文件，保留备份 `Coloop-backup-20261106-112618`。安装前无 Coloop 进程，生产配置 104 条任务中无运行任务。实际安装 main SHA-256：`745e4c51b4e763b1d57da374d1863a62bb780667f80ce11c34a93438ce0f7588`，与暂存包一致；不存在旧 app.asar。此包替代前文 r4。
+
+- 包外运行时通过：`.qa/runtime-package-windows-no-credentials-1793935490622/report.json`。
+- 包外界面/恢复通过：`.qa/proactive-package-1793935533515/report.json`。
+- 实际安装路径界面/恢复通过：`.qa/proactive-package-1793935922153/report.json`。
+- 完整安装记录：`.qa/evolution-r5-install.json`。
+
+新业务复验使用四份输入（同名不同内容、中文路径、PNG、空文件）与空目录，目标是在两份复制后正常停止，再用同一任务编号恢复并交付 ZIP。它是明确的小规模业务案例，不等同于历史 F08 的完整 12 文件验收。运行真实本地 RK 模型，云密钥为空，继续使用原测试 profile 与付费账本；本地任务最多 16 轮，付费账本与云端日/累计费用限制保持不变，测试结束恢复原 profile 配置。结果、独立 Python ZIP 读回和记忆队列审计待运行完成后补入。
+
+r5 对应测试修复后的 [Windows CI](https://github.com/Coolenz/Coloop/actions/runs/42157292896) 已为 success，源码提交 `737f486e11257c93187521e088e8b5fb95795ace`。这证明软件回归通过，不代替下面的真实业务结果。
+
+## 真实业务发现：新目录读取被误判为无进展
+
+r5 首轮四文件案例失败，证据 `.qa/harness-workspace-resume-1793935949953/report.json`。模型依次观察桌面、启用文件工具、读取根目录和输入目录，随后被无进展保护阻止，尚未复制文件，也未到达计划的中断点。总耗时 209.61 秒；四轮真实本地模型响应耗时合计 192.44 秒（约 92%），不是文件复制或 ZIP 处理耗时。付费账本和付费日志逐字节未变；配置恢复，未增加云端调用。
+
+根因是目录 `list` 未纳入任务的新证据统计。修复为：目录结果携带授权解析后的真实目录路径，按路径与有序条目内容记录进展；新目录或源文件摘要变化可以推进，重复相同目录（含路径别名）不会重置无进展计数。无进展、单任务、每日与累计预算上限未提高。另明确纯文件任务应直接启用文件工具处理目标路径，避免读取无关桌面。
+
+新增三项回归验证首次产物前的新目录读取、路径别名重复读取仍停止、同目录源哈希变化被识别。全套 **1215 通过、3 可选跳过**，format、typecheck、build 通过；证据 `.qa/evolution-r6-tests.log`、`.qa/evolution-r6-progress-tests.log`、`.qa/evolution-r6-build.log`。r6 包正在准备。后续将沿原任务 `5c4c2dd3-652d-4c2d-9807-36a5f4372c99` 和原输入恢复，保留失败记录；不能提前宣称业务已通过。

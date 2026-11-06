@@ -374,7 +374,7 @@ export class WorkspaceSession {
       }
     }
     await walk(path)
-    return { entries }
+    return { path, entries }
   }
   private worker(value: unknown, signal: AbortSignal): Promise<Record<string, unknown>> {
     const operation = (value as { operation: string }).operation

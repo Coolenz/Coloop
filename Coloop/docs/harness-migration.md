@@ -1,6 +1,6 @@
 # Coloop 0.14.0 运行架构
 
-2026-11-06 演进交付使用 `release/evolution-0.14.0-20261106-r4/win-unpacked`，安装路径仍为 `%LOCALAPPDATA%\Programs\Coloop`。新增缺价拒绝、累计费用上限、服务端持久冷却，以及 Windows 路径别名、空闲设备提示和 ZIP 流式生成/独立读回修复；最新结果见 [本轮验收](evolution-acceptance-20261106.md)。下文 r13、autoconnect 等包名为历史记录，不是当前启动入口。
+2026-11-06 演进交付使用 `release/evolution-0.14.0-20261106-r5/win-unpacked`，安装路径仍为 `%LOCALAPPDATA%\Programs\Coloop`。新增缺价拒绝、累计费用上限、服务端持久冷却，以及 Windows 路径别名、空闲设备提示、ZIP 流式生成/独立读回和隔离 profile 的任务记忆范围修复；最新结果见 [本轮验收](evolution-acceptance-20261106.md)。下文 r13、autoconnect 等包名为历史记录，不是当前启动入口。
 
 2026-11-05：主任务循环默认采用 DeepSeek Harness；文档理解采用 Docling；交互网页默认采用 Stagehand。本次迁移保留 RK 执行器、独立结果核验、模型路由、费用台账和任务目录授权。
 

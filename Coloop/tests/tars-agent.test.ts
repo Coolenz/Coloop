@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -648,6 +648,86 @@ describe('TarsAgentService official runtime facade', () => {
     await settled()
     expect(options.fetch).toHaveBeenCalledTimes(4)
     expect(service.snapshot().phase).toBe('completed')
+  })
+
+  it('allows fresh directory evidence before producing the first file artifact', async () => {
+    await mkdir(join(directory, 'input'))
+    await writeFile(join(directory, 'input', 'source.txt'), 'source content')
+    options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
+    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
+    options.fetch = vi.fn(async () => new Response('{}'))
+    scripts.push(async (runtime) => {
+      const requests = async () => {
+        for (let i = 0; i < 2; i++)
+          await runtime.options.fetch!('https://example.invalid', { body: '{}' })
+      }
+      await requests()
+      await call(runtime, 'coloop_workspace', { operation: 'list', arguments: { path: '.' } })
+      await requests()
+      await call(runtime, 'coloop_workspace', { operation: 'list', arguments: { path: 'input' } })
+      await requests()
+      expect(service.snapshot().progress?.units).toBe(2)
+      const artifact = (await call(runtime, 'coloop_workspace', {
+        operation: 'copy_file',
+        arguments: { source: 'input/source.txt', path: 'result.txt' },
+      })) as { artifact_id: string }
+      await call(runtime, 'coloop_verify_artifact', {
+        artifact_id: artifact.artifact_id,
+        source_path: 'input/source.txt',
+      })
+      return { content: '已复制并核验' }
+    })
+    await service.startTask('读取目录后复制文件', undefined, 'cloud', directory)
+    await settled()
+    expect(options.fetch).toHaveBeenCalledTimes(6)
+    expect(service.snapshot().phase).toBe('completed')
+  })
+
+  it('does not reset stalled model calls when the same directory is listed through aliases', async () => {
+    await writeFile(join(directory, 'source.txt'), 'unchanged')
+    options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
+    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
+    options.fetch = vi.fn(async () => new Response('{}'))
+    scripts.push(async (runtime) => {
+      for (const path of ['.', directory]) {
+        await call(runtime, 'coloop_workspace', { operation: 'list', arguments: { path } })
+        await runtime.options.fetch!('https://example.invalid', { body: '{}' })
+      }
+      await call(runtime, 'coloop_workspace', { operation: 'list', arguments: { path: './' } })
+      await expect(
+        runtime.options.fetch!('https://example.invalid', { body: '{}' }),
+      ).rejects.toThrow('MODEL_NO_PROGRESS_LIMIT')
+      return { finishReason: 'error' }
+    })
+    await service.startTask('不要反复读取同一目录', undefined, 'cloud', directory)
+    await settled()
+    expect(options.fetch).toHaveBeenCalledTimes(2)
+    expect(service.snapshot()).toMatchObject({
+      phase: 'blocked',
+      progress: { units: 1 },
+      error: 'MODEL_NO_PROGRESS_LIMIT',
+    })
+  })
+
+  it('recognizes changed source hashes in a previously listed directory as new evidence', async () => {
+    await writeFile(join(directory, 'source.txt'), 'before')
+    options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
+    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
+    options.fetch = vi.fn(async () => new Response('{}'))
+    scripts.push(async (runtime) => {
+      for (const content of ['before', 'after!']) {
+        await writeFile(join(directory, 'source.txt'), content)
+        await call(runtime, 'coloop_workspace', { operation: 'list', arguments: { path: '.' } })
+        for (let i = 0; i < 2; i++)
+          await runtime.options.fetch!('https://example.invalid', { body: '{}' })
+      }
+      expect(service.snapshot().progress?.units).toBe(2)
+      return { finishReason: 'error' }
+    })
+    await service.startTask('核对更新的输入目录', undefined, 'cloud', directory)
+    await settled()
+    expect(options.fetch).toHaveBeenCalledTimes(4)
+    expect(service.snapshot().error).not.toBe('MODEL_NO_PROGRESS_LIMIT')
   })
 
   it('keeps the request limit across a cloud-to-local fallback', async () => {

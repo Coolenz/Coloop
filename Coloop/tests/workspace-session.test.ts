@@ -40,6 +40,7 @@ it('reads Chinese source text and inventories hashes and empty folders', async (
     text: '地区,金额\n华东,250',
   })
   expect(await call('list', { path: '.', recursive: true })).toMatchObject({
+    path: root,
     entries: [
       { path: 'empty', type: 'directory' },
       { path: 'source.csv', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },

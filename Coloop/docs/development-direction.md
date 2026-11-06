@@ -15,6 +15,7 @@
 - RK 提供本地 Qwen、USB HID、回执和私密记忆；CUA 可承担主机观察/鼠标，不能把全部动作归为 RK USB。
 - Stagehand 网页模型请求和 Harness、压缩、咨询共享宿主账本。Docling 本地解析文档，产物发布另行核验。
 - RK worker 保存已核验任务证据；私密记忆只供本地模型。DSH 会话日志不是长期记忆库的替代品。
+- 使用 COLOOP_DATA_DIR 的隔离实例，其自动任务记忆检索与入队按 profile 使用稳定的 qa: 命名空间；正式默认实例继续使用 production。手动记忆管理界面不在该隔离范围内。
 - 手机链路已有历史验收，本轮桌面结果不表示手机端重新通过。
 
 详情：[运行架构](harness-migration.md)、[Harness 边界](harness-runtime.md)、[可靠性历史](local-agent-reliability-20261105.md)。
