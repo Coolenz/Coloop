@@ -1,8 +1,8 @@
 # Coloop 演进与验收报告（2026-11-06）
 
-更新状态：r15（0.14.0）完整安装和实际路径 smoke/runtime 通过，包括本地摘要及授权工作目录适配；正式 Qwen 就绪、104 条任务、原密钥及费用设置核对通过。真实云端中文输入在 r14 通过，原归档任务在 r15 因重复路径提问失败，仍未通过。源码 7bcd895 的 GitHub CI 已通过，r16 正在修复截断摘要。6 个已完成用途的构建路径被系统拒绝清理，手动清单已提供，不能声称完整构建副本为零。最新结果见文末。
+更新状态（2026-11-06 22:04）：r16（0.14.0）完整安装、实际路径 smoke/runtime、正式 Qwen 就绪均通过，104 条任务、原密钥和费用设置保留；源码 b071e3a 的 GitHub CI 已通过。原归档任务仍未通过，r16 续跑在模型调用前进入 cancelled，原因尚未确定。根据用户在「设计 Coloop 继续工作机制」聊天确认的协调安排，本聊天暂缓新的安装、构建清理和竞争性实机测试，由该聊天统一后续安装验收。本报告记录 r16 的已观察状态，不预判后续版本结果。
 
-本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮记录，当前状态以上方和文末为准。全部付费测试共 23 次，最小间隔 5001 ms，保守费用估算 0.353262 元；沿用原账本和限制，无重复、未结算或超限。未完成的归档恢复及清理残留均不记为通过。
+本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮记录，当前状态以上方和文末为准。本聊天持久测试 profile 累计付费调用 23 次，最小间隔 5001 ms，保守费用估算 0.353262 元；沿用原账本和限制，无重复、未结算或超限。这不是账户所有并行聊天的总消费。未完成的归档恢复及清理残留均不记为通过。
 
 新目标见 [开发方向](development-direction.md)，插件与记忆取舍见 [生态评估](dsh-ecosystem-20261106.md)。当前安装包证据在文末；前面各轮失败和安装记录保留用于追溯。未列为通过的项目不视为完成。
 
@@ -11,8 +11,8 @@
 | G1 费用与频率保护 | 通过回归与共享账本实测；正式配置已启用限制                              |
 | G2 安装版真实任务 | 已标注安装包的复选框、中文输入/局部编辑通过；不代表历史 26 场景全部通过 |
 | G3 DSH 生态评估   | 完成；暂不挂载第三方插件或迁移真实记忆，理由与适配路线已记录            |
-| G4 本机交付       | r15 安装路径 smoke/runtime、正式 Qwen 就绪通过；真实任务按版本分别记录  |
-| G5 可复查交付     | 已安装源码 7bcd895 CI 通过；报告与清理受阻清单持续更新                  |
+| G4 本机交付       | r16 安装路径 smoke/runtime、正式 Qwen 就绪通过；归档恢复未通过          |
+| G5 可复查交付     | 已安装源码 b071e3a CI 通过；6 个清理受阻路径及 r16 暂缓清理项明确列出   |
 
 ## 改进与合并范围
 
@@ -317,7 +317,7 @@ r14 续跑在 376.27 秒因 `UNEXPECTED_USER_QUESTION` 停止：DSH 的当前目
 
 r15 针对上述上下文冲突，通过官方 `workingDirectory.set` 同步宿主授权目录，不改变会话存储位置或编号。新回归证明旧日志前缀不变、同会话证据可恢复、目录缺失时零模型请求；全量 69 文件、1241 通过、3 可选跳过，format/typecheck/build 通过。被系统拒绝清理的旧 `out` 保持原字节，新的编译输出通过 electron-vite 的 `--outDir` 放到 `.cache/build/r15`，完整目录包单独生成到 `release/r15-current`。
 
-## 当前安装版 r15 与未通过的归档恢复
+## 历史安装版 r15 与未通过的归档恢复
 
 源码 [7bcd895](https://github.com/Coolenz/Coloop/commit/7bcd8956875206b3ec28c63fd3f1102e9d50b0d0) 已发布；[CI 42221635076](https://github.com/Coolenz/Coloop/actions/runs/42221635076) 成功，69 文件/1241 项通过、3 项跳过，Python 9 项、格式、类型和构建检查通过。没有发布二进制或新增版本号，RK 子树未改动。
 
@@ -335,4 +335,29 @@ r15 针对上述上下文冲突，通过官方 `workingDirectory.set` 同步宿�
 
 共享开发目录同时出现另一项 Auto Agent Work 开发修改，为避免混入未完成实现，本轮从已发布 `7bcd895` 建立独立 Git 工作树验证，仅纳入上述归档修复，未覆盖共享目录的并行改动。依赖继续使用当前已安装工具链，锁文件哈希一致；编译输出为 `D:\Coloop\.cache\build\r16`，完整包为 `D:\Coloop\release\r16-current`，均只用于本轮验证和安装。
 
-隔离工作树定向 169 项通过；全量 69 文件、1242 通过、3 项可选跳过，format/typecheck/build 通过。新增回归核对截断摘要不提交、原证据可恢复，既有请求上限与跨云端/本地计数测试通过。证据 `.qa/evolution-r16-isolated-targeted-tests.log`、`.qa/evolution-r16-tests.log`、`.qa/evolution-r16-build.log`、`.qa/evolution-r16-format.log`。安装与真实归档结果待完成后记录，不能把这组回归视为原任务已经通过。
+隔离工作树定向 169 项通过；全量 69 文件、1242 通过、3 项可选跳过，format/typecheck/build 通过。新增回归核对截断摘要不提交、原证据可恢复，既有请求上限与跨云端/本地计数测试通过。证据 `.qa/evolution-r16-isolated-targeted-tests.log`、`.qa/evolution-r16-tests.log`、`.qa/evolution-r16-build.log`、`.qa/evolution-r16-format.log`。这组回归不代表原任务已经通过。
+
+## r16 安装验收与协调交接（2026-11-06 22:04）
+
+[应用源码 b071e3a](https://github.com/Coolenz/Coloop/commit/b071e3a872c3576a29ea2b40a2d9e1ae009c06b0) 已非强制发布，[Windows CI 42227454973](https://github.com/Coolenz/Coloop/actions/runs/42227454973) 成功，测试、RK 恢复保护、格式和 build 均通过。未上传二进制、依赖、密钥、用户数据或费用账本。后续报告提交仅修改文档，不改变 r16 安装包。
+
+- 完整目录包经过隔离启动和运行测试，再由 `install-local.ps1` 同步至 `C:\Users\52760\AppData\Local\Programs\Coloop`，151317 个文件逐项校验，无安装备份。main SHA256：`58e792a4b5685c2ffabb6754d2c59475f67ffd6d4cdb89b16466083d19b8068a`；摘要资源 SHA256：`555b30254bf676746ad6b7e6270cdf5ce821dcb30a1d5c271950bb4e85467087`。
+- 实际安装路径 smoke/runtime 均通过，Node、Python 和依赖从安装包内加载。真实官方 SDK 的工具循环、授权目录、摘要结束标记、Stagehand、Docling 和 ZIP 使用合成端点验证，不消耗付费模型，也不是自主业务成功证据。
+- 正式 profile 连续三次确认 RK connected、qwenReady=true、Harness 空闲，104 条任务、密钥密文和启用的模型限制保持不变。该检查没有派发任务或请求云端模型。
+- **原归档恢复仍未通过**：同一 taskId `5c4c2dd3-652d-4c2d-9807-36a5f4372c99` 在 9.160002 秒后进入 cancelled，本地请求/响应/错误均为 0，云端账本未变。4 个原始输入字节未变，原有两份已提交副本与提交记录保留，其余两份和最终 ZIP 未完成。现有审计没有足够信息确定取消来源，不能声称用户手动停止、代码已修好或 r16 实机压缩已通过。
+- 最近真实云端中文输入成功属于 r14，最近本地原生复选框成功属于 r11；未用这些结果冒充 r16 同场景实测。
+
+证据：`.qa/evolution-r16-install.log`、`.qa/evolution-r16-candidate-smoke-report.json`、`.qa/evolution-r16-candidate-runtime-report.json`、`.qa/evolution-r16-installed-smoke-report.json`、`.qa/evolution-r16-installed-runtime-report.json`、`.qa/evolution-r16-production-verification.json`、`.qa/evolution-r16-github-ci.json`、`.qa/harness-workspace-resume-1793973079403/report.json`。完整原始记录保留在项目内，不上传 GitHub。
+
+用户已在另一聊天明确授权协调：本聊天暂缓新的安装与构建清理，由「设计 Coloop 继续工作机制」统一后续安装验收。收到协调时 r16 已安装验收；随后停止竞争性设备任务，不强杀用户进程、不覆盖并行源码。本聊天退出的只是自己的测试实例，22:02 核对没有存活的 Coloop 进程；最终启动安排由统一交付聊天处理。本 goal 尚有未通过项，未标为全部完成。
+
+清理状态分为两类，不能混称完成：
+
+| 原因                         | 尚存路径                                                                                                                                                                  | 处理边界                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 自动审批拒绝，未执行删除     | `D:\Coloop\release\current`、`D:\Coloop\release\r12-final`、`D:\Coloop\release\r13-final`、`D:\Coloop\out`、`D:\Coloop\release\r15-current`、`D:\Coloop\.cache\build\r15` | 已完成用途；返回 `exec_command CreateProcess: blocked by policy`，未提供更详细原因；不改用其他工具绕过 |
+| 依协调安排暂缓，尚未尝试删除 | `D:\Coloop\release\r16-current`、`D:\Coloop\.cache\build\r16`                                                                                                             | r16 已验收，后续统一清理；不是允许长期保留的备份                                                       |
+
+C 盘 Programs 下只观察到当前 `Coloop` 安装，没有 `Coloop-backup-*` 残留；22:00 时 C/D 可用空间分别约 43.99/113.34 GiB。这是当时快照，并行构建可能继续改变空间。累计费用账本、原任务/checkpoint/已提交文件、小型证据、源码和必要依赖均保留。独立 Git 工作树用于隔离并行源码，不应当作完整应用备份；其中 node_modules 是指向当前依赖的目录链接，清理时不得跟随链接删除共享依赖。
+
+交接后下一步应在设备与安装独占时恢复同一原任务，保留两份提交和原判据，完成其余文件、空文件/空目录和独立 ZIP 字节/CRC 验证；取消来源如仍复现需先定位。不能清空会话、重新编号、代替模型完成文件或放宽判据。付费测试继续沿用已有账本，不因聊天交接重置余额；本聊天的 23 次调用不包含另一聊天独立执行的测试，账户余额需以服务商实时账单为准。
