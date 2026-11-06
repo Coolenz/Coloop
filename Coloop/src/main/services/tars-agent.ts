@@ -2094,7 +2094,18 @@ export class TarsAgentService {
             target: 'draft-7',
             io: 'input',
           }) as TarsRuntimeTool['parameters'],
-          execute: (args) => workspace.execute({ operation, arguments: parameters.parse(args) }),
+          execute: async (args) => {
+            try {
+              return await workspace.execute({ operation, arguments: parameters.parse(args) })
+            } catch (error) {
+              if (error instanceof Error && error.message === 'PATH_OUTSIDE_TASK_WORKSPACE') {
+                throw new Error(
+                  `PATH_OUTSIDE_TASK_WORKSPACE：该路径未获授权。当前授权根目录为 ${JSON.stringify(task.files!.root)}；相对路径以此为准，path:"." 表示此根目录。不得访问父目录或通过改写路径绕过限制。`,
+                )
+              }
+              throw error
+            }
+          },
         })
       }
       tools.push({
@@ -2274,6 +2285,9 @@ export class TarsAgentService {
         ? JSON.stringify({
             goal: task.goal,
             supplements: task.supplements,
+            workspace: task.files
+              ? { root: task.files.root, relativePathBase: '.', parentAccessAllowed: false }
+              : undefined,
             recovery:
               '用户明确恢复此任务。原浏览器、观察编号和等待问题已失效。先核对当前页面、文件及已生效结果，再继续未完成部分；禁止重放结果未知的动作。已有产物可使用原artifact_id重新独立核验，PDF上传前重新读取渲染页。',
             artifacts: task.files?.checkpointArtifacts() ?? [],
@@ -2305,7 +2319,7 @@ export class TarsAgentService {
             (task.files
               ? `\nTask-authorized file directory: ${JSON.stringify(task.files.root)}.` +
                 (route === local
-                  ? ''
+                  ? `\n当前文件工具的授权根目录为 ${JSON.stringify(task.files.root)}。所有相对路径都基于此目录；path:"." 表示此根目录。不要删掉路径末段、进入父目录，或使用程序状态目录替代它。路径已明确，不必再次询问。`
                   : `
 For file-only work begin with coloop_workspace. An initial screen observation is optional.
 Use {operation:"help",arguments:{subject:"write_workbook"}} to read an operation contract.

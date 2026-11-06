@@ -230,6 +230,54 @@ describe('TarsAgentService official runtime facade', () => {
     expect(options.execution.execute).not.toHaveBeenCalled()
   })
 
+  it('anchors resumed local file work to the saved workspace and rejects its parent with a scope hint', async () => {
+    useLocalModel()
+    const taskRoot = join(directory, 'workspace')
+    await mkdir(taskRoot)
+    await writeFile(join(taskRoot, 'input.txt'), 'keep this input')
+    options.runtimeName = 'harness'
+    options.createRuntime = factory.create
+    options.checkpoints = new ExecutionCheckpointStore(join(directory, 'checkpoints'))
+    options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
+    scripts.push(async () => {
+      throw new Error('simulated interruption')
+    })
+    const id = await service.startTask('检查输入文件', undefined, 'rk', taskRoot)
+    await settled()
+    await service.dispose()
+    service = new TarsAgentService(options)
+    let checked = false
+    scripts.push(async (runtime) => {
+      const input = runtime.run.mock.calls[0][0]
+      const recovery = JSON.parse(typeof input === 'string' ? input : input.input)
+      expect(recovery.workspace).toEqual({
+        root: taskRoot,
+        relativePathBase: '.',
+        parentAccessAllowed: false,
+      })
+      await call(runtime, 'coloop_enable_tools', { group: 'files' })
+      await expect(call(runtime, 'coloop_list', { path: directory })).rejects.toThrow(
+        'PATH_OUTSIDE_TASK_WORKSPACE',
+      )
+      await expect(call(runtime, 'coloop_list', { path: '..' })).rejects.toThrow(
+        JSON.stringify(taskRoot),
+      )
+      const listed = (await call(runtime, 'coloop_list', {
+        path: recovery.workspace.relativePathBase,
+      })) as { path: string; entries: { path: string }[] }
+      expect(listed.path).toBe(taskRoot)
+      expect(listed.entries.map((entry) => entry.path)).toEqual(['input.txt'])
+      expect(runtime.options.completion?.().finished).toBe(false)
+      checked = true
+      return { content: 'directory inspected only', finishReason: 'stop' }
+    })
+    expect(await service.resumeTask(id)).toBe(id)
+    await settled()
+    await runtimes.at(-1)!.run.mock.results[0].value
+    expect(checked, service.snapshot().error).toBe(true)
+    expect(options.execution.execute).not.toHaveBeenCalled()
+  })
+
   it('stops on checkpoint write failure and releases its tool lock', async () => {
     options.runtimeName = 'harness'
     options.createRuntime = factory.create
