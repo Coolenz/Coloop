@@ -303,7 +303,7 @@ it.runIf(process.platform === 'win32')(
         action: 'click',
       })
       expect(result).toMatchObject({ outcome: 'unknown', reconciliation_required: true })
-      expect(posts).toBe(1)
+      await expect.poll(() => posts, { timeout: 10000, interval: 100 }).toBe(1)
       releaseResponse()
       let actual: Record<string, unknown> = {}
       await expect
