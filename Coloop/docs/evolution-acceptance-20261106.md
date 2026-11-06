@@ -239,3 +239,15 @@ r9 仅在当前工具集合明确为文件能力、没有 native execute 时，�
 r9 本机完整回归 68 文件、1225 项通过、3 可选跳过；10 项定向回归、build/typecheck/format 通过。证据 `.qa/evolution-r9-tests.log`、`.qa/evolution-r9-targeted.log`、`.qa/evolution-r9-build.log`。真实任务及对应 CI 仍待复验。
 
 按最新零构建备份规则，已删除完成验收用途的两个同哈希 0.6.0 APK 副本，合计 37873832 字节；保留 Android 源码、SDK、验收记录及哈希元数据，`latest.json` 标记 artifactRetained=false。未重新声称 Android 硬件验收通过。证据 `.qa/evolution-r8-android-final-cleanup.json`。
+
+## r9 最终安装与实机结果；r10 压缩阈值校准
+
+[r9 应用源码](https://github.com/Coolenz/Coloop/commit/f7a22893dc35cd33410b1b1ca71e4c7d2d1c5f6e) 的 [Windows CI](https://github.com/Coolenz/Coloop/actions/runs/42193912599) 成功：1225 通过、3 可选跳过，format/build 通过。r9 实际安装 148880 文件校验、启动和包内运行检查全部通过；main SHA-256 为 `36c9d94002f5d6f8c8e40193913ab5f2ebf3db42f46b80399ee627c971dd9c24`。安装路径证据 `.qa/proactive-package-1793957164682/report.json`、`.qa/runtime-package-windows-no-credentials-1793957170754/report.json`。
+
+实际 r9 安装版的本地 Qwen → RK USB 勾选任务通过：221.43 秒，任务 completed，checked=true、click_count=1，云端账本逐字节未变、原测试配置已恢复。证据 `.qa/harness-live-rk-rk-checkbox-1793957208470/report.json`、`.qa/evolution-r9-native-ledger-check.json`。
+
+原文件任务在 r9 再次恢复，9.00 秒内被 `RK_CONTEXT_BUDGET_EXCEEDED` 拒绝，实际模型请求仍为 0。旧视觉载荷已缩减，但累计会话仍过长；不能把投影修复或原生控件通过算作该归档场景通过。证据 `.qa/harness-workspace-resume-1793957431299/report.json`。
+
+核对当前锁定的 DSH token-meter 源码后，确认其按字符数启发式估算 token，而 RK 传输按 UTF-8 字节执行 16384 上限。r10 将本地路由对 Harness 声明的 contextWindow 上限调至 4096，使官方 compaction 更早工作；这不是精确字节换算，也不替代字节硬限制。摘要仍走同一宿主本地路由和请求计数，不增加云端额度，不删除原始审计或重放工具。
+
+新增真实 SDK + RK 适配器的合成回归证明：增长历史触发 compaction/end、只读工具仅调用一次、完整原始证据仍存在宿主审计中；它不是实机模型成功声明。完整回归 68 文件、1226 项通过、3 可选跳过，build/typecheck/format 通过。证据 `.qa/evolution-r10-tests.log`、`.qa/evolution-r10-compaction-tests.log`、`.qa/evolution-r10-build.log`。最后的真实归档复验设置总等待预算 15 分钟以遵守本轮六小时上限；原判据不变，超时仍算未通过。

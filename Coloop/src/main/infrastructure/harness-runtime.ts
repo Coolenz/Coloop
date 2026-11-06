@@ -300,8 +300,11 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
     .digest('hex')
   const historyBoundary = options.historyBoundary ?? 'remote'
   const localModel = options.model.toolCallEngine === 'prompt_engineering'
+  // Harness estimates tokens from character counts; RK caps UTF-8 bytes,
+  // including schemas. Trigger official compaction earlier. This conservative
+  // heuristic does not replace the independent 16 KiB byte guard.
   const contextWindow = localModel
-    ? Math.min(options.contextWindow ?? 16384, 16384)
+    ? Math.min(options.contextWindow ?? 4096, 4096)
     : (options.contextWindow ?? 65536)
   const outputTokens = Math.min(
     options.maxTokens ?? 8192,

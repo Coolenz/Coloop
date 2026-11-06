@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -7,6 +8,57 @@ import { createTarsRuntime, type TarsRuntimeOptions } from '../src/main/infrastr
 import { createHarnessRuntime, harnessRkRequest } from '../src/main/infrastructure/harness-runtime'
 import { rkTarsModel, createRkTarsFetch } from '../src/main/infrastructure/rk-tars-model'
 import { projectObservationContext } from '../src/main/infrastructure/observation-context'
+
+it('compacts growing local history through the same RK adapter before its byte guard rejects, retaining the audit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'coloop-local-compaction-'))
+  const id = 'local-compaction'
+  const evidence = 'evidence '.repeat(1150)
+  const events: any[] = []
+  let calls = 0
+  const runtime = createHarnessRuntime({
+    id,
+    workspace: directory,
+    home: directory,
+    runtimeResources: resolve('resources/harness'),
+    model: rkTarsModel,
+    instructions: 'Read coloop_echo once, then summarize. Never repeat the tool.',
+    maxIterations: 6,
+    maxTokens: 1024,
+    tools: [
+      {
+        name: 'coloop_echo',
+        description: 'Read evidence once',
+        parameters: { type: 'object' },
+        execute: () => ({ text: evidence }),
+      },
+    ],
+    fetch: createRkTarsFetch(async () =>
+      ++calls === 1
+        ? '<tool_call>{"name":"coloop_echo","parameters":{}}</tool_call>'
+        : 'Evidence was read once. No writes or inputs were performed.',
+    ),
+    onEvent: (event) => events.push(event),
+  })
+  try {
+    const result = await runtime.run('Read the evidence and report.')
+    expect(result.finishReason).toBe('stop')
+    expect(calls).toBeGreaterThanOrEqual(3)
+    expect(
+      events.some(
+        (event) => event.type === 'harness_session_event' && event.event.type === 'compaction/end',
+      ),
+    ).toBe(true)
+    const audit = await readFile(
+      join(directory, createHash('sha256').update(id).digest('hex'), 'host-events.jsonl'),
+      'utf8',
+    )
+    expect(audit).toContain(evidence)
+    expect(audit.match(/"type":"tool_intent"/g)).toHaveLength(1)
+  } finally {
+    await runtime.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 120_000)
 
 it('drops obsolete visual payloads only from file-only model context while preserving receipts and file evidence', async () => {
   const observation = {
