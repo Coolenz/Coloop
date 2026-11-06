@@ -263,6 +263,10 @@ it.runIf(process.platform === 'win32')(
   'keeps a delayed real POST unknown and never retries the dispatched action',
   async () => {
     let posts = 0
+    let releaseResponse!: () => void
+    const responseGate = new Promise<void>((resolve) => {
+      releaseResponse = resolve
+    })
     const web = createServer(async (request, response) => {
       response.setHeader('content-type', 'text/html; charset=utf-8')
       if (request.method === 'POST') {
@@ -270,7 +274,8 @@ it.runIf(process.platform === 'win32')(
           /* Consume actual body. */
         }
         posts++
-        setTimeout(() => response.end('<p>延迟订单仅保存一次</p>'), 11500)
+        await responseGate
+        response.end('<p>延迟订单仅保存一次</p>')
       } else response.end('<form method="post"><button id="once">保存一次</button></form>')
     })
     const url = await listen(web)
@@ -298,8 +303,18 @@ it.runIf(process.platform === 'win32')(
         action: 'click',
       })
       expect(result).toMatchObject({ outcome: 'unknown', reconciliation_required: true })
-      await new Promise((resolve) => setTimeout(resolve, 1800))
-      const actual = await session.call({ operation: 'observe' })
+      expect(posts).toBe(1)
+      releaseResponse()
+      let actual: Record<string, unknown> = {}
+      await expect
+        .poll(
+          async () => {
+            actual = await session.call({ operation: 'observe' })
+            return actual.text
+          },
+          { timeout: 10000, interval: 200 },
+        )
+        .toContain('延迟订单仅保存一次')
       expect(
         await session.call({
           operation: 'verify',
@@ -310,6 +325,7 @@ it.runIf(process.platform === 'win32')(
       expect(posts).toBe(1)
       expect(calls).toBe(0)
     } finally {
+      releaseResponse()
       await runtime.close()
       await close(web)
     }

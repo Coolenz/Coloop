@@ -166,3 +166,5 @@ RK 烧录记录 `D:\RK\flash\flash-plan.json` 指定实际成功启动的镜像�
 新增修复为：正常启动保持 production；使用独立数据目录时，自动任务的记忆桥使用该目录规范路径摘要生成的稳定 `qa:profile:` 命名空间，执行器检索和记忆服务入队使用同一范围。不同 profile 分离，重启保持同一范围，不迁移、删除或重写原库。本次范围是自动任务的记忆通道，不是手动记忆管理界面的全库隔离。
 
 新增两项回归核对范围稳定性、不同 profile 分离，以及检索执行器和写入服务的真实启动源码配置。源码全套 **1212 通过、3 可选跳过**，format、typecheck 和 build 通过；证据 `.qa/evolution-r5-tests.log`、`.qa/evolution-r5-memory-tests.log`、`.qa/evolution-r5-build.log`。r5 完整包已构建，正在开发目录外验证；尚未在本节声明安装或真实业务案例通过。
+
+[隔离修复首轮 CI](https://github.com/Coolenz/Coloop/actions/runs/42156373622) 为 1211 通过、1 失败、3 跳过。失败位于既有 Stagehand 延迟 POST 测试：固定等待 1800 ms 后页面还未出现结果，独立核验拒绝通过。测试改为服务器等待明确释放信号，在确认动作 outcome=unknown 且 POST 计数为 1 后放行响应，再有界等待实际页面文字；不重试点击，不降低最终验证、POST=1 和模型调用=0 的判据。5 项 Stagehand 定向测试通过，证据 `.qa/evolution-r5-stagehand-tests.log`。此修复只修改测试，不改变 r5 应用包。
