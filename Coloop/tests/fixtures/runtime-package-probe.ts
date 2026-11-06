@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { createServer, type ServerResponse } from 'node:http'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -158,9 +158,13 @@ try {
   console.log('Package probe: official Harness tool loop')
   let tools = 0
   const events: string[] = []
+  const taskWorkspace = join(output, 'authorized-files')
+  await mkdir(taskWorkspace)
+  const workingDirectories: string[] = []
   harness = createHarnessRuntime({
     id: 'packaged-runtime-smoke',
     workspace: output,
+    taskWorkspace,
     home: join(output, 'harness-home'),
     runtimeResources: join(resources, 'harness'),
     nodePath: process.execPath,
@@ -190,7 +194,11 @@ try {
         },
       },
     ],
-    onEvent: (event) => events.push(event.type),
+    onEvent: (event) => {
+      events.push(event.type)
+      if (event.type === 'harness_session_event' && event.event.type === 'working-directory/change')
+        workingDirectories.push(event.event.data.cwd)
+    },
   })
   const result = await harness.run('Read the packaged fixture value.')
   assert.deepEqual(result, {
@@ -200,6 +208,7 @@ try {
   assert.equal(tools, 1)
   assert.equal(harnessRequests, 2)
   assert.ok(events.includes('tool_call'))
+  assert.ok(workingDirectories.includes(taskWorkspace))
   await harness.dispose()
   report.harness = {
     passed: true,
@@ -207,6 +216,7 @@ try {
     modelRequests: harnessRequests,
     finishReason: result.finishReason,
     officialSdkDisposed: true,
+    authorizedWorkingDirectory: taskWorkspace,
   }
 
   console.log('Package probe: packaged local compaction extension')

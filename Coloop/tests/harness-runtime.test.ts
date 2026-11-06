@@ -557,6 +557,81 @@ describe('official DeepSeek Harness integration', () => {
     expect((await resumed.run('continue')).content).toBe('history restored')
   }, 120_000)
 
+  it('aligns resumed task context with its authorized directory without moving or rewriting history', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'coloop-task-root-'))
+    cleanup.push(() => rm(directory, { recursive: true, force: true }))
+    const api = await fixture((body, response) =>
+      reply(response, {
+        content: body.messages.some((message: any) => message.content === 'durable prior evidence')
+          ? 'history preserved'
+          : 'durable prior evidence',
+      }),
+    )
+    const original = await agent(api.baseURL)
+    await original.runtime.run('Record evidence under the original SDK project.')
+    await original.runtime.dispose()
+    const logs = (await readdir(original.home, { recursive: true })).filter((name) =>
+      name.endsWith('session.v4.jsonl'),
+    )
+    expect(logs).toHaveLength(1)
+    const log = join(original.home, logs[0])
+    const before = await readFile(log)
+    const resumed = createHarnessRuntime({
+      ...original.options,
+      resume: true,
+      taskWorkspace: directory,
+    })
+    cleanup.push(() => resumed.dispose())
+    expect((await resumed.run('Continue within the authorized file directory.')).content).toBe(
+      'history preserved',
+    )
+    const contexts = api.bodies
+      .at(-1)
+      .messages.filter(
+        (message: any) =>
+          typeof message.content === 'string' &&
+          message.content.startsWith('Current runtime context.'),
+      )
+    expect(contexts.at(-1).content).toContain(JSON.stringify(directory))
+    expect(contexts.at(-1).content).not.toContain(JSON.stringify(original.options.workspace))
+    await resumed.dispose()
+    const after = await readFile(log)
+    expect(after.subarray(0, before.length)).toEqual(before)
+    const changes = after
+      .toString('utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+      .filter((row) => row.type === 'working-directory/change')
+    expect(changes.at(-1).data.cwd).toBe(directory)
+    expect(
+      (await readdir(original.home, { recursive: true })).filter((name) =>
+        name.endsWith('session.v4.jsonl'),
+      ),
+    ).toEqual(logs)
+    expect(await readdir(directory)).toEqual([])
+  }, 120_000)
+
+  it('refuses a missing authorized directory before asking the model to operate elsewhere', async () => {
+    const api = await fixture((_body, response) => reply(response, { content: 'unexpected' }))
+    const target = await agent(api.baseURL)
+    await target.runtime.dispose()
+    const runtime = createHarnessRuntime({
+      ...target.options,
+      taskWorkspace: join(target.home, 'missing-task-directory'),
+    })
+    cleanup.push(() => runtime.dispose())
+    const outcome = await runtime
+      .run('Work only within the authorized directory.')
+      .catch((error) => ({
+        finishReason: 'error',
+        error: String(error),
+      }))
+    expect(outcome.finishReason).toBe('error')
+    expect(target.fetcher).not.toHaveBeenCalled()
+    expect(api.bodies).toEqual([])
+  }, 120_000)
+
   it('recovers successful tool selections in order without replaying calls or restoring failed selections', async () => {
     const selections = [
       ['coloop_enable_tools', { group: 'files' }],

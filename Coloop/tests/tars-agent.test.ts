@@ -973,6 +973,8 @@ describe('TarsAgentService official runtime facade', () => {
     )
     scripts.push(async (runtime) => {
       expect(runtime.options.instructions).toContain(JSON.stringify(directory))
+      expect(runtime.options.taskWorkspace).toBe(directory)
+      expect(runtime.options.workspace).toBe(options.workspace)
       await call(runtime, 'coloop_workspace', { operation: 'write_workbook', arguments: {} })
       expect((await runtime.options.completion!()).finished).toBe(false)
       await call(runtime, 'coloop_verify_artifact', {
@@ -995,6 +997,7 @@ describe('TarsAgentService official runtime facade', () => {
 
   it('does not expose file tools without a chosen task directory', async () => {
     scripts.push(async (runtime) => {
+      expect(runtime.options.taskWorkspace).toBeUndefined()
       expect(runtime.options.tools.some((tool) => tool.name === 'coloop_workspace')).toBe(false)
       return { content: '', finishReason: 'stop' }
     })

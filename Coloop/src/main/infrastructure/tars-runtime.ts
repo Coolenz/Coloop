@@ -40,6 +40,9 @@ export interface TarsRuntimeOptions {
   nodePath?: string
   id: string
   workspace: string
+  /** Harness model context uses this host-authorized file root; storage stays
+   * under workspace. Legacy TARS continues using its existing file tools. */
+  taskWorkspace?: string
   model: TarsRuntimeModel
   instructions: string
   tools: TarsRuntimeTool[]

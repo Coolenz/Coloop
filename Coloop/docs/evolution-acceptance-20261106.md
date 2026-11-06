@@ -1,8 +1,8 @@
 # Coloop 演进与验收报告（2026-11-06）
 
-更新状态：r13（0.14.0）完整安装和实际路径 smoke/runtime 通过，包括新增摘要扩展；正式 Qwen 就绪、104 条任务、原密钥及费用设置核对通过。原归档任务正在同一历史中实测，尚未声明业务通过。源码已发布 d96e63a，CI 进行中。新的构建暂存清理再次被系统拒绝，不能沿用前一阶段“完整构建副本为零”的结论。最新结果见文末追加执行记录。
+更新状态：r14（0.14.0）完整安装和实际路径 smoke/runtime 通过，包括本地摘要扩展；正式 Qwen 就绪、104 条任务、原密钥及费用设置核对通过。最终安装版真实云端中文输入通过，原归档任务仍在同一历史中实测，尚未声明归档通过。源码 b58bcf3 的 GitHub CI 已通过。4 个已完成用途的构建路径被系统拒绝清理，手动清单已提供，不能声称完整构建副本为零。最新结果见文末。
 
-本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮交付记录；当前进展以上方状态和文末为准。付费测试仍共 19 次，最小请求间隔 5001 ms，保守费用估算 0.292452 元；追加阶段沿用原账本和限制。r11 源码 CI 已通过，r13 尚待发布及远端检查，整项目标不标记完成。
+本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮记录，当前状态以上方和文末为准。全部付费测试共 23 次，最小间隔 5001 ms，保守费用估算 0.353262 元；沿用原账本和限制，无重复、未结算或超限。未完成的归档恢复及清理残留均不记为通过。
 
 新目标见 [开发方向](development-direction.md)，插件与记忆取舍见 [生态评估](dsh-ecosystem-20261106.md)。当前安装包证据在文末；前面各轮失败和安装记录保留用于追溯。未列为通过的项目不视为完成。
 
@@ -11,8 +11,8 @@
 | G1 费用与频率保护 | 通过回归与共享账本实测；正式配置已启用限制                              |
 | G2 安装版真实任务 | 已标注安装包的复选框、中文输入/局部编辑通过；不代表历史 26 场景全部通过 |
 | G3 DSH 生态评估   | 完成；暂不挂载第三方插件或迁移真实记忆，理由与适配路线已记录            |
-| G4 本机交付       | r12 安装路径 smoke/runtime 与正式 Qwen 就绪通过；r13 验证中             |
-| G5 可复查交付     | r11 源码 CI 通过；追加修改待发布；新清理受阻路径见文末                  |
+| G4 本机交付       | r14 安装路径 smoke/runtime、正式 Qwen 就绪和真实中文输入通过            |
+| G5 可复查交付     | 最终应用源码 b58bcf3 CI 通过；报告与清理受阻清单持续更新                |
 
 ## 改进与合并范围
 
@@ -258,7 +258,7 @@ r9 本机完整回归 68 文件、1225 项通过、3 可选跳过；10 项定向
 
 六项新增回归覆盖同一记录与原创建时间、完成内容、四种非成功终态、无关任务忽略及写盘失败恢复。全套 69 文件、1232 项通过、3 可选跳过；build/typecheck/format 通过。证据 `.qa/evolution-r11-tests.log`、`.qa/evolution-r11-history-tests.log`、`.qa/evolution-r11-build.log`。r10 的 [源码 CI](https://github.com/Coolenz/Coloop/actions/runs/42196719039) 已成功，r11 最终安装与实机结果随后记录。
 
-## 本轮收尾结果（2026-11-06 18:15）
+## 历史阶段收尾结果（r11，2026-11-06 18:15）
 
 应用版本仍为 0.14.0，最终应用源码提交为 `e7e776cd9db0daa81bb6b8bd1b7d2b236b70f0c3`。[GitHub CI 42198405537](https://github.com/Coolenz/Coloop/actions/runs/42198405537) 成功：69 个测试文件、1232 项通过、3 项可选跳过，类型检查、构建和格式检查通过。后续收尾提交仅修改文档，不改变已安装应用。
 
@@ -275,7 +275,7 @@ r9 本机完整回归 68 文件、1225 项通过、3 可选跳过；10 项定向
 
 ## 追加执行：模型恢复与摘要预算（r12 / r13）
 
-用户追加两小时并允许云端测试，随后继续授权 full access。本阶段沿用原隔离 profile、任务编号和累计费用账本，没有清空额度。
+用户追加两小时并允许云端测试，随后明确建立“最多六小时的本轮工作”goal，创建时间为 2026-11-06 18:53:48。本阶段沿用原隔离 profile、任务编号和累计费用账本，没有清空额度；后续执行服从该 goal 的时长上限。
 
 r12 定位两个宿主适配问题：模型超时后 RK bridge 存活但 worker 已退出；DSH 声明 4096 容量时，pi-ai 的 4096 token 安全预留会把输出上限压成 1。修复分别为严格核对进程身份、健康指纹和模型锁后使用原脚本正常恢复服务，以及声明实际 16384 容量、单独设置较早压缩阈值并让 RK 遵守摘要的 512 token 输出限制。9 项 Python 保护测试通过，真实已失效 worker 恢复成功；健康或忙碌模型不会因此被重启。
 
@@ -295,4 +295,24 @@ r13 首个包在资源检查时发现新摘要模块未列入 extraResources，�
 
 r13 原任务恢复仍未通过：474.23 秒，4 次本地请求均有响应、无传输错误，其中两次摘要完成；任务最终触发 `MODEL_NO_PROGRESS_LIMIT`。4 个输入字节未变、提交副本 0、云端账本未变。模型在文件任务中选择了桌面观察，得到 `OBSERVATION_RETRY`；不能将上下文恢复正常算作完成归档。证据 `.qa/harness-workspace-resume-1793965546148/report.json`。无进展保护没有被放宽，原会话未清空。
 
-r13 的 [GitHub CI](https://github.com/Coolenz/Coloop/actions/runs/42211944032) 已成功：69 文件、1239 项通过、3 可选跳过，Python 9 项、format/typecheck/build 通过。r14 针对本地工具组补齐边界：显式选择文件类工具组后折叠桌面观察，显式切回 native 才重新提供；初始原生任务仍可直接观察，失败观察不能授权动作，恢复的组状态也遵守此规则。161 项执行服务测试和全量 1239 项回归通过，build 通过。r14 正在重新打包验证，尚未声明实机业务成功。
+r13 的 [GitHub CI](https://github.com/Coolenz/Coloop/actions/runs/42211944032) 已成功：69 文件、1239 项通过、3 可选跳过，Python 9 项、format/typecheck/build 通过。r14 针对本地工具组补齐边界：显式选择文件类工具组后折叠桌面观察，显式切回 native 才重新提供；初始原生任务仍可直接观察，失败观察不能授权动作，恢复的组状态也遵守此规则。161 项执行服务测试和全量 1239 项回归通过，build 通过。
+
+## 最终安装版 r14 与费用复核
+
+应用仍为 0.14.0，对应源码 [b58bcf3](https://github.com/Coolenz/Coloop/commit/b58bcf3fa03cfa64d6014b9f3025924233e68a51)，[Windows CI 42215215456](https://github.com/Coolenz/Coloop/actions/runs/42215215456) 已成功：69 文件、1239 通过、3 可选跳过，Python 9 项、format/typecheck/build 通过。安装目录仍为 `%LOCALAPPDATA%\Programs\Coloop`，151317 文件完整同步和哈希校验，main SHA256 `a3daf2c5c90ae80bf62ccf7580b90fc435b2d57496eae347eaa7bc0960cfec55`。本轮可处理暂存 `release/r13-final` 被完整清空重建后复用于 r14，没有另存 r13 构建备份，也没有触碰被拒绝删除的两个较早目录。
+
+实际安装路径的界面、Harness、本地摘要、Stagehand、Docling、ZIP 运行验证通过，依赖从包内加载。正式 profile 连续三次确认 RK/Qwen 就绪、Harness 空闲，104 条任务、密钥密文和费用配置未变。证据 `.qa/evolution-r14-install.log`、`.qa/proactive-package-1793967107929/report.json`、`.qa/runtime-package-windows-no-credentials-1793967107634/report.json`、`.qa/evolution-r14-production-verification.json`。
+
+最终安装版新增真实 DeepSeek → RK 中文输入验收通过：29.70 秒，任务 completed，独立原生 fixture 读回 `RK Harness 中文输入验证 20261105` 完全一致，未合成模型动作或观察。证据 `.qa/harness-live-cloud-rk-blank_editor-1793967202070/report.json`。新增 4 次付费请求；同一账本累计 23 请求/23 回执、166800 token units、最小间隔 5001 ms，保守估算 **0.353262 元**。只读审计 within_limits，无警告、违规、重复和未结算请求；每日 24 次、累计 3 元限制未改变。该次余额接口前后均显示 9.85 元，显示精度和结算延迟不能据此认定免费。证据 `.qa/evolution-r14-cloud-audit.json`、`.qa/evolution-r14-cost-summary.json`。
+
+本轮验收结束用途的暂存与 out 清理也被系统以 `blocked by policy` 拒绝，未执行。完整待删清单为 `D:\Coloop\release\current`、`D:\Coloop\release\r12-final`、`D:\Coloop\release\r13-final`、`D:\Coloop\out`；3 个完整目录包和 1 个编译输出仍在，不能记为零备份收尾成功。核对时没有进程从这些目录运行。手动清单 `.qa/manual-cleanup-20261106.txt` 与 `.qa/evolution-r14-cleanup.json` 保留原因和哈希。当前 C 盘安装版、用户数据、记忆、源码、必要依赖及累计费用账本均保留。
+
+## r14 原归档任务的中断证据与续跑
+
+首个 15 分钟窗口未完成全部归档，结果为 `TIMEOUT_COMPLETION`，901.02 秒。模型已按顺序复制甲、乙两个同名文本文件；driver 在恰好两次已提交复制后正常停止，任务状态为 cancelled，再通过公开恢复 API 使用同一 taskId `5c4c2dd3-652d-4c2d-9807-36a5f4372c99` 继续。四个输入原始字节未变，两个副本的 SHA256 与源文件一致，云端账本未变。这是停止/恢复阶段证据，不能冒充完整归档成功。
+
+证据 `.qa/harness-workspace-resume-1793967295737/report.json`、`interruption.json` 和 `first-interruption-file-audit.json`。mtime 由文件复制保留原时间，不能单凭时间证明没有重写；还需核对 host 工具提交编号、总复制次数以及后续哈希。续跑保留原目录、历史和上述失败报告，要求四次且仅四次不同目标复制、前两份不重写、空文件/空目录完整，并由独立 Python ZIP 读取核对条目、原始字节和 CRC。后续结果另行记录。
+
+r14 续跑在 376.27 秒因 `UNEXPECTED_USER_QUESTION` 停止：DSH 的当前目录指向 profile，而授权目录是原 workspace，模型再次要求确认目录。两份副本保留，四个输入未变，云端账本未变，仍未形成完整 ZIP。证据 `.qa/harness-workspace-resume-1793968801270/report.json`。没有由 driver 回答模型问题或代替模型复制文件。
+
+r15 针对上述上下文冲突，通过官方 `workingDirectory.set` 同步宿主授权目录，不改变会话存储位置或编号。新回归证明旧日志前缀不变、同会话证据可恢复、目录缺失时零模型请求；全量 69 文件、1241 通过、3 可选跳过，format/typecheck/build 通过。被系统拒绝清理的旧 `out` 保持原字节，新的编译输出通过 electron-vite 的 `--outDir` 放到 `.cache/build/r15`，完整目录包单独生成到 `release/r15-current`。安装与实机结果待验证后记录。

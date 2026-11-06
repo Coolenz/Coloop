@@ -26,6 +26,8 @@ RK 仍使用现有受控文本接口。适配层把工具定义和历史转换�
 
 每个任务使用独立 Harness home。持久 Session 由官方 JSONL 后端和 checkpoint 插件保存，模型请求与顶层工具调用在派发前经过 checkpoint。宿主额外保存 fsync 后的工具意图、调用编号和结果；同一调用编号再次到达时返回已有结果或拒绝，不重复执行。强杀发生在外部动作完成但结果落盘之前时仍可能留下未知结果，不承诺外部动作恰好执行一次。
 
+文件任务把已授权的 `task.files.root` 单独传给官方 `workingDirectory.set` 服务，让模型的当前目录与文件工具的相对路径基准一致。进程目录、原 Session project、Harness home 和历史 JSONL 路径保持稳定；官方服务追加 `working-directory/change`，不搬迁或改写原历史。该目录来自宿主工作区授权，模型没有切换目录或扩大权限的工具。目标目录不存在时，在模型请求前失败；无文件工作区的原生任务继续使用原上下文。
+
 恢复必须传入相同任务编号、原 home 和 `resume: true`。已有会话不会被普通启动静默重用。若宿主 queued checkpoint 已保存，但运行时在创建 SDK 会话之前失败，适配器仅在 owner marker 缺失且宿主日志与 sessions 目录均无持久内容时，允许同一 UUID 首次创建。已有日志、会话内容或符号链接均不能据此降级成新会话。恢复只重建会话历史，不恢复窗口、浏览器进程、RK观察编号、焦点或用户问题等待句柄；上层须重新取得当前观察与任务授权。
 
 2026-11-05 迭代：owner marker 还保存模型路由摘要，覆盖 provider、model、baseURL（忽略末尾斜杠）、工具协议和自定义 headers；不保存 API Key 或端点明文。恢复在读取工具账本、调和未知操作、启动 SDK 之前校验任务身份、运行时版本和路由。更换端点、模型、协议或 headers 会以 `HARNESS_SESSION_ROUTE_MISMATCH` 拒绝，不能把本地历史继承给云端；同路由仅轮换 model.apiKey 可恢复。构造时复制模型配置，后续调用方修改原对象不改变活动路线。

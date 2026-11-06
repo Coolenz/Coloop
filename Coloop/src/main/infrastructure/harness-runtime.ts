@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { mkdir, readFile, writeFile, open, readdir, lstat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   DeepSeekHarness,
@@ -22,6 +22,9 @@ export interface HarnessRuntimeEvent {
 export interface HarnessRuntimeOptions {
   id: string
   workspace: string
+  /** Host-authorized file root. Changes session working directory through the
+   * official service without moving its original project or persisted history. */
+  taskWorkspace?: string
   model: {
     provider: string
     id: string
@@ -325,6 +328,8 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
     if (tool.parameters?.type !== 'object') throw new Error('HARNESS_TOOL_SCHEMA_INVALID')
   }
   const taskKey = createHash('sha256').update(options.id).digest('hex')
+  if (options.taskWorkspace !== undefined && !isAbsolute(options.taskWorkspace))
+    throw new Error('HARNESS_TASK_WORKSPACE_INVALID')
   const home = join(resolve(options.home ?? join(options.workspace, '.coloop-harness')), taskKey)
   const controller = new AbortController()
   const token = randomBytes(32).toString('hex')
@@ -399,6 +404,7 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
       })
     if (request.url === '/state')
       return output(response, 200, {
+        workingDirectory: options.taskWorkspace,
         instructions: [options.instructions, options.requestContext?.()]
           .filter(Boolean)
           .join('\n\n'),

@@ -2307,6 +2307,7 @@ export class TarsAgentService {
           maxTokens: modelLimitsSchema.parse(this.options.modelLimits?.() ?? {}).maxOutputTokens,
           id: task.task_id,
           workspace: this.options.workspace,
+          taskWorkspace: task.files?.root,
           model: route.model,
           instructions:
             (route === local

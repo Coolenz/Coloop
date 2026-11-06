@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 // This plugin has no filesystem, shell, browser or input implementation. Every
 // effect is delegated to the host's existing, task-scoped capability registry.
 export const name = 'coloop-capabilities'
-export const inject = ['tools', 'systemPrompt', 'agents']
+export const inject = ['tools', 'systemPrompt', 'agents', 'workingDirectory']
 
 export async function apply(ctx, config) {
   const { validateJsonSchemaValue } = await import(process.env.COLOOP_HARNESS_TOOLS_MODULE)
@@ -52,6 +52,13 @@ export async function apply(ctx, config) {
   // tool visibility is enforced again by the host at dispatch time.
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const state = await call('/state', {}, context.signal)
+    // Keep the original SDK project/history identity. The official service
+    // validates the host-selected directory and records a durable transition;
+    // no model argument can select or broaden this root.
+    if (context.agent && state.workingDirectory &&
+        ctx.workingDirectory.get(context.agent.session) !== state.workingDirectory) {
+      await ctx.workingDirectory.set(context.agent, state.workingDirectory, context.signal)
+    }
     const result = await next()
     return {
       ...result,
