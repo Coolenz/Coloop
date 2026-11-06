@@ -214,6 +214,7 @@ describe('TarsAgentService official runtime facade', () => {
       ).rejects.toThrow('FRESH_OBSERVATION_REQUIRED')
       restore('coloop_enable_tools', { group: 'files' }, { enabled: ['files'] })
       expect(runtime.options.visibleTool!('coloop_list')).toBe(true)
+      expect(runtime.options.visibleTool!('coloop_observe')).toBe(false)
       expect(runtime.options.visibleTool!('coloop_make_directory')).toBe(true)
       restore('coloop_enable_tools', { group: 'archive' }, { enabled: ['native'] })
       restore('coloop_enable_tools', { group: '__proto__' }, { enabled: ['__proto__'] })
@@ -537,14 +538,22 @@ describe('TarsAgentService official runtime facade', () => {
       await call(runtime, 'coloop_copy_file', { source: 'source.txt', path: 'copy.txt' })
       await call(runtime, 'coloop_enable_tools', { group: 'files' })
       expect(runtime.options.visibleTool!('coloop_list')).toBe(true)
+      expect(runtime.options.visibleTool!('coloop_observe')).toBe(false)
       await call(runtime, 'coloop_enable_tools', { group: 'workbook' })
       expect(runtime.options.visibleTool!('coloop_read_workbook')).toBe(true)
       expect(runtime.options.visibleTool!('coloop_list')).toBe(false)
       expect(runtime.options.visibleTool!('coloop_copy_file')).toBe(true)
+      expect(runtime.options.visibleTool!('coloop_observe')).toBe(false)
+      await call(runtime, 'coloop_enable_tools', { group: 'native' })
+      expect(runtime.options.visibleTool!('coloop_observe')).toBe(true)
       vi.mocked(options.observe).mockRejectedValueOnce(new Error('temporary capture failure'))
       await expect(call(runtime, 'coloop_observe')).rejects.toThrow('temporary capture failure')
-      expect(runtime.options.visibleTool!('coloop_execute')).toBe(false)
-      expect(runtime.options.visibleTool!('coloop_read_workbook')).toBe(true)
+      await expect(
+        call(runtime, 'coloop_execute', {
+          observation_id: 'unobserved',
+          action: { action: 'click', target_id: 1 },
+        }),
+      ).rejects.toThrow('FRESH_OBSERVATION_REQUIRED')
       await call(runtime, 'coloop_observe')
       expect(runtime.options.visibleTool!('coloop_execute')).toBe(true)
       expect(runtime.options.requestContext!()).toContain('editor_edit_id')

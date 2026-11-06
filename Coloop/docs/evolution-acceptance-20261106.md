@@ -1,6 +1,6 @@
 # Coloop 演进与验收报告（2026-11-06）
 
-更新状态：用户追加执行后，r12（0.14.0）已完整安装，实际安装路径 smoke/runtime 及正式 Qwen 就绪检查通过；104 条任务、原密钥和费用设置保留。原归档任务恢复仍失败，r13 正在验证摘要适配修复，尚未声明业务通过。新的构建暂存清理再次被系统拒绝，不能沿用前一阶段“完整构建副本为零”的结论。最新结果见文末追加执行记录。
+更新状态：r13（0.14.0）完整安装和实际路径 smoke/runtime 通过，包括新增摘要扩展；正式 Qwen 就绪、104 条任务、原密钥及费用设置核对通过。原归档任务正在同一历史中实测，尚未声明业务通过。源码已发布 d96e63a，CI 进行中。新的构建暂存清理再次被系统拒绝，不能沿用前一阶段“完整构建副本为零”的结论。最新结果见文末追加执行记录。
 
 本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮交付记录；当前进展以上方状态和文末为准。付费测试仍共 19 次，最小请求间隔 5001 ms，保守费用估算 0.292452 元；追加阶段沿用原账本和限制。r11 源码 CI 已通过，r13 尚待发布及远端检查，整项目标不标记完成。
 
@@ -285,6 +285,14 @@ r12 安装校验 148880 文件，main SHA256 `3e78f02e162a962b333e1df94598156d1d
 
 r13 使用官方 `BasicCompactionEngine.summarize` 子类扩展点，使本地摘要不携带执行工具 schema 和原规划器提示，保留全部非 system 历史。原始 JSONL、持久替换、取消和缩小校验仍由官方引擎管理；没有手工改写原失败会话、换任务、改云端路由或增加第二推理循环。长历史及中断后同会话恢复回归验证输出上限 512、原证据仍在、只读工具不重放。完整 Vitest 为 69 文件、1239 通过、3 可选跳过；Python 9 项、build/typecheck/format 通过。
 
-r13 首个包在资源检查时发现新摘要模块未列入 extraResources，仅窗口 smoke 通过，不能视为完整交付。已修正打包清单并增加安装前缺文件拒绝；包内 runtime 新增实际加载该扩展和执行官方摘要的合成模型测试。正在对完整重建包重新安装和验收，后续结果以本节更新为准。
+r13 首个包在资源检查时发现新摘要模块未列入 extraResources，仅窗口 smoke 通过，不能视为完整交付。已修正打包清单并增加安装前缺文件拒绝；包内 runtime 新增实际加载该扩展和执行官方摘要的合成模型测试。完整重建包重新安装后，151317 文件逐项校验一致；main SHA256 为 `8b8f89c6c15d3c15a2e382e63f80d8a1ef39776f3f39018bebbba466c575cef2`，摘要扩展 SHA256 为 `6d54d8e46c56595e8c6579ecfc43a1ba3d2ccc800420d80458239257b225008c`。没有创建安装备份。
+
+最终安装路径 smoke、runtime 与正式 profile 就绪通过：`.qa/evolution-r13-complete-install.log`、`.qa/proactive-package-1793965488251/report.json`、`.qa/runtime-package-windows-no-credentials-1793965487960/report.json`、`.qa/evolution-r13-production-verification.json`。包内摘要测试真实加载扩展和官方 SDK，3 次合成模型响应、1 次只读工具、1 次摘要；它没有访问 RK 或付费模型，不冒充实机验收。对应源码 [d96e63a](https://github.com/Coolenz/Coloop/commit/d96e63a9e5c3c9c7150c2918e712440fa20d4418) 已非强制发布，远端树一致，RK 子树未变；[CI 42211944032](https://github.com/Coolenz/Coloop/actions/runs/42211944032) 尚在运行。
 
 清理限制重新出现：`D:\Coloop\release\current`（旧候选）和 `D:\Coloop\release\r12-final`（已完成安装验收的暂存）分别被 `exec_command CreateProcess` 以 `blocked by policy` 拒绝删除，未提供更细原因。命令未执行，未改用别的工具绕过。两个路径均不是需长期保存的备份，必须在手动清单中明确保留待删状态；最新待验收 r13 暂存仍用于本轮。证据 `.qa/evolution-r12-blocked-cleanup.json`、`.qa/evolution-r12-staging-cleanup.json`。
+
+## r13 实机归档结果与 r14 工具组修正
+
+r13 原任务恢复仍未通过：474.23 秒，4 次本地请求均有响应、无传输错误，其中两次摘要完成；任务最终触发 `MODEL_NO_PROGRESS_LIMIT`。4 个输入字节未变、提交副本 0、云端账本未变。模型在文件任务中选择了桌面观察，得到 `OBSERVATION_RETRY`；不能将上下文恢复正常算作完成归档。证据 `.qa/harness-workspace-resume-1793965546148/report.json`。无进展保护没有被放宽，原会话未清空。
+
+r13 的 [GitHub CI](https://github.com/Coolenz/Coloop/actions/runs/42211944032) 已成功：69 文件、1239 项通过、3 可选跳过，Python 9 项、format/typecheck/build 通过。r14 针对本地工具组补齐边界：显式选择文件类工具组后折叠桌面观察，显式切回 native 才重新提供；初始原生任务仍可直接观察，失败观察不能授权动作，恢复的组状态也遵守此规则。161 项执行服务测试和全量 1239 项回归通过，build 通过。r14 正在重新打包验证，尚未声明实机业务成功。

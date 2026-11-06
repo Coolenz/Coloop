@@ -2164,6 +2164,10 @@ export class TarsAgentService {
     return tools
   }
   private localToolVisible(task: Task, name: string) {
+    // Selecting a file group folds native tools too. Observation stays available
+    // at initial admission, or after an explicit switch back to native.
+    if (name === 'coloop_observe')
+      return task.toolGroups.size === 0 || !this.localFileContextActive(task)
     if (
       name === 'coloop_patch_text' &&
       (task.needsObservation ||
@@ -2176,10 +2180,7 @@ export class TarsAgentService {
       ['coloop_read_text', 'coloop_copy_file', 'coloop_verify_artifact'].includes(name)
     )
       return true
-    if (
-      ['coloop_observe', 'coloop_enable_tools', 'coloop_ask_user', 'coloop_consult'].includes(name)
-    )
-      return true
+    if (['coloop_enable_tools', 'coloop_ask_user', 'coloop_consult'].includes(name)) return true
     if (name === 'coloop_file_help') return this.localFileContextActive(task)
     return [...task.toolGroups].some((group) =>
       (localToolGroups[group] as readonly string[]).includes(name),
