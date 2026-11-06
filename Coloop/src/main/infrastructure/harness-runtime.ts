@@ -783,6 +783,7 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
         COLOOP_HARNESS_COMPACTION_MODULE: pathToFileURL(
           require.resolve('@deepseek-ai/dsh-compaction-basic'),
         ).href,
+        COLOOP_HARNESS_LLM_MODULE: pathToFileURL(require.resolve('@deepseek-ai/dsh-llm')).href,
       }
       for (const name of [
         'PATH',

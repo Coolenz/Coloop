@@ -9,9 +9,10 @@ import { createHarnessRuntime, harnessRkRequest } from '../src/main/infrastructu
 import { rkTarsModel, createRkTarsFetch } from '../src/main/infrastructure/rk-tars-model'
 import { projectObservationContext } from '../src/main/infrastructure/observation-context'
 
-it.each([false, true])(
-  'compacts growing local history through the same RK adapter, retaining the audit (resume=%s)',
-  async (resume) => {
+it.each(['none', 'connection', 'truncated'] as const)(
+  'compacts growing local history through the same RK adapter, retaining the audit (failure=%s)',
+  async (failure) => {
+    const resume = failure !== 'none'
     const directory = await mkdtemp(join(tmpdir(), 'coloop-local-compaction-'))
     const id = 'local-compaction'
     const evidence = 'evidence '.repeat(800)
@@ -41,26 +42,35 @@ it.each([false, true])(
         },
       ],
       fetch: createRkTarsFetch(async (system, messages, _signal, maxTokens) => {
-        const summary = messages
-          .at(-1)
-          ?.content.includes('You are now acting as a compaction engine')
+        const summary = messages.at(-1)?.content.includes('[Coloop local checkpoint]')
         if (summary) {
           summaryCaps.push(maxTokens)
           expect(system).not.toContain('Planner-only schema guidance')
           expect(system).not.toContain('Read evidence once')
           expect(messages.some((message) => message.content.includes(evidence))).toBe(true)
         }
-        if (failSummary && calls > 0) throw new Error('simulated interrupted model connection')
+        if (failSummary && calls > 0) {
+          if (failure === 'truncated') return 'Incomplete checkpoint with no ending marker'
+          throw new Error('simulated interrupted model connection')
+        }
         return ++calls === 1
           ? '<tool_call>{"name":"coloop_echo","parameters":{}}</tool_call>'
-          : 'Evidence was read once. No writes or inputs were performed.'
+          : 'Evidence was read once. No writes or inputs were performed.' +
+              (summary ? '\n<checkpoint-end>' : '')
       }),
       onEvent: (event) => events.push(event),
     }
     let runtime = createHarnessRuntime(config)
     try {
       if (resume) {
-        expect((await runtime.run(input)).finishReason).toBe('error')
+        // The official engine may continue on the untouched original surface
+        // after a failed automatic summary. It must never persist partial text.
+        expect((await runtime.run(input)).finishReason).toBe(
+          failure === 'truncated' ? 'stop' : 'error',
+        )
+        expect(events.some((event) => event.event?.type === 'compaction/summary')).toBe(false)
+        if (failure === 'truncated')
+          expect(JSON.stringify(events)).toContain('COLOOP_COMPACTION_INCOMPLETE')
         await runtime.dispose()
         failSummary = false
         runtime = createHarnessRuntime({ ...config, resume: true })

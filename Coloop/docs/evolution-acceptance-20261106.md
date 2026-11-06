@@ -1,6 +1,6 @@
 # Coloop 演进与验收报告（2026-11-06）
 
-更新状态：r14（0.14.0）完整安装和实际路径 smoke/runtime 通过，包括本地摘要扩展；正式 Qwen 就绪、104 条任务、原密钥及费用设置核对通过。最终安装版真实云端中文输入通过，原归档任务仍在同一历史中实测，尚未声明归档通过。源码 b58bcf3 的 GitHub CI 已通过。4 个已完成用途的构建路径被系统拒绝清理，手动清单已提供，不能声称完整构建副本为零。最新结果见文末。
+更新状态：r15（0.14.0）完整安装和实际路径 smoke/runtime 通过，包括本地摘要及授权工作目录适配；正式 Qwen 就绪、104 条任务、原密钥及费用设置核对通过。真实云端中文输入在 r14 通过，原归档任务在 r15 因重复路径提问失败，仍未通过。源码 7bcd895 的 GitHub CI 已通过，r16 正在修复截断摘要。6 个已完成用途的构建路径被系统拒绝清理，手动清单已提供，不能声称完整构建副本为零。最新结果见文末。
 
 本轮依据实际 Harness 架构重写开发方向，补强费用与频率限制，复核 DSH 插件/记忆生态，并修复 Windows 路径、测试时钟与 ZIP 问题。下文保留各轮记录，当前状态以上方和文末为准。全部付费测试共 23 次，最小间隔 5001 ms，保守费用估算 0.353262 元；沿用原账本和限制，无重复、未结算或超限。未完成的归档恢复及清理残留均不记为通过。
 
@@ -11,8 +11,8 @@
 | G1 费用与频率保护 | 通过回归与共享账本实测；正式配置已启用限制                              |
 | G2 安装版真实任务 | 已标注安装包的复选框、中文输入/局部编辑通过；不代表历史 26 场景全部通过 |
 | G3 DSH 生态评估   | 完成；暂不挂载第三方插件或迁移真实记忆，理由与适配路线已记录            |
-| G4 本机交付       | r14 安装路径 smoke/runtime、正式 Qwen 就绪和真实中文输入通过            |
-| G5 可复查交付     | 最终应用源码 b58bcf3 CI 通过；报告与清理受阻清单持续更新                |
+| G4 本机交付       | r15 安装路径 smoke/runtime、正式 Qwen 就绪通过；真实任务按版本分别记录  |
+| G5 可复查交付     | 已安装源码 7bcd895 CI 通过；报告与清理受阻清单持续更新                  |
 
 ## 改进与合并范围
 
@@ -315,4 +315,24 @@ r13 的 [GitHub CI](https://github.com/Coolenz/Coloop/actions/runs/42211944032) 
 
 r14 续跑在 376.27 秒因 `UNEXPECTED_USER_QUESTION` 停止：DSH 的当前目录指向 profile，而授权目录是原 workspace，模型再次要求确认目录。两份副本保留，四个输入未变，云端账本未变，仍未形成完整 ZIP。证据 `.qa/harness-workspace-resume-1793968801270/report.json`。没有由 driver 回答模型问题或代替模型复制文件。
 
-r15 针对上述上下文冲突，通过官方 `workingDirectory.set` 同步宿主授权目录，不改变会话存储位置或编号。新回归证明旧日志前缀不变、同会话证据可恢复、目录缺失时零模型请求；全量 69 文件、1241 通过、3 可选跳过，format/typecheck/build 通过。被系统拒绝清理的旧 `out` 保持原字节，新的编译输出通过 electron-vite 的 `--outDir` 放到 `.cache/build/r15`，完整目录包单独生成到 `release/r15-current`。安装与实机结果待验证后记录。
+r15 针对上述上下文冲突，通过官方 `workingDirectory.set` 同步宿主授权目录，不改变会话存储位置或编号。新回归证明旧日志前缀不变、同会话证据可恢复、目录缺失时零模型请求；全量 69 文件、1241 通过、3 可选跳过，format/typecheck/build 通过。被系统拒绝清理的旧 `out` 保持原字节，新的编译输出通过 electron-vite 的 `--outDir` 放到 `.cache/build/r15`，完整目录包单独生成到 `release/r15-current`。
+
+## 当前安装版 r15 与未通过的归档恢复
+
+源码 [7bcd895](https://github.com/Coolenz/Coloop/commit/7bcd8956875206b3ec28c63fd3f1102e9d50b0d0) 已发布；[CI 42221635076](https://github.com/Coolenz/Coloop/actions/runs/42221635076) 成功，69 文件/1241 项通过、3 项跳过，Python 9 项、格式、类型和构建检查通过。没有发布二进制或新增版本号，RK 子树未改动。
+
+固定目录完整同步校验 151317 文件，未创建备份。main SHA256 为 `d9148f9fc99f74f5dece66ce5c50766f1921811978f72e6a14a46b26d557c488`；包内授权工作目录持久切换、本地摘要、Harness 工具循环、Stagehand、Docling 和 ZIP 的运行验证通过。正式 profile 连续三次就绪，104 条任务、原密钥密文和模型限制保留。实际安装路径证据 `.qa/evolution-r15-install.log`、`.qa/proactive-package-1793970324915/report.json`、`.qa/runtime-package-windows-no-credentials-1793970324626/report.json`、`.qa/evolution-r15-production-verification.json`。
+
+原任务已记录 `working-directory/change`，模型当前目录与原授权 workspace 一致，但 260.00 秒后仍重复旧路径提问，driver 按原判据以 `UNEXPECTED_USER_QUESTION` 停止，未替模型回答。两份副本、四个输入和云端账本均未变化；2 次本地请求/响应，无传输错误。证据 `.qa/harness-workspace-resume-1793970388491/report.json`。云端中文输入的最新真实成功证据属于 r14，不能标成 r15 实测。
+
+进一步检查实际摘要发现，默认八段英文格式在 512 token 上限下于长哈希中途截断，尚未进入完成状态和下一步。r16 针对该问题修正模板及完整性校验，结果待验证；不能只凭工作目录修复就宣布业务成功。
+
+本轮两个新临时输出清理也被拒绝，完整待删清单现为 `D:\Coloop\release\current`、`D:\Coloop\release\r12-final`、`D:\Coloop\release\r13-final`、`D:\Coloop\out`、`D:\Coloop\release\r15-current`、`D:\Coloop\.cache\build\r15`。共 4 个完整包、2 个编译输出，全部是完成用途的待删产物，包括最新一份。自动审批 `exec_command CreateProcess` 返回 `blocked by policy`，删除命令未执行，未说明更具体原因；未改用其他工具绕过。拒绝后的只读核对见 `.qa/evolution-r15-cleanup.json`，给用户的清单为 `.qa/manual-cleanup-20261106.txt`。
+
+## r16 摘要完整性与独立验证分支
+
+本地摘要改为简短中文“已提交、待办、约束”，通过官方 LLM 接口只请求一次原路由，仍最多 512 token；不携带工具或额外模型路线。除检查官方完成原因，还必须收到结束标记，以覆盖 RK 文本接口未可靠报告截断的问题。部分摘要不会写入 checkpoint，原始历史保留；官方自动压缩失败后可以继续使用未改写的原历史，不等于整个任务一定立即停止。本地文件恢复提示改为明确的中文授权目录、原目标和持久提交记录；仍须独立核验，不能重放未知动作或扩大权限。
+
+共享开发目录同时出现另一项 Auto Agent Work 开发修改，为避免混入未完成实现，本轮从已发布 `7bcd895` 建立独立 Git 工作树验证，仅纳入上述归档修复，未覆盖共享目录的并行改动。依赖继续使用当前已安装工具链，锁文件哈希一致；编译输出为 `D:\Coloop\.cache\build\r16`，完整包为 `D:\Coloop\release\r16-current`，均只用于本轮验证和安装。
+
+隔离工作树定向 169 项通过；全量 69 文件、1242 通过、3 项可选跳过，format/typecheck/build 通过。新增回归核对截断摘要不提交、原证据可恢复，既有请求上限与跨云端/本地计数测试通过。证据 `.qa/evolution-r16-isolated-targeted-tests.log`、`.qa/evolution-r16-tests.log`、`.qa/evolution-r16-build.log`、`.qa/evolution-r16-format.log`。安装与真实归档结果待完成后记录，不能把这组回归视为原任务已经通过。

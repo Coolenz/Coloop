@@ -250,12 +250,13 @@ describe('TarsAgentService official runtime facade', () => {
     let checked = false
     scripts.push(async (runtime) => {
       const input = runtime.run.mock.calls[0][0]
-      const recovery = JSON.parse(typeof input === 'string' ? input : input.input)
-      expect(recovery.workspace).toEqual({
-        root: taskRoot,
-        relativePathBase: '.',
-        parentAccessAllowed: false,
-      })
+      const recovery = typeof input === 'string' ? input : input.input
+      expect(recovery).toContain(`当前文件根目录：${taskRoot}`)
+      expect(recovery).toContain('检查输入文件')
+      expect(recovery).toContain('无需再次询问确认路径')
+      expect(recovery).toContain('仍缺必要资料时才询问')
+      expect(recovery).toContain('不能进入父目录')
+      expect(runtime.options.taskWorkspace).toBe(taskRoot)
       await call(runtime, 'coloop_enable_tools', { group: 'files' })
       await expect(call(runtime, 'coloop_list', { path: directory })).rejects.toThrow(
         'PATH_OUTSIDE_TASK_WORKSPACE',
@@ -264,7 +265,7 @@ describe('TarsAgentService official runtime facade', () => {
         JSON.stringify(taskRoot),
       )
       const listed = (await call(runtime, 'coloop_list', {
-        path: recovery.workspace.relativePathBase,
+        path: '.',
       })) as { path: string; entries: { path: string }[] }
       expect(listed.path).toBe(taskRoot)
       expect(listed.entries.map((entry) => entry.path)).toEqual(['input.txt'])

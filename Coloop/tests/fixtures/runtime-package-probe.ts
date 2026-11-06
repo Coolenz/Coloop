@@ -245,14 +245,15 @@ try {
       },
     ],
     fetch: createRkTarsFetch(async (system, messages, _signal, cap) => {
-      if (messages.at(-1)?.content.includes('You are now acting as a compaction engine')) {
+      const summary = messages.at(-1)?.content.includes('[Coloop local checkpoint]')
+      if (summary) {
         summaries++
         assert.equal(cap, 512)
         assert.ok(!system.includes('Planner-only schema guidance'))
       }
       return ++localRequests === 1
         ? '<tool_call>{"name":"coloop_echo","parameters":{}}</tool_call>'
-        : 'Fixture read once; no writes or inputs.'
+        : 'Fixture read once; no writes or inputs.' + (summary ? '\n<checkpoint-end>' : '')
     }),
   })
   const localResult = await harness.run('Read and report. ' + 'evidence '.repeat(800))
