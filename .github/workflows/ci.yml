@@ -15,6 +15,11 @@ jobs:
           cache-dependency-path: Coloop/package-lock.json
       - run: npm ci
       - run: npm test
+      - name: RK service recovery guards
+        shell: pwsh
+        run: |
+          . ./scripts/workspace-cache.ps1
+          python -m unittest discover -s tests -p test_rk_model_service.py -v
       - run: npm run format:check
       - run: npm run build
       # Full desktop packaging requires prepared offline runtime assets in .cache.

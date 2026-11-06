@@ -108,6 +108,46 @@ it('rejects foreign endpoints before any RK model call', async () => {
 })
 
 it.each([
+  [{ max_tokens: 256 }, 256],
+  [{ max_completion_tokens: 512 }, 512],
+  [{ max_tokens: 512, max_completion_tokens: 256 }, 256],
+  [{ max_tokens: 4096 }, 1024],
+  [{}, 1024],
+])('honors the actual per-request output cap for local summaries: %j', async (fields, expected) => {
+  const complete = vi.fn(
+    async (_system: string, _messages: unknown, _signal: AbortSignal, _maxTokens: number) =>
+      '短摘要',
+  )
+  const response = await createRkTarsFetch(complete)(rkTarsModel.baseURL + '/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify({
+      model: rkTarsModel.id,
+      stream: true,
+      messages: [{ role: 'user', content: '汇总已完成项，保留失败与未完成项。' }],
+      ...fields,
+    }),
+  })
+  expect(response.ok).toBe(true)
+  expect(complete.mock.calls[0][3]).toBe(expected)
+})
+
+it('rejects an invalid output cap before starting local inference', async () => {
+  const complete = vi.fn(async () => 'unreachable')
+  await expect(
+    createRkTarsFetch(complete)(rkTarsModel.baseURL + '/chat/completions', {
+      method: 'POST',
+      body: JSON.stringify({
+        model: rkTarsModel.id,
+        stream: true,
+        max_tokens: 0,
+        messages: [{ role: 'user', content: 'invalid cap' }],
+      }),
+    }),
+  ).rejects.toThrow()
+  expect(complete).not.toHaveBeenCalled()
+})
+
+it.each([
   [
     { name: 'coloop_enable_tools', group: 'native' },
     { name: 'coloop_enable_tools', parameters: { group: 'native' } },

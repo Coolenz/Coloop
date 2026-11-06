@@ -164,7 +164,8 @@
         "from": "resources/harness",
         "to": "harness",
         "filter": [
-          "coloop-plugin.mjs"
+          "coloop-plugin.mjs",
+          "coloop-compaction.mjs"
         ]
       },
       {

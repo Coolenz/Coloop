@@ -16,3 +16,5 @@ Coloop 锁定 DSH SDK/CLI 0.2.1-rc.5、独立标准 Node 24，只开放受控 co
 记忆结论：保留 RK 原库、worker、QA namespace 和本地路由检查。DSH 默认画像注入可能把私密事实交给云端，不能为了生态兼容牺牲该边界。后续 Engram 适配先只开放现有 catalog/get，禁用画像注入、ingest、reflect、辅助 LLM；独立目标库核对中文检索、来源、去重、删除、重启、local→remote 拒绝后再决定切换。当前没有证明其在 RK 上优于原系统的同题实测，故本轮不进行不可逆迁移。
 
 实际落地：宿主缺价拒绝、累计费用上限及服务端持久冷却，覆盖 Harness、Stagehand 和咨询共享出口，无需依赖第三方插件自律。
+
+追加的适配来自[官方 compaction-basic](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/compaction/compaction-basic) 的 `summarize` 子类扩展点。本机锁定的 0.2.1-rc.5 源码明确支持覆盖此方法。RK 本地摘要移除不需要的工具 schema 和规划器提示，保留全部非 system 历史；模型调用、取消、持久替换与审计仍由官方引擎完成。这样可改善本地 16 KiB 输入边界的兼容性，无需另接记忆插件、额外模型或第二个 agent 循环。长历史压缩及失败后同会话恢复已有真实 SDK 回归，实机业务结果另列在验收报告。

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -9,56 +9,101 @@ import { createHarnessRuntime, harnessRkRequest } from '../src/main/infrastructu
 import { rkTarsModel, createRkTarsFetch } from '../src/main/infrastructure/rk-tars-model'
 import { projectObservationContext } from '../src/main/infrastructure/observation-context'
 
-it('compacts growing local history through the same RK adapter before its byte guard rejects, retaining the audit', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'coloop-local-compaction-'))
-  const id = 'local-compaction'
-  const evidence = 'evidence '.repeat(1150)
-  const events: any[] = []
-  let calls = 0
-  const runtime = createHarnessRuntime({
-    id,
-    workspace: directory,
-    home: directory,
-    runtimeResources: resolve('resources/harness'),
-    model: rkTarsModel,
-    instructions: 'Read coloop_echo once, then summarize. Never repeat the tool.',
-    maxIterations: 6,
-    maxTokens: 1024,
-    tools: [
-      {
-        name: 'coloop_echo',
-        description: 'Read evidence once',
-        parameters: { type: 'object' },
-        execute: () => ({ text: evidence }),
-      },
-    ],
-    fetch: createRkTarsFetch(async () =>
-      ++calls === 1
-        ? '<tool_call>{"name":"coloop_echo","parameters":{}}</tool_call>'
-        : 'Evidence was read once. No writes or inputs were performed.',
-    ),
-    onEvent: (event) => events.push(event),
-  })
-  try {
-    const result = await runtime.run('Read the evidence and report.')
-    expect(result.finishReason).toBe('stop')
-    expect(calls).toBeGreaterThanOrEqual(3)
-    expect(
-      events.some(
-        (event) => event.type === 'harness_session_event' && event.event.type === 'compaction/end',
-      ),
-    ).toBe(true)
-    const audit = await readFile(
-      join(directory, createHash('sha256').update(id).digest('hex'), 'host-events.jsonl'),
-      'utf8',
-    )
-    expect(audit).toContain(evidence)
-    expect(audit.match(/"type":"tool_intent"/g)).toHaveLength(1)
-  } finally {
-    await runtime.dispose()
-    await rm(directory, { recursive: true, force: true })
-  }
-}, 120_000)
+it.each([false, true])(
+  'compacts growing local history through the same RK adapter, retaining the audit (resume=%s)',
+  async (resume) => {
+    const directory = await mkdtemp(join(tmpdir(), 'coloop-local-compaction-'))
+    const id = 'local-compaction'
+    const evidence = 'evidence '.repeat(800)
+    const receipt = 'Read once; no effects. '.repeat(90)
+    const input = 'Read the evidence and report. ' + evidence
+    const events: any[] = []
+    let calls = 0
+    const summaryCaps: number[] = []
+    let failSummary = resume
+    const config: Parameters<typeof createHarnessRuntime>[0] = {
+      id,
+      workspace: directory,
+      home: directory,
+      runtimeResources: resolve('resources/harness'),
+      model: rkTarsModel,
+      instructions:
+        'Read coloop_echo once, then summarize. Never repeat the tool. ' +
+        'Planner-only schema guidance. '.repeat(160),
+      maxIterations: 6,
+      maxTokens: 1024,
+      tools: [
+        {
+          name: 'coloop_echo',
+          description: 'Read evidence once',
+          parameters: { type: 'object' },
+          execute: () => ({ text: receipt }),
+        },
+      ],
+      fetch: createRkTarsFetch(async (system, messages, _signal, maxTokens) => {
+        const summary = messages
+          .at(-1)
+          ?.content.includes('You are now acting as a compaction engine')
+        if (summary) {
+          summaryCaps.push(maxTokens)
+          expect(system).not.toContain('Planner-only schema guidance')
+          expect(system).not.toContain('Read evidence once')
+          expect(messages.some((message) => message.content.includes(evidence))).toBe(true)
+        }
+        if (failSummary && calls > 0) throw new Error('simulated interrupted model connection')
+        return ++calls === 1
+          ? '<tool_call>{"name":"coloop_echo","parameters":{}}</tool_call>'
+          : 'Evidence was read once. No writes or inputs were performed.'
+      }),
+      onEvent: (event) => events.push(event),
+    }
+    let runtime = createHarnessRuntime(config)
+    try {
+      if (resume) {
+        expect((await runtime.run(input)).finishReason).toBe('error')
+        await runtime.dispose()
+        failSummary = false
+        runtime = createHarnessRuntime({ ...config, resume: true })
+      }
+      const result = await runtime.run(resume ? 'Continue from the recorded evidence.' : input)
+      expect(
+        result.finishReason,
+        JSON.stringify(
+          events.filter(
+            (event) => event.type === 'agent_error' || event.event?.type === 'compaction/end',
+          ),
+        ),
+      ).toBe('stop')
+      expect(calls).toBeGreaterThanOrEqual(3)
+      expect(summaryCaps.length).toBeGreaterThan(0)
+      expect(summaryCaps).toEqual(summaryCaps.map(() => 512))
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'harness_session_event' && event.event.type === 'compaction/end',
+        ),
+      ).toBe(true)
+      const audit = await readFile(
+        join(directory, createHash('sha256').update(id).digest('hex'), 'host-events.jsonl'),
+        'utf8',
+      )
+      expect(audit).toContain(receipt)
+      expect(audit.match(/"type":"tool_intent"/g)).toHaveLength(1)
+      const sessions = join(directory, createHash('sha256').update(id).digest('hex'), 'sessions')
+      const log = (await readdir(sessions, { recursive: true })).find((name) =>
+        name.endsWith('session.v4.jsonl'),
+      )
+      expect(log).toBeDefined()
+      const persisted = await readFile(join(sessions, log!), 'utf8')
+      expect(persisted).toContain(evidence)
+      expect(persisted).toContain('"type":"compaction/summary"')
+    } finally {
+      await runtime.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+  120_000,
+)
 
 it('drops obsolete visual payloads only from file-only model context while preserving receipts and file evidence', async () => {
   const observation = {

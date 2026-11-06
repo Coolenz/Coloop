@@ -19,6 +19,7 @@ if (!$source.StartsWith($releaseRoot + '\', [StringComparison]::OrdinalIgnoreCas
 Assert-ColoopPlainTree $source
 $required = @('Coloop.exe', 'resources\app\package.json', 'resources\app\out\main\index.js',
   'resources\app\out\renderer\index.html', 'resources\app\out\preload\control.cjs',
+  'resources\harness\coloop-plugin.mjs', 'resources\harness\coloop-compaction.mjs',
   'resources\runtime\node\node.exe', 'resources\runtime\docling\.venv\Scripts\python.exe',
   'resources\runtime\cua-driver\cua-driver.exe')
 foreach ($file in $required) {

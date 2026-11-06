@@ -10,6 +10,7 @@ import { errorMessage } from '../domain/errors'
 import type { ManagedApprovalAuthority, ManagedEnrollment } from '../services/managed-approvals'
 import type { ManagedConnection, ManagedEvidence } from '../../shared/managed'
 import { credentialRequest } from './credential-transport'
+import modelServiceSource from '../../../resources/rk-model-service.py?raw'
 
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
@@ -582,6 +583,7 @@ print(r.stdout.strip())`
   }
   async startModelService(): Promise<DeviceState> {
     if (this.starting) throw new Error('端侧服务正在启动，请稍候')
+    if (this.generating) throw new Error('RK 模型正在处理另一项任务，请稍后重试')
     const client = this.client
     if (!client || !this.config) throw new Error('请先连接 RK 设备')
     this.starting = true
@@ -590,34 +592,10 @@ print(r.stdout.strip())`
       this.assertSession(client)
       if (this.state.qwenReady) return this.state
       const directory = this.config.serviceDirectory ?? '~/rk-opencode'
-      // Refuse to replace an existing service. start.sh is used only for an idle, deployed installation.
-      const script = `import os,socket,subprocess,sys,fcntl
-from pathlib import Path
-root=Path(${JSON.stringify(directory)}).expanduser()
-pidfile=root/'.runtime/bridge.pid'
-if pidfile.exists():
- try: os.kill(int(pidfile.read_text().strip()),0)
- except (ProcessLookupError,ValueError): pass
- else: raise SystemExit('Existing bridge process; inspect it before restarting')
-s=socket.socket(); s.settimeout(1)
-if s.connect_ex(('127.0.0.1',${this.config.servicePort ?? 8088}))==0: raise SystemExit('Service port already in use')
-s.close()
-if ${this.config.servicePort ?? 8088} != 8088: raise SystemExit('Existing start script requires port 8088')
-for name in ['scripts/start.sh','build/rkllm-worker-qwen35-4b','.runtime/api-key','.runtime/worker-protocol-qwen35-4b']:
- if not (root/name).is_file(): raise SystemExit('RK service installation incomplete; deploy from RK project first')
-if (root/'.runtime/worker-protocol-qwen35-4b').read_text().strip() not in ['2','3']: raise SystemExit('Worker protocol mismatch; deploy from RK project first')
-if (root/'model_profiles.py').is_file():
- sys.path.insert(0,str(root))
- from model_profiles import load_profile,WORKER_PROTOCOL
- profile=load_profile('qwen35-4b')
- if WORKER_PROTOCOL not in [2,3] or profile['model_id']!='qwen35-4b-rkllm' or profile['prompt_format']!='embedded': raise SystemExit('RK model profile is not supported')
- with open(profile['lock'],'a') as lock:
-  try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-  except BlockingIOError: raise SystemExit('RK 模型正被其他实验或会话占用，结束后将自动重试')
-  fcntl.flock(lock,fcntl.LOCK_UN)
-result=subprocess.run(['bash','scripts/start.sh'],cwd=root,env={**os.environ,'RK_AGENT_PROFILE':'qwen35-4b','RKLLM_CONTEXT':'16384'},stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-if result.returncode: raise SystemExit('RK 模型服务启动失败，请检查板端 logs/bridge.log；将自动重试')`
-      await this.execute(pythonCommand(script), 100_000)
+      // Recover only our authenticated, idle bridge with a dead worker. Never
+      // restart an active model or an unrelated process merely because health failed.
+      const script = `${modelServiceSource}\nstart_model(${JSON.stringify(directory)}, ${this.config.servicePort ?? 8088})`
+      await this.execute(pythonCommand(script), 135_000)
       this.assertSession(client)
       const state = await this.refresh()
       if (!state.qwenReady) throw new Error(state.modelServiceError ?? '端侧服务未就绪')

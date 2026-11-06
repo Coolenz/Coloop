@@ -30,6 +30,10 @@ await mkdir(output, { recursive: true })
 assert.ok(existsSync(node), 'Packaged standard Node must exist')
 assert.ok(existsSync(python), 'Packaged embedded Python must exist')
 assert.ok(existsSync(join(app, 'package.json')), 'Expected unpacked application directory')
+assert.ok(
+  existsSync(join(resources, 'harness', 'coloop-compaction.mjs')),
+  'Packaged local compaction extension must exist',
+)
 assert.ok(probe.startsWith(app + sep), 'Temporary probe must remain inside app')
 
 const profile = join(output, 'profile')

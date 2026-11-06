@@ -300,11 +300,12 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
     .digest('hex')
   const historyBoundary = options.historyBoundary ?? 'remote'
   const localModel = options.model.toolCallEngine === 'prompt_engineering'
-  // Harness estimates tokens from character counts; RK caps UTF-8 bytes,
-  // including schemas. Trigger official compaction earlier. This conservative
-  // heuristic does not replace the independent 16 KiB byte guard.
+  // pi-ai reserves 4096 context tokens before allocating any output. Report the
+  // actual RK capacity and trigger compaction with a separate conservative
+  // threshold; declaring a 4096-token model silently reduces every output to 1.
+  // The independent 16 KiB UTF-8 guard still includes schemas and full history.
   const contextWindow = localModel
-    ? Math.min(options.contextWindow ?? 4096, 4096)
+    ? Math.min(options.contextWindow ?? 16384, 16384)
     : (options.contextWindow ?? 65536)
   const outputTokens = Math.min(
     options.maxTokens ?? 8192,
@@ -728,12 +729,15 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
         entry('filesystem', 'dsh-fs-local'),
         entry('agent-loop', 'dsh-agent-loop', { agents: [], maxParallelToolCalls: 1 }),
         entry('token-meter', 'dsh-token-meter'),
-        entry('compaction', 'dsh-compaction-basic', {
-          thresholdRatio: 0.75,
-          headroomTokens: Math.min(1024, Math.floor(contextWindow / 8)),
-          maxTokens: Math.min(outputTokens, 2048),
-          retainRatio: 0.16,
-        }),
+        {
+          ...entry('compaction', 'dsh-compaction-basic', {
+            thresholdRatio: localModel ? Math.min(0.75, 2560 / contextWindow) : 0.75,
+            headroomTokens: Math.min(1024, Math.floor(contextWindow / 8)),
+            maxTokens: Math.min(outputTokens, localModel ? 512 : 2048),
+            ...(localModel ? { retainTokens: 384 } : { retainRatio: 0.16 }),
+          }),
+          ...(localModel ? { name: join(resource, 'coloop-compaction.mjs') } : {}),
+        },
         entry('sessions', 'dsh-session-persistence-jsonl', {
           root: join(home, 'sessions'),
           compression: 'none',
@@ -770,6 +774,9 @@ export function createHarnessRuntime(options: HarnessRuntimeOptions) {
         COLOOP_HARNESS_BRIDGE: serverAddress,
         COLOOP_HARNESS_BRIDGE_TOKEN: token,
         COLOOP_HARNESS_TOOLS_MODULE: pathToFileURL(require.resolve('@deepseek-ai/dsh-tools')).href,
+        COLOOP_HARNESS_COMPACTION_MODULE: pathToFileURL(
+          require.resolve('@deepseek-ai/dsh-compaction-basic'),
+        ).href,
       }
       for (const name of [
         'PATH',

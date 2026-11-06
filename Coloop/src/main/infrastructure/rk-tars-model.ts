@@ -152,6 +152,8 @@ function compactMessages(messages: Message[], system: string): Message[] {
 const requestSchema = z.object({
   model: z.string(),
   stream: z.literal(true),
+  max_tokens: z.number().int().positive().optional(),
+  max_completion_tokens: z.number().int().positive().optional(),
   messages: z
     .array(
       z.object({
@@ -296,7 +298,16 @@ export function createRkTarsFetch(
       )
     }
     const answer = normalizeToolEnvelopes(
-      await complete(system, messages, signal, outputTokens),
+      await complete(
+        system,
+        messages,
+        signal,
+        Math.min(
+          request.max_tokens ?? outputTokens,
+          request.max_completion_tokens ?? outputTokens,
+          outputTokens,
+        ),
+      ),
       system.includes('coloop_recommend'),
     )
     signal.throwIfAborted()

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { z } from 'zod'
 import { createHarnessRuntime } from '../../src/main/infrastructure/harness-runtime'
+import { rkTarsModel, createRkTarsFetch } from '../../src/main/infrastructure/rk-tars-model'
 import { StagehandRuntime } from '../../src/main/infrastructure/stagehand-runtime'
 import type { StagehandCompletionRequest } from '../../src/main/infrastructure/stagehand-model'
 import { DoclingService } from '../../src/main/infrastructure/docling'
@@ -39,6 +40,7 @@ for (const name of [
   '@deepseek-ai/dsh',
   '@deepseek-ai/dsh-tools',
   '@deepseek-ai/dsh-llm-pi-ai',
+  '@deepseek-ai/dsh-compaction-basic',
   '@browserbasehq/stagehand',
   'playwright-core',
   'zod',
@@ -207,6 +209,49 @@ try {
     officialSdkDisposed: true,
   }
 
+  console.log('Package probe: packaged local compaction extension')
+  let localRequests = 0,
+    localTools = 0,
+    summaries = 0
+  harness = createHarnessRuntime({
+    id: 'packaged-local-compaction',
+    workspace: output,
+    home: join(output, 'local-harness-home'),
+    runtimeResources: join(resources, 'harness'),
+    nodePath: process.execPath,
+    model: rkTarsModel,
+    maxIterations: 6,
+    maxTokens: 1024,
+    instructions: 'Read the fixture once. ' + 'Planner-only schema guidance. '.repeat(160),
+    tools: [
+      {
+        name: 'coloop_echo',
+        description: 'Read fixture once',
+        parameters: { type: 'object' },
+        execute: () => {
+          localTools++
+          return { text: 'Read once; no effects. '.repeat(90) }
+        },
+      },
+    ],
+    fetch: createRkTarsFetch(async (system, messages, _signal, cap) => {
+      if (messages.at(-1)?.content.includes('You are now acting as a compaction engine')) {
+        summaries++
+        assert.equal(cap, 512)
+        assert.ok(!system.includes('Planner-only schema guidance'))
+      }
+      return ++localRequests === 1
+        ? '<tool_call>{"name":"coloop_echo","parameters":{}}</tool_call>'
+        : 'Fixture read once; no writes or inputs.'
+    }),
+  })
+  const localResult = await harness.run('Read and report. ' + 'evidence '.repeat(800))
+  assert.equal(localResult.finishReason, 'stop')
+  assert.equal(localTools, 1)
+  assert.ok(summaries > 0)
+  await harness.dispose()
+  report.localCompaction = { passed: true, localRequests, localTools, summaries, outputCap: 512 }
+
   console.log('Package probe: official Stagehand local extension')
   const abort = new AbortController()
   stagehand = await StagehandRuntime.open({
@@ -326,9 +371,18 @@ try {
   console.log('Package probe: streamed ZIP with Chinese names, empty directory and readback')
   const workspace = await WorkspaceSession.open(output, 'unused.ps1', async () => '')
   const archiveSignal = new AbortController().signal
-  await workspace.call({ operation: 'make_directory', arguments: { path: '归档/空目录' } }, archiveSignal)
-  await workspace.call({ operation: 'write_text', arguments: { path: '归档/内容😀.txt', text: '包内 ZIP 中文校验' } }, archiveSignal)
-  const zipped = await workspace.call({ operation: 'create_zip', arguments: { source: '归档', path: '结果.zip' } }, archiveSignal)
+  await workspace.call(
+    { operation: 'make_directory', arguments: { path: '归档/空目录' } },
+    archiveSignal,
+  )
+  await workspace.call(
+    { operation: 'write_text', arguments: { path: '归档/内容😀.txt', text: '包内 ZIP 中文校验' } },
+    archiveSignal,
+  )
+  const zipped = await workspace.call(
+    { operation: 'create_zip', arguments: { source: '归档', path: '结果.zip' } },
+    archiveSignal,
+  )
   assert.equal(zipped.verified, true)
   assert.equal(zipped.entries, 2)
   assert.equal((await workspace.verify(String(zipped.artifact_id), archiveSignal)).verified, true)
