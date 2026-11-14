@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" fill="none">
+  <title>Coloop — 把目标交给 Coloop</title>
+  <desc>连接桌面任务、本地模型与云端协作。沿用 Coloop 的倾斜双半圆标志和石墨黑品牌配色。</desc>
+  <rect width="1280" height="420" rx="28" fill="#202124"/>
+  <g font-family="Sora, Segoe UI, Microsoft YaHei, sans-serif">
+    <text x="72" y="155" fill="#FFFFFF" font-size="98" font-weight="600" letter-spacing="-5">Coloop</text>
+    <text x="76" y="224" fill="#FFFFFF" font-size="34" font-weight="500">把目标交给 Coloop。</text>
+    <text x="76" y="271" fill="#B9C0C9" font-size="21">桌面任务 · 本地模型 · 云端协作</text>
+    <path d="M76 315H650" stroke="#454A52"/>
+    <text x="76" y="357" fill="#E0E4EA" font-size="20">观察 → 规划 → 执行 → 核验</text>
+  </g>
+  <!-- Geometry from Coloop/resources/brand.svg. -->
+  <g transform="translate(810 38) scale(2.7)">
+    <g transform="rotate(-35 64 64)" fill="#FFFFFF" fill-rule="evenodd">
+      <path d="M51.588 24.138A41.75 41.75 0 0 0 51.588 103.862C54.8 104.9 56.65 102.5 56.65 99.2V28.8C56.65 25.5 54.8 23.1 51.588 24.138Z M47.9 36.056A32.25 32.25 0 0 0 47.9 91.944Q49.35 92.73 49.35 91.08V36.92Q49.35 35.27 47.9 36.056Z"/>
+      <path transform="translate(128 0) scale(-1 1)" d="M51.588 24.138A41.75 41.75 0 0 0 51.588 103.862C54.8 104.9 56.65 102.5 56.65 99.2V28.8C56.65 25.5 54.8 23.1 51.588 24.138Z M47.9 36.056A32.25 32.25 0 0 0 47.9 91.944Q49.35 92.73 49.35 91.08V36.92Q49.35 35.27 47.9 36.056Z"/>
+    </g>
+  </g>
+</svg>
