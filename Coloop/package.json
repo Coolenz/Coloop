@@ -8,9 +8,10 @@
   "author": "Coloop",
   "license": "MIT",
   "scripts": {
+    "cli": "node scripts/with-workspace-cache.mjs scripts/coloop-cli.mjs",
     "dev": "node scripts/with-workspace-cache.mjs node_modules/electron-vite/bin/electron-vite.js dev",
     "build": "node scripts/with-workspace-cache.mjs --npm run build:source",
-    "build:source": "npm run typecheck && electron-vite build",
+    "build:source": "npm run typecheck && npm run prepare:auto-work-uia && electron-vite build",
     "preview": "node scripts/with-workspace-cache.mjs node_modules/electron-vite/bin/electron-vite.js preview",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "node scripts/with-workspace-cache.mjs node_modules/vitest/vitest.mjs run",
@@ -33,15 +34,24 @@
     "setup:stagehand": "node scripts/with-workspace-cache.mjs scripts/setup-stagehand.mjs",
     "setup:node": "node scripts/with-workspace-cache.mjs scripts/setup-node.mjs",
     "setup:cua": "node scripts/with-workspace-cache.mjs scripts/setup-cua.mjs",
-    "prepare:runtime": "npm run setup:node && npm run setup:cua && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-docling.ps1"
+    "prepare:auto-work-uia": "powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/prepare-auto-work-uia.ps1",
+    "prepare:runtime": "npm run setup:node && npm run setup:cua && npm run prepare:auto-work-uia && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-docling.ps1"
   },
   "dependencies": {
     "@agent-tars/core": "0.3.1",
     "@browserbasehq/stagehand": "4.4.0",
     "@deepseek-ai/dsh-llm-pi-ai": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-mcp-client": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-schedule": "0.2.1-rc.5",
     "@deepseek-ai/dsh-sdk-client": "0.2.1-rc.5",
     "@deepseek-ai/dsh-session-checkpoint-policy": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-storage": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-storage-domain": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-storage-json": "0.2.1-rc.5",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-user-approval": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-user-questions": "0.2.1-rc.5",
+    "@playwright/mcp": "0.0.84",
     "lucide-react": "^0.468.0",
     "openai": "6.0.0",
     "playwright-core": "1.64.1",
@@ -83,7 +93,29 @@
       "out/**/*",
       "package.json"
     ],
+    "extraFiles": [
+      {
+        "from": "coloop.cmd",
+        "to": "coloop.cmd"
+      }
+    ],
     "extraResources": [
+      {
+        "from": "scripts/coloop-cli.mjs",
+        "to": "cli/coloop-cli.mjs"
+      },
+      {
+        "from": "scripts/with-workspace-cache.mjs",
+        "to": "cli/with-workspace-cache.mjs"
+      },
+      {
+        "from": "resources/auto-agent-work-hook.mjs",
+        "to": "auto-agent-work-hook.mjs"
+      },
+      {
+        "from": ".cache/auto-work-uia-runtime",
+        "to": "auto-work-uia"
+      },
       {
         "from": "resources/office-window.ps1",
         "to": "office-window.ps1"
@@ -153,6 +185,10 @@
         "to": "icon.png"
       },
       {
+        "from": "resources/icon.ico",
+        "to": "icon.ico"
+      },
+      {
         "from": ".cache/cloudflared/cloudflared.exe",
         "to": "runtime/cloudflared.exe"
       },
@@ -165,7 +201,9 @@
         "to": "harness",
         "filter": [
           "coloop-plugin.mjs",
-          "coloop-compaction.mjs"
+          "coloop-compaction.mjs",
+          "coloop-playwright.mjs",
+          "coloop-scheduler.mjs"
         ]
       },
       {

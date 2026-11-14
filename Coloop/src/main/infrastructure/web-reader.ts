@@ -1,9 +1,17 @@
-import { chromium, type Browser } from 'playwright-core'
+import { chromium, type Browser, type BrowserContext } from 'playwright-core'
+import { join } from 'node:path'
+import { discoverBrowserEndpoint } from './browser-connection'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { WebSession } from './web-session'
 import { StagehandRuntime } from './stagehand-runtime'
 import type { StagehandCompletion } from './stagehand-model'
+import {
+  browserSettingsSchema,
+  taskBrowser,
+  type BrowserPreferences,
+  type BrowserSettings,
+} from '../services/browser-preferences'
 
 export const webReadSchema = z
   .object({
@@ -49,31 +57,46 @@ export function validateWebReadUrl(value: string, goal: string) {
 /** Owns an isolated Edge context for each read, separate from personal browser sessions. */
 export class WebReader {
   private stagehandSessions = new Set<StagehandRuntime>()
-  private browser?: Browser
-  private opening?: Promise<Browser>
-  constructor(private readonly headless = false) {}
-  private async connect() {
-    if (this.browser?.isConnected()) return this.browser
-    this.opening ??= chromium
-      .launch({ channel: 'msedge', headless: this.headless })
+  private browsers = new Map<string, Browser>()
+  private openings = new Map<string, Promise<Browser>>()
+  private profileOpenings = new Set<string>()
+  private persistentContexts = new Map<BrowserContext, { path: string; handedOff: boolean }>()
+  constructor(
+    private readonly headless = false,
+    private readonly preferences?: BrowserPreferences,
+    private readonly profileRoot?: string,
+    private readonly preferExisting = false,
+  ) {}
+  private async connect(browserName: 'edge' | 'chrome' = 'edge') {
+    const existing = this.browsers.get(browserName)
+    if (existing?.isConnected()) return existing
+    const pending = this.openings.get(browserName)
+    if (pending) return pending
+    const opening = chromium
+      .launch({ channel: browserName === 'edge' ? 'msedge' : 'chrome', headless: this.headless })
       .then((browser) => {
-        this.browser = browser
+        this.browsers.set(browserName, browser)
         return browser
       })
       .finally(() => {
-        this.opening = undefined
+        this.openings.delete(browserName)
       })
-    return this.opening
+    this.openings.set(browserName, opening)
+    return opening
   }
   async read(input: unknown, goal: string, signal: AbortSignal) {
     const request = webReadSchema.parse(input)
     const url = validateWebReadUrl(request.url, goal)
     signal.throwIfAborted()
-    const browser = await this.connect()
+    const selection = await this.preferences?.resolve(goal)
+    const settings = selection?.settings ?? browserSettingsSchema.parse({})
+    signal.throwIfAborted()
+    const browser = await this.connect(settings.browser)
     signal.throwIfAborted()
     const context = await browser.newContext({
       acceptDownloads: false,
-      viewport: { width: 1440, height: 1000 },
+      viewport: settings.viewport,
+      locale: settings.locale,
     })
     const stop = () => {
       void context.close().catch(() => {})
@@ -133,47 +156,153 @@ export class WebReader {
         links,
         sha256: createHash('sha256').update(text).digest('hex'),
         channel: 'host_browser',
+        browser: selection ?? { settings, source: 'default' },
       }
     } finally {
       signal.removeEventListener('abort', stop)
       await context.close().catch(() => {})
     }
   }
-  async session(goal: string, signal: AbortSignal, complete?: StagehandCompletion) {
+  async session(
+    goal: string,
+    signal: AbortSignal,
+    complete?: StagehandCompletion,
+    taskId?: string,
+    configured?: BrowserSettings,
+  ) {
     signal.throwIfAborted()
-    if (complete) {
-      const runtime = await StagehandRuntime.open({
-        goal,
-        signal,
-        complete,
-        headless: this.headless,
-        onClosed: (closed) => this.stagehandSessions.delete(closed),
-      })
-      this.stagehandSessions.add(runtime)
+    const recalled = (await this.preferences?.resolve(goal, taskId)) ?? {
+      settings: browserSettingsSchema.parse({}),
+      source: 'default',
+      remembered: false,
+    }
+    const explicit = taskBrowser(goal)
+    const selection = {
+      ...recalled,
+      settings: {
+        ...(configured ?? recalled.settings),
+        browser: explicit ?? configured?.browser ?? recalled.settings.browser,
+      },
+      source: explicit || configured ? 'task' : recalled.source,
+    }
+    signal.throwIfAborted()
+    const existing =
+      selection.settings.connection === 'existing' ||
+      (!selection.settings.connection && this.preferExisting)
+    const cdpUrl = existing
+      ? (selection.settings.cdpUrl ?? (await discoverBrowserEndpoint(selection.settings.browser)))
+      : undefined
+    const userDataDir =
+      (!existing && this.profileRoot && join(this.profileRoot, selection.settings.browser)) ||
+      undefined
+    if (userDataDir && this.profileOpenings.has(userDataDir))
+      throw new Error('BROWSER_PROFILE_IN_USE')
+    if (userDataDir) this.profileOpenings.add(userDataDir)
+    try {
+      if (userDataDir) {
+        for (const runtime of this.stagehandSessions) {
+          if (runtime.userDataDir !== userDataDir) continue
+          if (!runtime.handedOff && runtime.connected) throw new Error('BROWSER_PROFILE_IN_USE')
+          await runtime.close()
+        }
+        for (const [context, state] of this.persistentContexts) {
+          if (state.path !== userDataDir) continue
+          if (!state.handedOff) throw new Error('BROWSER_PROFILE_IN_USE')
+          await context.close()
+        }
+      }
+      signal.throwIfAborted()
+      if (complete || cdpUrl) {
+        if (
+          cdpUrl &&
+          [...this.stagehandSessions].some((runtime) => runtime.attached && runtime.connected)
+        )
+          throw new Error('BROWSER_SESSION_IN_USE')
+        const runtime = await StagehandRuntime.open({
+          goal,
+          signal,
+          complete:
+            complete ??
+            (async () => {
+              throw new Error('STAGEHAND_MODEL_NOT_CONFIGURED')
+            }),
+          headless: this.headless,
+          browserSettings: selection.settings,
+          userDataDir,
+          cdpUrl,
+          onClosed: (closed) => this.stagehandSessions.delete(closed),
+        })
+        this.stagehandSessions.add(runtime)
+        if (signal.aborted) {
+          await runtime.close()
+          this.stagehandSessions.delete(runtime)
+          signal.throwIfAborted()
+        }
+        return new WebSession(runtime.context, goal, signal, runtime, {
+          ...selection,
+          actual: runtime.identity,
+          verified: true,
+          persistent: !!userDataDir,
+          connection: existing ? 'existing' : 'managed',
+        })
+      }
+      const contextOptions = {
+        acceptDownloads: true,
+        viewport: selection.settings.viewport,
+        locale: selection.settings.locale,
+      }
+      const context = userDataDir
+        ? await chromium.launchPersistentContext(userDataDir, {
+            ...contextOptions,
+            channel: selection.settings.browser === 'edge' ? 'msedge' : 'chrome',
+            headless: this.headless,
+          })
+        : await (await this.connect(selection.settings.browser)).newContext(contextOptions)
+      if (userDataDir) {
+        this.persistentContexts.set(context, { path: userDataDir, handedOff: false })
+        context.once('close', () => this.persistentContexts.delete(context))
+      }
       if (signal.aborted) {
-        await runtime.close()
-        this.stagehandSessions.delete(runtime)
+        await context.close()
         signal.throwIfAborted()
       }
-      return new WebSession(runtime.context, goal, signal, runtime)
+      try {
+        const identityPage = await context.newPage()
+        const userAgent = await identityPage.evaluate(() => navigator.userAgent)
+        if ((selection.settings.browser === 'edge') !== userAgent.includes('Edg/'))
+          throw new Error('BROWSER_SELECTION_MISMATCH')
+        await identityPage.close()
+        return new WebSession(
+          context,
+          goal,
+          signal,
+          undefined,
+          {
+            ...selection,
+            actual: { browser: selection.settings.browser, userAgent },
+            verified: true,
+            persistent: !!userDataDir,
+          },
+          () => {
+            const state = this.persistentContexts.get(context)
+            if (state) state.handedOff = true
+          },
+        )
+      } catch (error) {
+        await context.close()
+        throw error
+      }
+    } finally {
+      if (userDataDir) this.profileOpenings.delete(userDataDir)
     }
-    const browser = await this.connect()
-    signal.throwIfAborted()
-    const context = await browser.newContext({
-      acceptDownloads: true,
-      viewport: { width: 1440, height: 1000 },
-    })
-    if (signal.aborted) {
-      await context.close()
-      signal.throwIfAborted()
-    }
-    return new WebSession(context, goal, signal)
   }
   async dispose() {
     await Promise.allSettled([...this.stagehandSessions].map((runtime) => runtime.close()))
     this.stagehandSessions.clear()
-    const browser = this.browser ?? (await this.opening?.catch(() => undefined))
-    await browser?.close().catch(() => {})
-    this.browser = undefined
+    await Promise.allSettled([...this.persistentContexts.keys()].map((context) => context.close()))
+    this.persistentContexts.clear()
+    await Promise.allSettled(this.openings.values())
+    await Promise.allSettled([...this.browsers.values()].map((browser) => browser.close()))
+    this.browsers.clear()
   }
 }

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 
-// This plugin has no filesystem, shell, browser or input implementation. Every
-// effect is delegated to the host's existing, task-scoped capability registry.
+// Host tools delegate to task-scoped services. Official MCP browser tools use
+// DSH's native registry and share the host's current visibility gate.
 export const name = 'coloop-capabilities'
-export const inject = ['tools', 'systemPrompt', 'agents', 'workingDirectory']
+export const inject = ['tools', 'systemPrompt', 'agents', 'workingDirectory', 'approval', 'userQuestions']
 
 export async function apply(ctx, config) {
   const { validateJsonSchemaValue } = await import(process.env.COLOOP_HARNESS_TOOLS_MODULE)
@@ -23,6 +23,45 @@ export async function apply(ctx, config) {
   }
 
   const definition = await call('/definition', {})
+  const promptState = await call('/state', {})
+  ctx.systemPrompt.section({
+    name: 'coloop',
+    order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),
+    text: () => promptState.instructions,
+    interpolate: false,
+  })
+  // The host is the answer UI. DSH owns question validation and cancellation.
+  ctx.on('user-questions/request', async (request) => {
+    const question = request.questions[0]
+    const response = await call('/tool', {
+      name: 'coloop_ask_user',
+      arguments: {
+        question: question.question,
+        ...(question.options ? { options: question.options.map(option => option.label) } : {}),
+      },
+      callId: question.id,
+      sessionId: request.agent.id,
+    }, request.signal)
+    return { answers: [{ id: question.id, selected: [], custom: response.result.answer }] }
+  })
+  const visible = (state, name) => state.tools.includes(name) ||
+    (state.playwrightEnabled && state.playwrightTools.includes(name))
+  ctx.on('tools/pre-execute', async (execution, next) => {
+    const decision = await next()
+    if (decision.kind !== 'allow') return decision
+    const state = await call('/state', { browserTools: [execution.name] }, execution.signal)
+    if (!visible(state, execution.name)) return { kind: 'deny', reason: 'HARNESS_TOOL_DENIED' }
+    return call('/tool-policy', {
+      name: execution.name, arguments: execution.arguments,
+      callId: execution.callId, sessionId: execution.agent?.id,
+    }, execution.signal)
+  })
+  ctx.on('approval/request', async (request) => {
+    const result = await call('/approval', {
+      name: request.toolName, callId: request.callId, sessionId: request.agent.id,
+    }, request.signal)
+    return result.outcome
+  })
   for (const tool of definition.tools) {
     if (!/^coloop_[a-z0-9_]+$/.test(tool.name)) throw new Error('COLOOP_TOOL_NAME_INVALID')
     ctx.tools.register({
@@ -37,6 +76,18 @@ export async function apply(ctx, config) {
       async execute(args, execution) {
         const errors = validateJsonSchemaValue(tool.parameters, args)
         if (errors.length) throw new Error('COLOOP_TOOL_ARGUMENTS_INVALID: ' + errors.join('; '))
+        if (tool.name === 'coloop_ask_user') {
+          const result = await ctx.userQuestions.ask({
+            questions: [{
+              id: execution.callId,
+              question: args.question,
+              ...(args.options ? { options: args.options.map(label => ({ label })) } : {}),
+            }],
+            agent: execution.agent,
+            signal: execution.signal,
+          })
+          return JSON.stringify({ answer: result.answers[0].custom ?? result.answers[0].selected.join(', ') })
+        }
         const response = await call('/tool', {
           name: tool.name,
           arguments: args,
@@ -48,10 +99,11 @@ export async function apply(ctx, config) {
     })
   }
 
-  // Complete prompt replacement happens inside the official assembly seam;
-  // tool visibility is enforced again by the host at dispatch time.
+  // Preserve registered sections from every plugin. This seam limits tools
+  // and synchronizes the host-authorized working directory only.
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
-    const state = await call('/state', {}, context.signal)
+    const result = await next()
+    const state = await call('/state', { browserTools: result.tools.map(tool => tool.name) }, context.signal)
     // Keep the original SDK project/history identity. The official service
     // validates the host-selected directory and records a durable transition;
     // no model argument can select or broaden this root.
@@ -59,11 +111,12 @@ export async function apply(ctx, config) {
         ctx.workingDirectory.get(context.agent.session) !== state.workingDirectory) {
       await ctx.workingDirectory.set(context.agent, state.workingDirectory, context.signal)
     }
-    const result = await next()
     return {
       ...result,
-      sections: [{ name: 'coloop', text: state.instructions, interpolate: false }],
-      tools: result.tools.filter(tool => state.tools.includes(tool.name)),
+      sections: result.sections.map(section => section.name === 'coloop'
+        ? { ...section, text: state.instructions }
+        : section),
+      tools: result.tools.filter(tool => visible(state, tool.name)),
     }
   })
   ctx.on('agent/turn-stopping', async ({ agent, signal }) => {

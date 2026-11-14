@@ -28,6 +28,7 @@ export const reconcileReadOnly: NonNullable<HarnessRuntimeOptions['reconcileUnkn
       'coloop_memory_catalog',
       'coloop_memory_get',
       'coloop_memory_search',
+      'coloop_conversation_history',
       'coloop_ask_user',
       'coloop_file_help',
       'coloop_enable_tools',

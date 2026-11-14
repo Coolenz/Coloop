@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { credentialCreateSchema, credentialRecordSchema } from '../../shared/credentials'
+import {
+  credentialCreateSchema,
+  credentialRecordSchema,
+  credentialFieldSchema,
+} from '../../shared/credentials'
 import { credentialOrigin } from '../domain/credential-policy'
 import type { BoardGateway } from '../infrastructure/board'
 import { PrivateLoginWindow } from '../infrastructure/private-login'
@@ -36,7 +40,8 @@ export class CredentialService {
     this.onChange()
   }
   ensureMemoryEntry() {
-    if (!this.entry) throw new Error('请先打开「记忆」管理页面')
+    if (!this.entry)
+      throw new Error('请先进入私密管理模式，可打开记忆页面或调用 credentials:protect')
   }
   protectPrivateEntry(value: boolean) {
     if (value) {
@@ -56,7 +61,7 @@ export class CredentialService {
     return data.records
   }
   async create(input: unknown) {
-    if (!this.entry) throw new Error('请先打开私密凭据页')
+    this.ensureMemoryEntry()
     // Discard Zod issues: they may contain user-provided data in future versions.
     const parsed = credentialCreateSchema.safeParse(input)
     if (!parsed.success) throw new Error('网站格式无效，或账号密码不是 1–64 个英文、数字与键盘符号')
@@ -65,14 +70,15 @@ export class CredentialService {
     return credentialRecordSchema.parse(await this.board.credentials({ op: 'create', ...data }))
   }
   async remove(id: unknown) {
-    if (!this.entry) throw new Error('请先打开私密凭据页')
+    this.ensureMemoryEntry()
     const result = await this.board.credentials({ op: 'delete', id: z.uuid().parse(id) })
     z.object({ deleted: z.literal(true) })
       .strict()
       .parse(result)
   }
   async open(id: unknown, developmentUrl?: string) {
-    if (!this.entry || !this.canProtect()) throw new Error('请先结束其他任务，并打开私密凭据页')
+    this.ensureMemoryEntry()
+    if (!this.canProtect()) throw new Error('请先结束其他任务')
     if (this.login || this.opening || this.privateEntry) throw new Error('请先关闭当前私密窗口')
     this.opening = true
     this.clearCaptures()
@@ -97,5 +103,17 @@ export class CredentialService {
   }
   close() {
     this.login?.close()
+  }
+  async fill(input: unknown) {
+    this.ensureMemoryEntry()
+    if (!this.login) throw new Error('请先打开私密登录窗口')
+    const { field, index } = z
+      .object({
+        field: credentialFieldSchema,
+        index: z.number().int().min(0).default(0),
+      })
+      .strict()
+      .parse(input)
+    return this.login.fill(field, index)
   }
 }

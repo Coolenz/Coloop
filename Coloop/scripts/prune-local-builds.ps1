@@ -1,5 +1,6 @@
-param([Parameter(Mandatory=$true)][string]$KeepPackageDirectory, [switch]$ListOnly, [switch]$IncludeCurrent)
+param([Parameter(Mandatory=$true)][string]$KeepPackageDirectory, [switch]$ListOnly, [switch]$IncludeCurrent, [switch]$OnlyCurrent)
 $ErrorActionPreference = 'Stop'
+if ($OnlyCurrent -and !$IncludeCurrent) { throw 'OnlyCurrent requires IncludeCurrent' }
 . (Join-Path $PSScriptRoot 'local-install-copy.ps1')
 $release = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\release')).Path.TrimEnd('\')
 $keep = (Resolve-Path -LiteralPath $KeepPackageDirectory).Path.TrimEnd('\')
@@ -15,7 +16,9 @@ if (!(Test-Path -LiteralPath (Join-Path $keep $main)) -or !(Test-Path -LiteralPa
   throw 'Only prune after the retained package matches the actual installation'
 }
 $processes = Get-CimInstance Win32_Process
-foreach ($entry in Get-ChildItem -LiteralPath $release -Directory) {
+# Restrict this run to the explicitly named candidate without enumerating historical packages.
+$entries = if ($OnlyCurrent) { @(Get-Item -LiteralPath $keepRoot) } else { @(Get-ChildItem -LiteralPath $release -Directory) }
+foreach ($entry in $entries) {
   if ((!$IncludeCurrent -and $entry.FullName -eq $keepRoot) -or $entry.Name -eq 'android') { continue }
   if (!(Test-Path -LiteralPath (Join-Path $entry.FullName 'win-unpacked\Coloop.exe') -PathType Leaf)) { continue }
   $target = (Resolve-Path -LiteralPath $entry.FullName).Path

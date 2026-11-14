@@ -1,19 +1,16 @@
 import { randomUUID } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  renameSync,
-  appendFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
+import { replaceFileSync } from './atomic-file'
+import { cloudModelCapacity } from '../../shared/model-capacity'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 import {
-  modelLimitsSchema,
+  effectiveModelLimits,
   type ModelLimits,
   type ModelUsageSnapshot,
+  modelPricingSchema,
+  type ModelPricing,
 } from '../../shared/model-usage'
 
 const counter = z.object({
@@ -30,7 +27,53 @@ const stateSchema = z.object({
   tasks: z.record(z.string(), counter.extend({ day: z.string() })),
 })
 type UsageState = z.infer<typeof stateSchema>
-type Context = { taskId: string; source: string; provider?: string }
+export type ModelUsageContext = {
+  taskId: string
+  source: string
+  provider?: string
+  role?: 'default' | 'decision'
+  /** Undefined preserves the original default pricing. An empty object means
+   * this explicitly selected model has no configured rates. */
+  pricing?: ModelPricing
+}
+type Context = ModelUsageContext
+
+/** Image bytes are bounded independently from text context. The reservation
+ * is deliberately an estimate; complete upstream usage replaces it. */
+function requestFootprint(body: unknown) {
+  let imageCount = 0,
+    imageBytes = 0
+  const account = (encoded: unknown) => {
+    if (typeof encoded !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded))
+      throw new ModelUsageError('MODEL_IMAGE_INVALID')
+    imageCount++
+    imageBytes += Buffer.byteLength(encoded, 'base64')
+    if (imageCount > 4 || imageBytes > 8 * 1024 * 1024)
+      throw new ModelUsageError('MODEL_IMAGE_LIMIT')
+  }
+  const text = JSON.stringify(body, (_key, value) => {
+    if (value?.type === 'image_url') {
+      const match = /^data:image\/(?:png|jpeg|webp);base64,(.*)$/.exec(value.image_url?.url ?? '')
+      if (!match) throw new ModelUsageError('MODEL_IMAGE_INVALID')
+      account(match[1])
+      return { type: 'image_url', image_url: { url: '[image]' } }
+    }
+    if (value?.type === 'image' && value.source?.type === 'base64') {
+      account(value.source.data)
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: value.source.media_type, data: '[image]' },
+      }
+    }
+    if (value?.inlineData?.mimeType?.startsWith('image/')) {
+      account(value.inlineData.data)
+      return { inlineData: { mimeType: value.inlineData.mimeType, data: '[image]' } }
+    }
+    return value
+  })
+  const textBytes = Buffer.byteLength(text)
+  return { textBytes, imageCount, imageBytes, units: textBytes + imageCount * 32768 }
+}
 
 export class ModelUsageError extends Error {
   constructor(readonly code: string) {
@@ -74,7 +117,7 @@ export class ModelUsageLedger {
     }).format(this.now())
   }
   limits() {
-    return modelLimitsSchema.parse(this.policy() ?? {})
+    return effectiveModelLimits(this.policy())
   }
   bind(signal: AbortSignal, taskId: string) {
     this.scopes.set(signal, taskId)
@@ -108,6 +151,15 @@ export class ModelUsageLedger {
       ...(this.storageError ? { error: 'MODEL_USAGE_STORAGE_UNAVAILABLE' } : {}),
     }
   }
+  taskSnapshot(taskId: string) {
+    const usage = this.state.tasks[taskId]
+    return {
+      requests: usage?.requests ?? 0,
+      tokenUnits: usage?.tokenUnits ?? 0,
+      estimatedCostYuan: (usage?.costMicros ?? 0) / 1000000,
+      unpricedRequests: usage?.unpricedRequests ?? 0,
+    }
+  }
   private log(event: Record<string, unknown>) {
     appendFileSync(
       join(this.directory, 'model-usage.jsonl'),
@@ -122,7 +174,7 @@ export class ModelUsageLedger {
       mode: 0o600,
       flush: true,
     })
-    renameSync(temporary, this.path())
+    replaceFileSync(temporary, this.path())
   }
   private async reserve(
     context: Context,
@@ -130,11 +182,13 @@ export class ModelUsageLedger {
     output: number,
     model: string,
     signal: AbortSignal,
+    footprint: ReturnType<typeof requestFootprint>,
   ) {
     const pending = this.admission
       .catch(() => {})
       .then(async () => {
         const limits = this.limits()
+        const pricing = modelPricingSchema.parse(context.pricing ?? limits)
         signal.throwIfAborted()
         const wait = Math.min(
           limits.minRequestIntervalMs,
@@ -158,9 +212,9 @@ export class ModelUsageLedger {
         }
         const units = bytes + output
         const priced =
-          limits.inputYuanPerMillion !== undefined && limits.outputYuanPerMillion !== undefined
+          pricing.inputYuanPerMillion !== undefined && pricing.outputYuanPerMillion !== undefined
         const costMicros = priced
-          ? Math.ceil(bytes * limits.inputYuanPerMillion! + output * limits.outputYuanPerMillion!)
+          ? Math.ceil(bytes * pricing.inputYuanPerMillion! + output * pricing.outputYuanPerMillion!)
           : 0
         const code = this.storageError
           ? 'MODEL_USAGE_STORAGE_UNAVAILABLE'
@@ -174,9 +228,9 @@ export class ModelUsageLedger {
                     costMicros >
                     Math.floor(limits.maxCostYuanTotal * 1000000)
                 ? 'MODEL_TOTAL_COST_LIMIT'
-                : bytes > limits.maxInputBytes
+                : limits.inputLimitEnabled && footprint.textBytes > limits.maxInputBytes
                   ? 'MODEL_INPUT_LIMIT'
-                  : task.requests >= limits.maxRequestsPerTask
+                  : limits.usageBudgetEnabled && task.requests >= limits.maxRequestsPerTask
                     ? 'MODEL_TASK_REQUEST_LIMIT'
                     : limits.usageBudgetEnabled && daily.requests >= limits.maxRequestsPerDay
                       ? 'MODEL_DAY_REQUEST_LIMIT'
@@ -228,7 +282,8 @@ export class ModelUsageLedger {
             ...context,
             model,
             day,
-            inputBytes: bytes,
+            inputBytes: footprint.textBytes + footprint.imageBytes,
+            imageCount: footprint.imageCount,
             reservedTokenUnits: units,
             maxOutputTokens: output,
             reservedCostYuan: priced ? costMicros / 1000000 : undefined,
@@ -244,8 +299,8 @@ export class ModelUsageLedger {
           started: this.now(),
           costMicros,
           priced,
-          inputRate: limits.inputYuanPerMillion,
-          outputRate: limits.outputYuanPerMillion,
+          inputRate: pricing.inputYuanPerMillion,
+          outputRate: pricing.outputYuanPerMillion,
         }
       })
     this.admission = pending
@@ -256,15 +311,22 @@ export class ModelUsageLedger {
       if (typeof init?.body !== 'string') throw new ModelUsageError('MODEL_REQUEST_UNMETERED')
       const body = JSON.parse(init.body)
       const limits = this.limits()
+      const url = new URL(
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+      )
+      const model = body.model ?? url.pathname.match(/\/models\/([^:]+)/)?.[1] ?? 'configured-model'
+      const capacity = cloudModelCapacity({ baseUrl: url.origin, model: String(model) })
       const requested =
         body.max_completion_tokens ??
         body.max_tokens ??
         body.generationConfig?.maxOutputTokens ??
-        limits.maxOutputTokens
-      const output = Math.min(
-        Number.isInteger(requested) && requested > 0 ? requested : limits.maxOutputTokens,
-        limits.maxOutputTokens,
-      )
+        (limits.mode === 'custom' ? limits.maxOutputTokens : capacity.maxOutputTokens)
+      const requestedOutput =
+        Number.isInteger(requested) && requested > 0 ? requested : capacity.maxOutputTokens
+      const output =
+        limits.mode === 'custom'
+          ? Math.min(requestedOutput, limits.maxOutputTokens)
+          : requestedOutput
       if (body.generationConfig) body.generationConfig.maxOutputTokens = output
       else if (body.max_completion_tokens !== undefined) body.max_completion_tokens = output
       else body.max_tokens = output
@@ -272,17 +334,15 @@ export class ModelUsageLedger {
         body.stream_options = { ...body.stream_options, include_usage: true }
       const payload = JSON.stringify(body)
       const signal = init.signal ?? new AbortController().signal
-      const url = new URL(
-        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
-      )
       const trackedContext = { ...context, provider: url.origin }
-      const model = body.model ?? url.pathname.match(/\/models\/([^:]+)/)?.[1] ?? 'configured-model'
+      const footprint = requestFootprint(body)
       const reservation = await this.reserve(
         trackedContext,
-        Buffer.byteLength(payload),
+        footprint.units,
         output,
         String(model).slice(0, 120),
         signal,
+        footprint,
       )
       let finished = false
       let prompt: number | undefined,

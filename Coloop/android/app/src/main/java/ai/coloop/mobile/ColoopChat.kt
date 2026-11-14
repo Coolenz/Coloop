@@ -82,6 +82,24 @@ import androidx.compose.ui.unit.dp
     }
     Column(modifier.fillMaxHeight().imePadding()) {
         ConnectionStrip(state, model)
+        state.snapshot?.approval?.let { approval ->
+            Surface(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.padding(16.dp).heightIn(max = 240.dp).verticalScroll(rememberScrollState())
+                    .semantics { liveRegion = LiveRegionMode.Polite }) {
+                    Text("需要你批准操作", style = MaterialTheme.typography.titleMedium)
+                    Text(approval.title, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                    Text(approval.question, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+                    if (approval.details.isNotBlank()) Text(approval.details, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+                    Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = { model.answerApproval(approval, false) },
+                            enabled = !state.busy && state.link == LinkStatus.ONLINE, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("拒绝本次") }
+                        Button(onClick = { model.answerApproval(approval, true) },
+                            enabled = !state.busy && state.link == LinkStatus.ONLINE, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("允许本次") }
+                    }
+                }
+            }
+        }
         val currentTask = tasks.lastOrNull()?.takeIf { it.state in setOf("received", "understanding", "running", "awaiting_input") }
         if (currentTask != null && !compactChatLayout()) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

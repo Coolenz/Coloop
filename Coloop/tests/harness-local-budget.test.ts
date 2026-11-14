@@ -86,7 +86,7 @@ it.each(['none', 'connection', 'truncated'] as const)(
       ).toBe('stop')
       expect(calls).toBeGreaterThanOrEqual(3)
       expect(summaryCaps.length).toBeGreaterThan(0)
-      expect(summaryCaps).toEqual(summaryCaps.map(() => 512))
+      expect(summaryCaps).toEqual(summaryCaps.map(() => 1024))
       expect(
         events.some(
           (event) =>
@@ -211,6 +211,7 @@ it('fits the current full grouped service catalog into the RK byte budget throug
       dispose: async () => {},
     },
     memory: {
+      remember: async () => ({ ok: true }),
       enqueue: async () => ({ ok: true }),
       catalog: async () => ({ ok: true, result: [] }),
       get: async () => ({ ok: true, result: [] }),
@@ -250,7 +251,7 @@ it('fits the current full grouped service catalog into the RK byte budget throug
       home: join(directory, 'harness'),
       runtimeResources: resolve('resources/harness'),
       model: rkTarsModel,
-      requestContext: undefined,
+      requestContext: captured!.requestContext,
       completion: undefined,
       maxIterations: 3,
       fetch: createRkTarsFetch(async (system, messages) => {
@@ -263,7 +264,9 @@ it('fits the current full grouped service catalog into the RK byte budget throug
     const result = await runtime.run('复制input.txt为copy.txt')
     expect(result.finishReason).toBe('stop')
     expect(measured).toHaveLength(1)
-    expect(measured[0]).toBeLessThan(8000)
+    // Include the normal memory tools and task context against the current
+    // 16 KiB board budget, preserving 4 KiB for working history.
+    expect(measured[0]).toBeLessThan(12 * 1024)
     expect(captured!.tools.some((tool) => tool.name === 'coloop_patch_text')).toBe(true)
     expect(captured!.tools.some((tool) => tool.name === 'coloop_web')).toBe(true)
   } finally {

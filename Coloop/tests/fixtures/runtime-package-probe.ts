@@ -39,8 +39,12 @@ for (const name of [
   '@deepseek-ai/dsh-sdk-client',
   '@deepseek-ai/dsh',
   '@deepseek-ai/dsh-tools',
+  '@deepseek-ai/dsh-mcp-client',
+  '@playwright/mcp',
   '@deepseek-ai/dsh-llm-pi-ai',
   '@deepseek-ai/dsh-compaction-basic',
+  '@deepseek-ai/dsh-compaction-tool-result-pruner',
+  '@deepseek-ai/dsh-compaction-image-offload',
   '@browserbasehq/stagehand',
   'playwright-core',
   'zod',
@@ -92,10 +96,10 @@ const server = createServer(async (request, response) => {
     if (request.url === '/v1/chat/completions') {
       harnessRequests++
       const body = JSON.parse(raw)
-      assert.deepEqual(
-        body.tools.map((tool: any) => tool.function.name),
-        ['coloop_echo'],
-      )
+      const names = body.tools.map((tool: any) => tool.function.name)
+      assert.ok(names.includes('coloop_echo'))
+      assert.ok(names.includes('mcp__playwright__browser_navigate'))
+      assert.ok(names.includes('mcp__playwright__browser_verify_text_visible'))
       const hasResult = body.messages.some((message: any) => message.role === 'tool')
       reply(
         response,
@@ -163,6 +167,7 @@ try {
   const workingDirectories: string[] = []
   harness = createHarnessRuntime({
     id: 'packaged-runtime-smoke',
+    playwrightExtension: { browser: 'edge' },
     workspace: output,
     taskWorkspace,
     home: join(output, 'harness-home'),
@@ -217,6 +222,7 @@ try {
     finishReason: result.finishReason,
     officialSdkDisposed: true,
     authorizedWorkingDirectory: taskWorkspace,
+    officialPlaywrightToolsRegistered: true,
   }
 
   console.log('Package probe: packaged local compaction extension')
@@ -248,7 +254,7 @@ try {
       const summary = messages.at(-1)?.content.includes('[Coloop local checkpoint]')
       if (summary) {
         summaries++
-        assert.equal(cap, 512)
+        assert.equal(cap, 1024)
         assert.ok(!system.includes('Planner-only schema guidance'))
       }
       return ++localRequests === 1
@@ -261,7 +267,7 @@ try {
   assert.equal(localTools, 1)
   assert.ok(summaries > 0)
   await harness.dispose()
-  report.localCompaction = { passed: true, localRequests, localTools, summaries, outputCap: 512 }
+  report.localCompaction = { passed: true, localRequests, localTools, summaries, outputCap: 1024 }
 
   console.log('Package probe: official Stagehand local extension')
   const abort = new AbortController()
@@ -281,6 +287,8 @@ try {
     },
   })
   const page = await stagehand.context.newPage()
+  const browserUserAgent = await page.evaluate(() => navigator.userAgent)
+  assert.ok(browserUserAgent.includes('Edg/'), 'Packaged Stagehand must launch Microsoft Edge')
   await page.goto(base + '/form')
   const snapshot = await stagehand.snapshot(page)
   assert.ok(snapshot.formattedTree.includes('保存订单'))
@@ -308,6 +316,7 @@ try {
   assert.equal(stagehandRequests, 2)
   await stagehand.close()
   report.stagehand = {
+    browserUserAgent,
     passed: true,
     extracted: extracted.data,
     posts,

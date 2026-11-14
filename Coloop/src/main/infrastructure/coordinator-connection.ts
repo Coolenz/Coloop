@@ -12,7 +12,12 @@ import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 /** Session credential discovery for local adapters; never exposed to the renderer. */
-export function publishConnection(directory: string, url: string, token: string) {
+export function publishConnection(
+  directory: string,
+  url: string,
+  token: string,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   if (!lstatSync(directory).isDirectory() || lstatSync(directory).isSymbolicLink())
     throw new Error('协调凭据目录无效')
@@ -31,7 +36,7 @@ $acl.AddAccessRule($rule);
         windowsHide: true,
         timeout: 10_000,
         stdio: 'pipe',
-        env: { ...process.env, COLOOP_CONNECTION_DIRECTORY: directory },
+        env: { ...environment, COLOOP_CONNECTION_DIRECTORY: directory },
       },
     )
   } else chmodSync(directory, 0o700)

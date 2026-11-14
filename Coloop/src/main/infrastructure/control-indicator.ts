@@ -7,11 +7,16 @@ import {
   type Rectangle,
 } from 'electron'
 import { pathToFileURL } from 'node:url'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { replaceFileSync } from './atomic-file'
+import { z } from 'zod'
 import {
   controlIndicatorSnapshotSchema,
   islandActionSchema,
   islandAnswerSchema,
   isActiveControlMode,
+  indicatorPlacementSchema,
+  type IndicatorEdge,
   type IslandAnswer,
   type ControlIndicatorSnapshot,
   type ControlIndicatorView,
@@ -24,7 +29,8 @@ interface ControlIndicatorOptions {
   developmentUrl?: string
   /** Requests stopping; the owner must update(hidden) only after source confirmation. */
   onStop: () => Promise<void>
-  onOpenMain: () => void
+  onOpenMain: (taskId?: string) => void
+  placementFile?: string
   onUnavailable?: (reason: string) => void | Promise<void>
   onAcceptSuggestion?: (id: string) => Promise<void>
   onDismissSuggestion?: (id: string) => Promise<void>
@@ -61,6 +67,7 @@ const CHANNELS = [
   'control-indicator:start-task',
   'control-indicator:reveal',
   'control-indicator:drag',
+  'control-indicator:dock',
 ] as const
 
 /** Isolated, non-activating status surface. A real command must await update(). */
@@ -86,13 +93,43 @@ export class ControlIndicatorWindow {
   private reducedMotion = false
   private revealed = false
   private anchor?: { x: number; y: number }
-  private dragging?: { cursor: { x: number; y: number }; x: number; y: number }
+  private dockEdge?: IndicatorEdge
+  private snapEdge?: IndicatorEdge
+  private dragging?: {
+    cursor: { x: number; y: number }
+    x: number
+    y: number
+    width: number
+    height: number
+  }
 
   private canStartTask(mode = this.current.mode) {
-    return ['idle', 'suggestion', 'completed', 'blocked', 'failed'].includes(mode)
+    return [
+      'idle',
+      'suggestion',
+      'completed',
+      'blocked',
+      'failed',
+      'controlling',
+      'question',
+    ].includes(mode)
   }
 
   constructor(private readonly options: ControlIndicatorOptions) {
+    if (options.placementFile && existsSync(options.placementFile)) {
+      try {
+        const saved = z
+          .object({
+            edge: z.enum(['top', 'left', 'right']).optional(),
+            anchor: z.object({ x: z.number().finite(), y: z.number().finite() }),
+          })
+          .parse(JSON.parse(readFileSync(options.placementFile, 'utf8')))
+        this.dockEdge = saved.edge
+        this.anchor = saved.anchor
+      } catch {
+        /* An obsolete display placement falls back to the primary display. */
+      }
+    }
     const url = options.developmentUrl
       ? new URL(options.developmentUrl)
       : pathToFileURL(options.rendererPath)
@@ -138,7 +175,21 @@ export class ControlIndicatorWindow {
     })
     this.handle('control-indicator:open', (_event, args) => {
       this.noArguments(args)
-      this.options.onOpenMain()
+      this.options.onOpenMain(this.current.taskId)
+    })
+    this.handle('control-indicator:dock', (_event, args) => {
+      this.noArguments(args)
+      const bounds = this.window?.getBounds() ?? this.bounds()
+      const area = screen.getDisplayMatching(bounds).workArea
+      const closest = [
+        { edge: 'top' as const, distance: bounds.y - area.y },
+        { edge: 'left' as const, distance: bounds.x - area.x },
+        { edge: 'right' as const, distance: area.x + area.width - bounds.x - bounds.width },
+      ].sort((a, b) => a.distance - b.distance)[0].edge
+      this.revealed = false
+      this.editingCommand = false
+      this.window?.setFocusable(false)
+      this.placement({ operation: 'dock', edge: this.dockEdge ?? closest })
     })
     this.handle('control-indicator:close-preview', (_event, args) => {
       this.noArguments(args)
@@ -273,6 +324,14 @@ export class ControlIndicatorWindow {
       )
         throw new Error('控制提示参数无效')
       this.revealed = args[0]
+      if (
+        !this.revealed &&
+        !this.actionPending &&
+        !this.editingCommand &&
+        !this.dragging &&
+        this.current.expanded
+      )
+        this.assign({ ...this.current, expanded: false })
       if (typeof args[1] === 'boolean') this.reducedMotion = args[1]
       if (!this.actionPending || this.reducedMotion) this.resize()
     })
@@ -298,7 +357,7 @@ export class ControlIndicatorWindow {
         this.appliedBounds = undefined
         const bounds = window.getBounds()
         this.anchor = { x: bounds.x + bounds.width / 2, y: bounds.y }
-        this.dragging = { cursor, x: bounds.x, y: bounds.y }
+        this.dragging = { cursor, ...bounds }
       } else if (this.dragging) {
         const area = screen.getDisplayNearestPoint(cursor).workArea
         const bounds = window.getBounds()
@@ -316,11 +375,38 @@ export class ControlIndicatorWindow {
             area.y + area.height - bounds.height,
           ),
         )
-        window.setPosition(Math.round(x), Math.round(y), false)
+        const distance = Math.hypot(
+          cursor.x - this.dragging.cursor.x,
+          cursor.y - this.dragging.cursor.y,
+        )
+        if (distance >= 4) this.dockEdge = undefined
+        this.applyBounds(window, {
+          x: Math.round(x),
+          y: Math.round(y),
+          width: this.dragging.width,
+          height: this.dragging.height,
+        })
         const moved = window.getBounds()
         this.anchor = { x: moved.x + moved.width / 2, y: moved.y }
+        const nearby = [
+          { edge: 'top' as const, distance: moved.y - area.y },
+          { edge: 'left' as const, distance: moved.x - area.x },
+          { edge: 'right' as const, distance: area.x + area.width - moved.x - moved.width },
+        ].sort((a, b) => a.distance - b.distance)[0]
+        this.snapEdge = distance >= 4 && nearby.distance <= 48 ? nearby.edge : undefined
+        this.syncDockView()
         if (args[0] === 'end') {
+          if (distance >= 4) {
+            const edges = [
+              { edge: 'top' as const, distance: moved.y - area.y },
+              { edge: 'left' as const, distance: moved.x - area.x },
+              { edge: 'right' as const, distance: area.x + area.width - moved.x - moved.width },
+            ].sort((a, b) => a.distance - b.distance)
+            this.dockEdge = edges[0].distance <= 48 ? edges[0].edge : undefined
+          }
           this.dragging = undefined
+          this.snapEdge = undefined
+          this.savePlacement()
           this.resize()
         }
       }
@@ -348,12 +434,79 @@ export class ControlIndicatorWindow {
   }
 
   snapshot(): ControlIndicatorSnapshot {
-    const { revision: _revision, ...snapshot } = this.current
+    const {
+      revision: _revision,
+      dockEdge: _edge,
+      dockCollapsed: _collapsed,
+      snapEdge: _snap,
+      ...snapshot
+    } = this.current
     return snapshot
   }
 
   getBounds() {
     return this.window?.getBounds()
+  }
+
+  placement(input: unknown) {
+    const request = indicatorPlacementSchema.parse(input)
+    if (request.operation !== 'inspect') {
+      if (this.dragging) throw new Error('浮窗正在拖动，请松开后重试')
+      const bounds = this.window?.getBounds() ?? this.bounds()
+      const area = screen.getDisplayMatching(bounds).workArea
+      this.anchor = { x: bounds.x + bounds.width / 2, y: bounds.y }
+      this.dockEdge = request.operation === 'dock' ? request.edge : undefined
+      if (request.operation === 'dock') {
+        this.revealed = false
+        this.assign({ ...this.current, expanded: false })
+      }
+      if (request.operation === 'undock')
+        this.anchor = { x: area.x + area.width / 2, y: area.y + 48 }
+      this.resize()
+      this.savePlacement()
+    }
+    return {
+      edge: this.dockEdge ?? null,
+      collapsed: this.dockCollapsed(),
+      bounds: this.window?.getBounds(),
+      visible: this.visible,
+    }
+  }
+
+  private dockCollapsed() {
+    return Boolean(
+      this.dockEdge &&
+      !this.revealed &&
+      !this.actionPending &&
+      !this.editingCommand &&
+      !this.dragging,
+    )
+  }
+  private savePlacement() {
+    if (!this.options.placementFile || !this.anchor) return
+    const temporary = this.options.placementFile + '.tmp'
+    writeFileSync(temporary, JSON.stringify({ edge: this.dockEdge, anchor: this.anchor }), {
+      mode: 0o600,
+    })
+    replaceFileSync(temporary, this.options.placementFile)
+  }
+
+  private syncDockView() {
+    const collapsed = this.dockCollapsed()
+    if (
+      this.current.dockEdge === this.dockEdge &&
+      this.current.dockCollapsed === collapsed &&
+      this.current.snapEdge === this.snapEdge
+    )
+      return
+    this.current = {
+      ...this.current,
+      dockEdge: this.dockEdge,
+      dockCollapsed: collapsed,
+      snapEdge: this.snapEdge,
+      revision: this.current.revision + 1,
+    }
+    this.window?.webContents.send('control-indicator:snapshot', { ...this.current })
   }
 
   private noArguments(args: unknown[]) {
@@ -406,26 +559,32 @@ export class ControlIndicatorWindow {
           x: Math.round(this.anchor.x),
           y: Math.round(this.anchor.y),
         }).workArea
-      : screen.getPrimaryDisplay().bounds
-    const revealed = this.current.mode === 'preview' || this.revealed || this.actionPending
-    const expanded =
-      this.current.expanded ??
-      ['suggestion', 'question', 'completed', 'blocked', 'failed'].includes(this.current.mode)
+      : screen.getPrimaryDisplay().workArea
+    const revealed =
+      (this.current.mode === 'preview' && !this.dockEdge) ||
+      this.revealed ||
+      this.actionPending ||
+      this.editingCommand
+    const expanded = this.current.expanded === true
     const width = Math.max(
       1,
       Math.min(
-        this.current.mode === 'preview' ? 373 : revealed ? 480 : this.isActualControl() ? 320 : 280,
+        this.current.mode === 'preview' ? 373 : revealed && expanded ? 480 : 360,
         area.width - 16,
       ),
     )
     const height = Math.max(
       1,
       Math.min(
-        !revealed ? 76 : expanded ? 344 : this.current.mode === 'preview' ? 76 : 128,
+        revealed && expanded
+          ? ['suggestion', 'question', 'completed', 'blocked', 'failed'].includes(this.current.mode)
+            ? 344
+            : 240
+          : 76,
         Math.floor(area.height * 0.65),
       ),
     )
-    return {
+    const bounds = {
       x: Math.round(
         Math.max(
           area.x,
@@ -441,6 +600,31 @@ export class ControlIndicatorWindow {
       width,
       height,
     }
+    if (this.dockEdge) {
+      if (this.dockCollapsed()) {
+        bounds.width = this.dockEdge === 'top' ? 104 : 32
+        bounds.height = this.dockEdge === 'top' ? 32 : 88
+        bounds.x = Math.round(
+          Math.max(
+            area.x,
+            Math.min(
+              (this.anchor?.x ?? area.x + area.width / 2) - bounds.width / 2,
+              area.x + area.width - bounds.width,
+            ),
+          ),
+        )
+        bounds.y = Math.round(
+          Math.max(
+            area.y,
+            Math.min(this.anchor?.y ?? area.y + 48, area.y + area.height - bounds.height),
+          ),
+        )
+      }
+      if (this.dockEdge === 'top') bounds.y = area.y
+      if (this.dockEdge === 'left') bounds.x = area.x
+      if (this.dockEdge === 'right') bounds.x = area.x + area.width - bounds.width
+    }
+    return bounds
   }
 
   private sameBounds(a: Rectangle, b: Rectangle, tolerance = 0) {
@@ -473,6 +657,7 @@ export class ControlIndicatorWindow {
   private resize(animate = true) {
     const window = this.window
     if (!window || window.isDestroyed() || this.dragging) return
+    this.syncDockView()
     const target = this.bounds()
     const shouldAnimate = animate && !this.reducedMotion && window.isVisible()
     // Frequent status refreshes keep the current trajectory instead of restarting it.
@@ -523,6 +708,7 @@ export class ControlIndicatorWindow {
       transparent: true,
       backgroundColor: '#00000000',
       frame: false,
+      thickFrame: false,
       hasShadow: false,
       show: false,
       alwaysOnTop: true,
@@ -604,7 +790,12 @@ export class ControlIndicatorWindow {
   }
 
   private assign(snapshot: ControlIndicatorSnapshot) {
-    this.current = { ...snapshot, revision: this.current.revision + 1 }
+    this.current = {
+      ...snapshot,
+      dockEdge: this.dockEdge,
+      dockCollapsed: this.dockCollapsed(),
+      revision: this.current.revision + 1,
+    }
     this.window?.webContents.send('control-indicator:snapshot', { ...this.current })
     return this.current.revision
   }
@@ -641,6 +832,9 @@ export class ControlIndicatorWindow {
   async update(input: ControlIndicatorSnapshot): Promise<void> {
     if (this.disposed) throw new Error('控制提示已关闭')
     const snapshot = controlIndicatorSnapshotSchema.parse(input)
+    if (snapshot.expanded === undefined)
+      snapshot.expanded =
+        snapshot.taskId === this.current.taskId ? (this.current.expanded ?? false) : false
     if (this.dismissed && !isActiveControlMode(snapshot.mode) && snapshot.mode !== 'hidden') return
     if (isActiveControlMode(snapshot.mode)) this.dismissed = false
     if (!this.canStartTask(snapshot.mode)) this.editingCommand = false

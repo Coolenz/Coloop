@@ -1,5 +1,15 @@
 import { z } from 'zod'
-import { modelLimitsSchema, type ModelUsageSnapshot } from './model-usage'
+import type { LocalModelCapacity } from './local-model'
+import type { PreferencesPatch } from './preferences'
+import {
+  executionPolicySchema,
+  conversationCreateSchema,
+  conversationUpdateSchema,
+  type ConversationSnapshot,
+  type ConversationDetail,
+} from './conversations'
+import type { ModelDebugRequest, ModelDebugRun, ModelDiagnostic, RoutePreview } from './model-debug'
+import { modelLimitsSchema, modelPricingSchema, type ModelUsageSnapshot } from './model-usage'
 import type { VioloopSnapshot } from './violoop'
 import type { AutoConnectionSnapshot } from './connection'
 import type { CoordinatorSnapshot } from './coordinator'
@@ -16,6 +26,12 @@ import type {
 import type { MobileConnectionSnapshot, MobilePairingView } from './mobile'
 import type { DesktopRequest, DesktopSnapshot } from './desktop'
 import type { ProactiveState } from './proactive'
+import type {
+  AutoAgentCreate,
+  AutoAgentFeedbackInput,
+  AutoAgentHookStatus,
+  AutoAgentWorkSnapshot,
+} from './auto-agent-work'
 
 export const providerSchema = z.object({
   protocol: z.enum(['openai', 'anthropic', 'gemini']),
@@ -36,6 +52,9 @@ export const providerSchema = z.object({
       )
     }, '云端地址须使用 HTTPS；本地服务允许 HTTP'),
   model: z.string().trim().min(1).max(120),
+  contextWindow: z.number().int().min(1024).max(10000000).optional(),
+  maxOutputTokens: z.number().int().min(1).max(1048576).optional(),
+  imageInput: z.enum(['unknown', 'supported', 'unsupported']).optional(),
   apiKey: z.string().max(2048).optional(),
   clearKey: z.boolean().optional(),
 })
@@ -69,12 +88,26 @@ export const boardSchema = z.object({
 })
 export const settingsSchema = z.object({
   provider: providerSchema,
+  decisionProvider: providerSchema.optional(),
+  decisionPricing: modelPricingSchema.optional(),
   board: boardSchema,
   ocrWorkspace: z.string().trim().min(1).max(1024).default('D:/RK'),
   taskWorkspace: z.string().trim().min(1).max(2048).optional(),
   modelLimits: modelLimitsSchema.optional(),
+  localModel: z
+    .object({ outputTokens: z.number().int().min(1).max(1048576).optional() })
+    .optional(),
   agentEngine: z.enum(['harness', 'tars']).optional(),
   browserEngine: z.enum(['stagehand', 'playwright']).optional(),
+  autoTaskRouting: z.enum(['cloud', 'local-auto']).optional(),
+  executionMode: z.enum(['cloud', 'local', 'local-auto']).optional(),
+  allowCloudFallback: z.boolean().optional(),
+  islandEnabled: z.boolean().optional(),
+  islandDetailedNotifications: z.boolean().optional(),
+  islandAttention: z.boolean().optional(),
+  closeToTray: z.boolean().optional(),
+  startHidden: z.boolean().optional(),
+  launchOnLogin: z.boolean().optional(),
 })
 export const cloudFieldSchema = z
   .object({
@@ -89,6 +122,7 @@ export const cloudFieldSchema = z
   .strict()
 export type CloudField = z.infer<typeof cloudFieldSchema>
 export const taskRequestSchema = z.object({
+  policy: executionPolicySchema.optional(),
   prompt: z.string().trim().min(1, '请先输入任务').max(24000),
   target: z.enum(['hybrid', 'cloud', 'rk']),
   context: z.string().max(50000).default(''),
@@ -107,8 +141,9 @@ export const taskRequestSchema = z.object({
 export type ProviderConfig = z.infer<typeof providerSchema>
 export type BoardConfig = z.infer<typeof boardSchema>
 export type SettingsInput = z.infer<typeof settingsSchema>
-export type Settings = Omit<SettingsInput, 'provider'> & {
+export type Settings = Omit<SettingsInput, 'provider' | 'decisionProvider'> & {
   provider: Omit<ProviderConfig, 'apiKey' | 'clearKey'> & { hasKey: boolean }
+  decisionProvider?: Omit<ProviderConfig, 'apiKey' | 'clearKey'> & { hasKey: boolean }
 }
 export type TaskRequest = z.infer<typeof taskRequestSchema>
 export const scheduleRequestSchema = z
@@ -137,6 +172,12 @@ export interface ScheduledTask extends ScheduleRequest {
     | 'unconfirmed'
   error?: string
 }
+export const voiceAudioSchema = z
+  .string()
+  .min(1)
+  .max(7_000_000)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+
 export interface VoiceTranscript {
   text: string
   confidence: number
@@ -146,7 +187,27 @@ export interface VoiceTranscript {
   segments: { text: string; confidence: number }[]
 }
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+export interface TaskHistoryEntry {
+  kind: 'user' | 'assistant' | 'tool_call' | 'tool_result'
+  text: string
+  name?: string
+  callId?: string
+  at?: number
+  error?: boolean
+}
+export interface TaskHistoryDetail {
+  entries: TaskHistoryEntry[]
+  notice?: string
+  usage?: {
+    requests: number
+    tokenUnits: number
+    estimatedCostYuan: number
+    unpricedRequests: number
+  }
+  artifacts?: { id: string; path: string; sha256: string }[]
+}
 export interface Task {
+  policy?: z.infer<typeof executionPolicySchema>
   id: string
   prompt: string
   target: 'hybrid' | 'cloud' | 'rk'
@@ -172,6 +233,7 @@ export interface DeviceState {
   qwenReady?: boolean
   model?: string
   modelContext?: number
+  localModelCapacity?: LocalModelCapacity
   modelRuntime?: string
   modelPrivacyReady?: boolean
   hookRelayReady?: boolean
@@ -208,6 +270,8 @@ export interface Capture {
   height: number
 }
 export interface AppSnapshot {
+  conversations?: ConversationSnapshot
+  autoAgentWork?: AutoAgentWorkSnapshot
   modelUsage?: ModelUsageSnapshot
   settings: Settings
   device: DeviceState
@@ -224,10 +288,60 @@ export interface AppSnapshot {
   violoop?: VioloopSnapshot
   autoConnection?: AutoConnectionSnapshot
   proactive?: ProactiveState
-  schedules?: { entries: ScheduledTask[]; error?: string }
+  schedules?: {
+    entries: ScheduledTask[]
+    error?: string
+    runtime?: {
+      state: 'starting' | 'ready' | 'recovering' | 'error' | 'stopped'
+      retryCount: number
+      nextRetryAt?: number
+    }
+  }
 }
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 export interface DesktopApi {
+  /** Main-window lifecycle acknowledgment, scoped to its trusted renderer. */
+  rendererReady?(): void
+  openTaskArtifact(input: { taskId: string; artifactId: string }): Promise<Result<void>>
+  onOpenTask(callback: (taskId: string) => void): () => void
+  updatePreferences(input: PreferencesPatch): Promise<Result<Settings>>
+  browserConfig(input: unknown): Promise<Result<unknown>>
+  startModelDebug(input: ModelDebugRequest): Promise<Result<string>>
+  getModelDebug(id: string): Promise<Result<ModelDebugRun>>
+  currentModelDebug(): Promise<Result<ModelDebugRun | undefined>>
+  cancelModelDebug(id: string): Promise<Result<void>>
+  previewTaskRoute(prompt: string): Promise<Result<RoutePreview>>
+  modelDiagnostics(input: {
+    taskId?: string
+    model?: string
+    since?: number
+    path?: string
+  }): Promise<Result<ModelDiagnostic[]>>
+  createConversation(input: z.infer<typeof conversationCreateSchema>): Promise<Result<string>>
+  updateConversation(input: z.input<typeof conversationUpdateSchema>): Promise<Result<void>>
+  conversationDetail(id: string): Promise<Result<ConversationDetail>>
+  sendConversation(input: {
+    conversationId: string
+    messageId: string
+    text: string
+    context?: string
+    workspace?: string
+  }): Promise<Result<{ conversationId: string; runId?: string; delivery: string }>>
+  pauseQueue(paused: boolean): Promise<Result<void>>
+  cancelQueuedTask(runId: string): Promise<Result<void>>
+  resumeConversation(input: { conversationId: string; runId: string }): Promise<Result<void>>
+  createAutoAgentWork(input: AutoAgentCreate): Promise<Result<string>>
+  updateAutoAgentWork(input: {
+    taskId: string
+    action: 'pause' | 'resume' | 'unbind' | 'stop_agent' | 'supplement'
+    text?: string
+  }): Promise<Result<void>>
+  submitAutoAgentFeedback(input: AutoAgentFeedbackInput): Promise<Result<void>>
+  installAutoAgentHooks(input: { workspace: string }): Promise<Result<AutoAgentHookStatus>>
+  uninstallAutoAgentHooks(input: { workspace: string }): Promise<Result<AutoAgentHookStatus>>
+  refreshAutoAgentWork(input?: { workspace: string }): Promise<Result<void>>
+  setAutoAgentEnabled(input: boolean): Promise<Result<{ enabled: boolean }>>
+  testDecisionProvider(): Promise<Result<string>>
   startProactiveTask(goal: string): Promise<Result<string>>
   resumeProactiveTask(taskId: string): Promise<Result<string>>
   stopProactiveTask(): Promise<Result<void>>
@@ -286,6 +400,7 @@ export interface DesktopApi {
   revokeMobileDevice(id: string): Promise<Result<void>>
   testProvider(): Promise<Result<string>>
   exportHistory(): Promise<Result<boolean>>
+  taskHistory(id: string): Promise<Result<TaskHistoryDetail>>
   clearHistory(): Promise<Result<void>>
   copyText(text: string): Promise<Result<void>>
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void

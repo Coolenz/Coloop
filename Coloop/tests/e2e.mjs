@@ -1,6 +1,6 @@
 import { _electron as electron } from '@playwright/test'
 import { createServer } from 'node:http'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import assert from 'node:assert/strict'
 
@@ -45,8 +45,19 @@ const app = await electron.launch({
   },
 })
 try {
-  const page = await app.firstWindow()
-  await page.waitForSelector('.workspace-content')
+  await app.firstWindow()
+  let page
+  for (let attempt = 0; attempt < 100 && !page; attempt++) {
+    page = app
+      .windows()
+      .find(
+        (candidate) =>
+          candidate.url().includes('index.html') && !candidate.url().includes('surface='),
+      )
+    if (!page) await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.ok(page, 'The application main window must load')
+  await page.waitForSelector('.workspace-content, .workspace-app')
   const pageErrors = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
   const result = await page.evaluate(() => window.coloop.snapshot())
@@ -63,173 +74,228 @@ try {
   })
   assert.deepEqual(security, { sandbox: true, contextIsolation: true, nodeIntegration: false })
   await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'workspace.png') })
-  const pageNames = {
-    屏幕理解: 'screen',
-    工作流: 'workflows',
-    'Agent 协调': 'coordination',
-    模型连接: 'models',
-    设备管理: 'device',
-    运行历史: 'history',
-  }
-  for (const name of Object.keys(pageNames)) {
-    await page.getByRole('button', { name, exact: true }).first().click()
-    await page.getByRole('heading', { name, exact: true }).waitFor()
+  if (await page.locator('.workspace-app').count()) {
+    assert.equal(
+      await page.getByRole('navigation', { name: '主导航' }).getByRole('button').count(),
+      4,
+    )
+    const queued = await page.evaluate(async () => {
+      const created = await window.coloop.createConversation({ title: '隔离会话验收' })
+      if (!created.ok) return created
+      return window.coloop.sendConversation({
+        conversationId: created.value,
+        messageId: crypto.randomUUID(),
+        text: '仅排队，等待设备连接',
+      })
+    })
+    assert.equal(queued.ok, true, queued.error)
+    const conversations = await page.evaluate(() => window.coloop.snapshot())
+    assert.equal(conversations.value.conversations.queue.length, 1)
+    assert.equal(conversations.value.tasks.length, 0)
+    await page.getByRole('button', { name: '配置', exact: true }).click()
+    await page.getByRole('button', { name: /云端模型/ }).click()
+    await page.getByLabel('连接名称', { exact: true }).fill('本地联调服务')
+    await page.getByLabel('模型名称', { exact: true }).fill('mock-model')
+    await page.getByLabel('服务地址', { exact: true }).fill(`http://127.0.0.1:${port}/v1`)
+    await page.getByPlaceholder('粘贴你的 API Key').fill('coloop-e2e-test-key')
+    await page.getByRole('button', { name: '保存配置', exact: true }).click()
+    await page.getByText('模型配置已保存', { exact: true }).waitFor()
+    assert.equal(
+      (await readFile(resolve(profileDirectory, 'state.json'), 'utf8')).includes(
+        'coloop-e2e-test-key',
+      ),
+      false,
+    )
+    await page.getByRole('button', { name: '返回配置', exact: true }).click()
+    await page.getByRole('button', { name: /模型运行与调试/ }).click()
+    await page.getByRole('button', { name: '测试回复', exact: true }).last().click()
+    await page.getByRole('button', { name: '开始测试', exact: true }).click()
+    await page.getByText('测试完成', { exact: true }).waitFor()
+    assert.ok((await page.locator('.debug-result').textContent()).includes('连接成功'))
+    await page.getByRole('button', { name: '记录', exact: true }).click()
+    await page.getByRole('button', { name: '隔离会话验收', exact: true }).waitFor()
+    results.push({
+      check:
+        'four-page workspace, durable offline queue, encrypted provider configuration and tool-free model reply',
+      passed: true,
+    })
+  } else {
+    const pages = [
+      ['主页', '屏幕工具', '屏幕理解', 'screen'],
+      ['后台任务', '工作流', '工作流', 'workflows'],
+      ['后台任务', 'Agent 协调', 'Agent 协调', 'coordination'],
+      ['设备连接', '模型连接', '模型连接', 'models'],
+      ['设备连接', 'RK 设备', '设备管理', 'device'],
+      ['历史记录', '执行任务', '历史记录', 'history'],
+    ]
+    for (const [group, name, heading, file] of pages) {
+      await page
+        .getByRole('navigation', { name: '主导航' })
+        .getByRole('button', { name: group, exact: true })
+        .click()
+      await page.getByRole('button', { name, exact: true }).first().click()
+      await page.getByRole('heading', { name: heading, exact: true }).waitFor()
+      await page.screenshot({
+        animations: 'disabled',
+        path: resolve(qaDirectory, `page-${file}.png`),
+      })
+    }
+    results.push({ check: 'four primary sections keep existing tools reachable', passed: true })
+    await page.getByRole('button', { name: '设备连接', exact: true }).click()
+    await page.getByRole('button', { name: '模型连接', exact: true }).first().click()
+    await page.getByLabel('连接名称', { exact: true }).fill('本地联调服务')
+    await page.getByLabel('模型名称', { exact: true }).fill('mock-model')
+    await page.getByLabel('服务地址', { exact: true }).fill(`http://127.0.0.1:${port}/v1`)
+    await page.getByPlaceholder('粘贴你的 API Key').fill('coloop-e2e-test-key')
+    await page.getByRole('button', { name: '保存配置', exact: true }).click()
+    await page.getByText('模型配置已保存', { exact: true }).waitFor()
+    const settingsSnapshot = await page.evaluate(() => window.coloop.snapshot())
+    assert.equal(settingsSnapshot.value.settings.provider.hasKey, true)
+    assert.equal(settingsSnapshot.value.settings.provider.apiKey, undefined)
+    const persistedSettings = await readFile(resolve(profileDirectory, 'state.json'), 'utf8')
+    assert.equal(persistedSettings.includes('coloop-e2e-test-key'), false)
+    results.push({
+      check: 'Windows DPAPI encrypts credentials and preload never exposes the key',
+      passed: true,
+    })
+    await page.getByRole('button', { name: '测试连接', exact: true }).click()
+    await page.getByText(/连接成功：/).waitFor()
+    await page.getByRole('button', { name: '主页', exact: true }).first().click()
+    assert.equal(await page.getByLabel('选择推理位置').inputValue(), 'cloud')
+    await page.getByLabel('任务内容').fill('请测试任务执行')
+    assert.equal(await page.getByLabel('运行任务', { exact: true }).isDisabled(), true)
+    const guarded = await page.evaluate(() =>
+      window.coloop.runTask({ prompt: '旧入口也不能绕过 RK', target: 'cloud', source: 'text' }),
+    )
+    assert.equal(guarded.ok, false)
+    assert.match(guarded.error, /连接 RK/)
+    results.push({
+      check: 'fixed cloud routing and legacy cloud requests require RK before dispatch',
+      passed: true,
+    })
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1060, 720))
     await page.screenshot({
       animations: 'disabled',
-      path: resolve(qaDirectory, `page-${pageNames[name]}.png`),
+      path: resolve(qaDirectory, 'cooperative-minimum.png'),
     })
-  }
-  results.push({ check: 'all seven navigation pages render', passed: true })
-  await page.getByRole('button', { name: '模型连接', exact: true }).first().click()
-  await page.getByLabel('连接名称', { exact: true }).fill('本地联调服务')
-  await page.getByLabel('模型名称', { exact: true }).fill('mock-model')
-  await page.getByLabel('服务地址', { exact: true }).fill(`http://127.0.0.1:${port}/v1`)
-  await page.getByPlaceholder('粘贴你的 API Key').fill('coloop-e2e-test-key')
-  await page.getByRole('button', { name: '保存配置', exact: true }).click()
-  await page.getByText('模型配置已保存', { exact: true }).waitFor()
-  const settingsSnapshot = await page.evaluate(() => window.coloop.snapshot())
-  assert.equal(settingsSnapshot.value.settings.provider.hasKey, true)
-  assert.equal(settingsSnapshot.value.settings.provider.apiKey, undefined)
-  const persistedSettings = await readFile(resolve(profileDirectory, 'state.json'), 'utf8')
-  assert.equal(persistedSettings.includes('coloop-e2e-test-key'), false)
-  results.push({
-    check: 'Windows DPAPI encrypts credentials and preload never exposes the key',
-    passed: true,
-  })
-  await page.getByRole('button', { name: '测试连接', exact: true }).click()
-  await page.getByText(/连接成功：/).waitFor()
-  await page.getByRole('button', { name: '工作台', exact: true }).first().click()
-  assert.equal(await page.getByLabel('选择推理位置').inputValue(), 'cloud')
-  await page.getByLabel('任务内容').fill('请测试任务执行')
-  assert.equal(await page.getByLabel('运行任务', { exact: true }).isDisabled(), true)
-  const guarded = await page.evaluate(() =>
-    window.coloop.runTask({ prompt: '旧入口也不能绕过 RK', target: 'cloud', source: 'text' }),
-  )
-  assert.equal(guarded.ok, false)
-  assert.match(guarded.error, /连接 RK/)
-  results.push({
-    check: 'fixed cloud routing and legacy cloud requests require RK before dispatch',
-    passed: true,
-  })
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1060, 720))
-  await page.screenshot({
-    animations: 'disabled',
-    path: resolve(qaDirectory, 'cooperative-minimum.png'),
-  })
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false)
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
-  await page.getByLabel('任务内容').fill('')
-
-  const fixture = resolve(root, 'tests/fixtures/ocr-sample.png')
-  await app.evaluate(({ dialog }, fixturePath) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixturePath] })
-  }, fixture)
-  await page.getByRole('button', { name: '屏幕理解', exact: true }).first().click()
-  await page.getByRole('button', { name: '导入图片', exact: true }).click()
-  await page.getByAltText('待识别图像').waitFor()
-  await page.getByRole('button', { name: '识别文字', exact: true }).click()
-  await page.waitForFunction(
-    () => document.querySelector('.text-panel textarea')?.value.includes('COLOOP'),
-    undefined,
-    { timeout: 90000 },
-  )
-  const recognized = await page.getByLabel('识别文本，可编辑').inputValue()
-  assert.match(recognized, /128\.50/)
-  assert.match(recognized, /本地/)
-  results.push({ check: 'real offline bilingual OCR on fixture', passed: true, text: recognized })
-  await page.waitForFunction(
-    () => !document.querySelector('.statusbar')?.textContent.includes('OCR 正在运行'),
-  )
-  const closeMessage = page.getByRole('button', { name: '关闭消息', exact: true })
-  if (await closeMessage.isVisible()) await closeMessage.click()
-  await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'ocr.png') })
-  await page.getByRole('button', { name: '用于任务', exact: true }).click()
-  await page.locator('.context-chip').waitFor()
-  results.push({ check: 'OCR text attaches to a task', passed: true })
-  const capture = await page.evaluate(() => window.coloop.captureScreen())
-  assert.equal(capture.ok, true)
-  assert.ok(capture.value.width > 100)
-  results.push({
-    check: 'native desktop screen capture',
-    passed: true,
-    width: capture.value.width,
-    height: capture.value.height,
-  })
-
-  if (process.env.COLOOP_TEST_BOARD_PASSWORD) {
-    const imported = await page.evaluate(() => window.coloop.importRk())
-    assert.equal(imported.ok, true, imported.error)
-    const boardResult = await page.evaluate(
-      (password) => window.coloop.connect(password),
-      process.env.COLOOP_TEST_BOARD_PASSWORD,
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
     )
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 900))
+    await page.getByLabel('任务内容').fill('')
+
+    const fixture = resolve(root, 'tests/fixtures/ocr-sample.png')
+    await app.evaluate(({ dialog }, fixturePath) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixturePath] })
+    }, fixture)
+    await page.getByRole('button', { name: '屏幕理解', exact: true }).first().click()
+    await page.getByRole('button', { name: '导入图片', exact: true }).click()
+    await page.getByAltText('待识别图像').waitFor()
+    await page.getByRole('button', { name: '识别文字', exact: true }).click()
+    await page.waitForFunction(
+      () => document.querySelector('.text-panel textarea')?.value.includes('COLOOP'),
+      undefined,
+      { timeout: 90000 },
+    )
+    const recognized = await page.getByLabel('识别文本，可编辑').inputValue()
+    assert.match(recognized, /128\.50/)
+    assert.match(recognized, /本地/)
+    results.push({ check: 'real offline bilingual OCR on fixture', passed: true, text: recognized })
+    await page.waitForFunction(
+      () => !document.querySelector('.statusbar')?.textContent.includes('OCR 正在运行'),
+    )
+    const closeMessage = page.getByRole('button', { name: '关闭消息', exact: true })
+    if (await closeMessage.isVisible()) await closeMessage.click()
+    await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'ocr.png') })
+    await page.getByRole('button', { name: '用于任务', exact: true }).click()
+    await page.locator('.context-chip').waitFor()
+    results.push({ check: 'OCR text attaches to a task', passed: true })
+    const capture = await page.evaluate(() => window.coloop.captureScreen())
+    assert.equal(capture.ok, true)
+    assert.ok(capture.value.width > 100)
     results.push({
-      check: 'real USB RNDIS SSH board health',
-      passed: boardResult.ok,
-      device: boardResult.ok ? boardResult.value : undefined,
-      error: boardResult.ok ? undefined : boardResult.error,
+      check: 'native desktop screen capture',
+      passed: true,
+      width: capture.value.width,
+      height: capture.value.height,
     })
-    assert.equal(boardResult.ok, true, boardResult.error)
-    if (boardResult.ok) {
-      await page.getByRole('button', { name: '设备管理', exact: true }).first().click()
-      await page.getByText('设备已连接', { exact: true }).waitFor()
-      if (process.env.COLOOP_TEST_BOARD_INFERENCE === '1') {
-        if (!boardResult.value.qwenReady) {
-          await page.getByRole('button', { name: '启动端侧服务', exact: true }).click()
-          await page
-            .getByText('端侧服务已就绪，可在工作台选择 RK 端侧模型', { exact: true })
-            .waitFor({ timeout: 110000 })
-        }
-        const health = await page.evaluate(() => window.coloop.snapshot())
-        assert.equal(health.value.device.model, 'qwen35-4b-rkllm')
-        assert.equal(health.value.device.modelContext, 16384)
-        results.push({
-          check: 'real RK model service ready over private SSH tunnel',
-          passed: true,
-          device: health.value.device,
-        })
-        async function runRk(prompt, context = '') {
-          const started = Date.now()
-          const task = await page.evaluate(
-            ({ prompt, context }) =>
-              window.coloop.runTask({ prompt, context, target: 'rk', source: 'text' }),
-            { prompt, context },
-          )
-          assert.equal(task.ok, true, task.error)
-          boardTasks++
-          let completed
-          while (Date.now() - started < 230000) {
-            const state = await page.evaluate(() => window.coloop.snapshot())
-            completed = state.value.tasks.find((item) => item.id === task.value)
-            if (completed && completed.status !== 'running') break
-            await new Promise((resolve) => setTimeout(resolve, 250))
+
+    if (process.env.COLOOP_TEST_BOARD_PASSWORD) {
+      const imported = await page.evaluate(() => window.coloop.importRk())
+      assert.equal(imported.ok, true, imported.error)
+      const boardResult = await page.evaluate(
+        (password) => window.coloop.connect(password),
+        process.env.COLOOP_TEST_BOARD_PASSWORD,
+      )
+      results.push({
+        check: 'real USB RNDIS SSH board health',
+        passed: boardResult.ok,
+        device: boardResult.ok ? boardResult.value : undefined,
+        error: boardResult.ok ? undefined : boardResult.error,
+      })
+      assert.equal(boardResult.ok, true, boardResult.error)
+      if (boardResult.ok) {
+        await page.getByRole('button', { name: '设备连接', exact: true }).first().click()
+        await page.getByText('设备已连接', { exact: true }).waitFor()
+        if (process.env.COLOOP_TEST_BOARD_INFERENCE === '1') {
+          if (!boardResult.value.qwenReady) {
+            await page.getByRole('button', { name: '启动端侧服务', exact: true }).click()
+            await page
+              .getByText('端侧服务已就绪，可在工作台选择 RK 端侧模型', { exact: true })
+              .waitFor({ timeout: 110000 })
           }
-          assert.ok(completed, 'RK task was not recorded')
-          assert.equal(completed.status, 'completed', completed.error)
-          assert.match(completed.model, /qwen35-4b-rkllm/)
-          return { ...completed, elapsedMs: Date.now() - started }
+          const health = await page.evaluate(() => window.coloop.snapshot())
+          assert.equal(health.value.device.model, 'qwen35-4b-rkllm')
+          assert.equal(health.value.device.modelContext, 16384)
+          results.push({
+            check: 'real RK model service ready over private SSH tunnel',
+            passed: true,
+            device: health.value.device,
+          })
+          async function runRk(prompt, context = '') {
+            const started = Date.now()
+            const task = await page.evaluate(
+              ({ prompt, context }) =>
+                window.coloop.runTask({ prompt, context, target: 'rk', source: 'text' }),
+              { prompt, context },
+            )
+            assert.equal(task.ok, true, task.error)
+            boardTasks++
+            let completed
+            while (Date.now() - started < 230000) {
+              const state = await page.evaluate(() => window.coloop.snapshot())
+              completed = state.value.tasks.find((item) => item.id === task.value)
+              if (completed && completed.status !== 'running') break
+              await new Promise((resolve) => setTimeout(resolve, 250))
+            }
+            assert.ok(completed, 'RK task was not recorded')
+            assert.equal(completed.status, 'completed', completed.error)
+            assert.match(completed.model, /qwen35-4b-rkllm/)
+            return { ...completed, elapsedMs: Date.now() - started }
+          }
+          const arithmetic = await runRk('What is 2+3? Reply with only the digit.')
+          assert.equal(arithmetic.answer.trim(), '5')
+          results.push({
+            check: 'real RK NPU task through Electron IPC returns correct arithmetic',
+            passed: true,
+            task: arithmetic,
+          })
+          const ocrTask = await runRk(
+            '请从参考文本中提取英文品牌名和金额，只回复这两项。',
+            recognized,
+          )
+          assert.match(ocrTask.answer, /COLOOP/i)
+          assert.match(ocrTask.answer, /128\.50/)
+          results.push({
+            check: 'real RapidOCR context reaches RK NPU and returns brand and amount',
+            passed: true,
+            task: ocrTask,
+          })
         }
-        const arithmetic = await runRk('What is 2+3? Reply with only the digit.')
-        assert.equal(arithmetic.answer.trim(), '5')
-        results.push({
-          check: 'real RK NPU task through Electron IPC returns correct arithmetic',
-          passed: true,
-          task: arithmetic,
-        })
-        const ocrTask = await runRk(
-          '请从参考文本中提取英文品牌名和金额，只回复这两项。',
-          recognized,
-        )
-        assert.match(ocrTask.answer, /COLOOP/i)
-        assert.match(ocrTask.answer, /128\.50/)
-        results.push({
-          check: 'real RapidOCR context reaches RK NPU and returns brand and amount',
-          passed: true,
-          task: ocrTask,
-        })
+        await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'device.png') })
+        await page.evaluate(() => window.coloop.disconnect())
       }
-      await page.screenshot({ animations: 'disabled', path: resolve(qaDirectory, 'device.png') })
-      await page.evaluate(() => window.coloop.disconnect())
     }
   }
   assert.deepEqual(pageErrors, [])
@@ -256,4 +322,5 @@ try {
   await app.close()
   server.closeAllConnections()
   await new Promise((resolve) => server.close(resolve))
+  await rm(profileDirectory, { recursive: true, force: true })
 }

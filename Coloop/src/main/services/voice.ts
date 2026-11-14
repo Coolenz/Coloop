@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { runJsonWorker } from '../infrastructure/json-worker'
-import type { VoiceTranscript } from '../../shared/contracts'
+import { voiceAudioSchema, type VoiceTranscript } from '../../shared/contracts'
 
 export const voiceTranscriptSchema = z.object({
   text: z.string().trim().min(1).max(24000),
@@ -61,12 +61,7 @@ export class VoiceTranscriptionService {
   constructor(private readonly script: string) {}
   async transcribe(value: unknown) {
     if (this.active) throw new Error('VOICE_BUSY')
-    const audio = z
-      .string()
-      .min(1)
-      .max(7_000_000)
-      .regex(/^[A-Za-z0-9+/]+={0,2}$/)
-      .parse(value)
+    const audio = voiceAudioSchema.parse(value)
     validateVoiceWave(Buffer.from(audio, 'base64'))
     const abort = new AbortController()
     const work = runJsonWorker(

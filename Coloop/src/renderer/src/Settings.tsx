@@ -26,7 +26,10 @@ import {
 import type { AppSnapshot, ProviderConfig, Settings, SettingsInput } from '../../shared/contracts'
 import { BoardIllustration } from './components'
 import { api, unwrap } from './api'
-import { modelLimitsSchema, type ModelLimits } from '../../shared/model-usage'
+import { modelLimitsSchema, modelLimitMode } from '../../shared/model-usage'
+import { cloudModelCapacity } from '../../shared/model-capacity'
+import { legacyLocalCapacity, localCapacitySourceLabels } from '../../shared/local-model'
+import './decision-model.css'
 
 interface Props {
   snapshot: AppSnapshot
@@ -35,7 +38,20 @@ interface Props {
 }
 function initialForm(settings: Settings): SettingsInput {
   const { hasKey: _key, ...provider } = settings.provider
-  return { ...settings, provider }
+  const decisionProvider = settings.decisionProvider
+    ? (({ hasKey: _decisionKey, ...value }) => value)(settings.decisionProvider)
+    : undefined
+  return { ...settings, provider, decisionProvider }
+}
+function imageCapability(provider: ProviderConfig, saved?: ProviderConfig) {
+  const matches =
+    saved &&
+    (['protocol', 'baseUrl', 'model'] as const).every((field) => provider[field] === saved[field])
+  return matches && saved.imageInput === 'supported'
+    ? '图像探测通过'
+    : matches && saved.imageInput === 'unsupported'
+      ? '图像探测未通过'
+      : '尚未探测'
 }
 const presets: {
   protocol: ProviderConfig['protocol']
@@ -70,13 +86,70 @@ const presets: {
     mark: Sparkle,
   },
 ]
+function ModelCapacityFields({
+  provider,
+  onChange,
+}: {
+  provider: ProviderConfig
+  onChange(patch: Partial<ProviderConfig>): void
+}) {
+  const capacity = cloudModelCapacity(provider)
+  return (
+    <div className="span-two">
+      <p className="muted">
+        上下文 {capacity.contextWindow.toLocaleString()} tokens · 默认输出{' '}
+        {capacity.maxOutputTokens.toLocaleString()} tokens · {capacity.source}
+      </p>
+      {capacity.officialDeepSeek ? (
+        <p className="muted">DeepSeek 使用 DSH 原生上下文计量、自动压缩、溢出恢复和检查点续跑。</p>
+      ) : (
+        <div className="form-grid">
+          <label>
+            服务商上下文容量（tokens）
+            <input
+              type="number"
+              min={1024}
+              max={10000000}
+              placeholder={String(capacity.contextWindow)}
+              value={provider.contextWindow ?? ''}
+              onChange={(event) =>
+                onChange({
+                  contextWindow: event.target.value ? Number(event.target.value) : undefined,
+                })
+              }
+            />
+          </label>
+          <label>
+            服务商默认输出上限（tokens）
+            <input
+              type="number"
+              min={1}
+              max={capacity.maximumOutputTokens}
+              placeholder={String(capacity.maxOutputTokens)}
+              value={provider.maxOutputTokens ?? ''}
+              onChange={(event) =>
+                onChange({
+                  maxOutputTokens: event.target.value ? Number(event.target.value) : undefined,
+                })
+              }
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  )
+}
 export function ModelsPage({ snapshot, notify, onSaved }: Props) {
   const limits = modelLimitsSchema.parse(snapshot.settings.modelLimits ?? {})
   const [form, setForm] = useState(() => initialForm(snapshot.settings))
+  const unlimited = modelLimitMode(form.modelLimits ?? limits) === 'unlimited'
   const [key, setKey] = useState('')
   const [showKey, setShowKey] = useState(false)
+  const [decisionKey, setDecisionKey] = useState('')
+  const [showDecisionKey, setShowDecisionKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [testingDecision, setTestingDecision] = useState(false)
   const [dirty, setDirty] = useState(false)
   const changeProvider = (patch: Partial<ProviderConfig>) => {
     setForm((v) => {
@@ -85,7 +158,11 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
       )
       return {
         ...v,
-        provider: { ...v.provider, ...patch },
+        provider: {
+          ...v.provider,
+          ...(changed ? { contextWindow: undefined, maxOutputTokens: undefined } : {}),
+          ...patch,
+        },
         modelLimits: changed
           ? {
               ...limits,
@@ -98,15 +175,40 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
     })
     setDirty(true)
   }
+  const changeDecisionProvider = (patch: Partial<ProviderConfig>) => {
+    setForm((previous) => {
+      const provider = previous.decisionProvider ?? { ...previous.provider }
+      const changed = (['model', 'baseUrl', 'protocol'] as const).some(
+        (field) => patch[field] !== undefined && patch[field] !== provider[field],
+      )
+      return {
+        ...previous,
+        decisionProvider: {
+          ...provider,
+          ...(changed ? { contextWindow: undefined, maxOutputTokens: undefined } : {}),
+          ...patch,
+        },
+        decisionPricing: changed ? undefined : previous.decisionPricing,
+      }
+    })
+    setDirty(true)
+  }
   async function save() {
     setSaving(true)
     try {
       const result = await unwrap(
-        api.saveSettings({ ...form, provider: { ...form.provider, apiKey: key || undefined } }),
+        api.saveSettings({
+          ...form,
+          provider: { ...form.provider, apiKey: key || undefined },
+          decisionProvider: form.decisionProvider
+            ? { ...form.decisionProvider, apiKey: decisionKey || undefined }
+            : undefined,
+        }),
       )
       onSaved(result)
       setForm(initialForm(result))
       setKey('')
+      setDecisionKey('')
       setDirty(false)
       notify('模型配置已保存')
     } catch (error) {
@@ -229,29 +331,258 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
               更换服务地址或协议时，需要重新输入 Key。Key 不会返回到界面或写入运行历史。
             </small>
           </label>
+          <ModelCapacityFields provider={form.provider} onChange={changeProvider} />
+          <div className="image-capability">
+            <span>图像输入能力</span>
+            <output>{imageCapability(form.provider, snapshot.settings.provider)}</output>
+            <small>由测试图验证。作为决策模型使用时，可在下方运行探测。</small>
+          </div>
+        </div>
+        <div className="decision-model-section">
+          <div className="section-bar">
+            <div>
+              <h3>Auto Agent Work 决策模型</h3>
+              <p className="muted">用指定的强模型分析任务、参考记忆并决定下一步。</p>
+            </div>
+            <span className="quiet-tag">{form.decisionProvider ? '单独配置' : '复用日常模型'}</span>
+          </div>
+          <label className="decision-model-toggle">
+            <input
+              type="checkbox"
+              checked={!!form.decisionProvider}
+              onChange={(event) => {
+                const enabled = event.target.checked
+                setForm((previous) => ({
+                  ...previous,
+                  decisionProvider: enabled
+                    ? (initialForm(snapshot.settings).decisionProvider ?? {
+                        ...previous.provider,
+                        name: 'Auto Agent Work 决策模型',
+                        apiKey: undefined,
+                        clearKey: undefined,
+                      })
+                    : undefined,
+                  decisionPricing: enabled ? snapshot.settings.decisionPricing : undefined,
+                }))
+                setDecisionKey('')
+                setDirty(true)
+              }}
+            />
+            为 Auto Agent Work 单独指定模型
+          </label>
+          {form.decisionProvider ? (
+            <div className="form-grid">
+              <label>
+                决策模型协议
+                <select
+                  value={form.decisionProvider.protocol}
+                  onChange={(event) =>
+                    changeDecisionProvider({
+                      protocol: event.target.value as ProviderConfig['protocol'],
+                    })
+                  }
+                >
+                  <option value="openai">OpenAI 兼容</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="gemini">Google Gemini</option>
+                </select>
+              </label>
+              <label>
+                决策连接名称
+                <input
+                  value={form.decisionProvider.name}
+                  maxLength={80}
+                  onChange={(event) => changeDecisionProvider({ name: event.target.value })}
+                />
+              </label>
+              <label>
+                决策模型名称
+                <input
+                  value={form.decisionProvider.model}
+                  maxLength={120}
+                  placeholder="填写强模型的模型 ID"
+                  onChange={(event) => changeDecisionProvider({ model: event.target.value })}
+                />
+              </label>
+              <div className="image-capability">
+                <span>决策模型图像输入</span>
+                <output>
+                  {imageCapability(form.decisionProvider, snapshot.settings.decisionProvider)}
+                </output>
+                <small>保存后测试；仅发送无隐私的测试图。</small>
+              </div>
+              <label className="span-two">
+                决策服务地址
+                <input
+                  value={form.decisionProvider.baseUrl}
+                  maxLength={500}
+                  spellCheck={false}
+                  onChange={(event) => changeDecisionProvider({ baseUrl: event.target.value })}
+                />
+              </label>
+              <label className="span-two">
+                决策模型 API Key
+                <div className="secret-input">
+                  <input
+                    aria-label="决策模型 API Key"
+                    type={showDecisionKey ? 'text' : 'password'}
+                    autoComplete="off"
+                    value={decisionKey}
+                    maxLength={2048}
+                    placeholder={
+                      snapshot.settings.decisionProvider?.hasKey
+                        ? '已保存独立凭据，留空保留'
+                        : '填写此连接的 API Key'
+                    }
+                    onChange={(event) => {
+                      setDecisionKey(event.target.value)
+                      setDirty(true)
+                    }}
+                  />
+                  <button
+                    className="icon-button"
+                    onClick={() => setShowDecisionKey(!showDecisionKey)}
+                    aria-label={showDecisionKey ? '隐藏决策模型密钥' : '显示决策模型密钥'}
+                  >
+                    {showDecisionKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <small>凭据单独加密保存。更换地址或协议后，需要重新输入。</small>
+              </label>
+              <ModelCapacityFields
+                provider={form.decisionProvider}
+                onChange={changeDecisionProvider}
+              />
+              {(['inputYuanPerMillion', 'outputYuanPerMillion'] as const).map((field) => (
+                <label key={field}>
+                  {field === 'inputYuanPerMillion'
+                    ? '决策输入单价（元/百万 token）'
+                    : '决策输出单价（元/百万 token）'}
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000000}
+                    step="any"
+                    value={form.decisionPricing?.[field] ?? ''}
+                    onChange={(event) => {
+                      const value =
+                        event.target.value === '' ? undefined : Number(event.target.value)
+                      setForm((previous) => ({
+                        ...previous,
+                        decisionPricing: { ...previous.decisionPricing, [field]: value },
+                      }))
+                      setDirty(true)
+                    }}
+                  />
+                </label>
+              ))}
+              <p className="span-two muted">
+                单独统计此模型的费用；未填单价的请求显示为未定价，不计作免费。
+              </p>
+            </div>
+          ) : (
+            <p className="muted">
+              Auto Agent Work 使用上方的日常模型，记忆检索和任务推进流程保持完整。
+            </p>
+          )}
+          <div className="row decision-model-test">
+            <button
+              className="button secondary"
+              disabled={testingDecision || testing || dirty || saving}
+              onClick={() => {
+                setTestingDecision(true)
+                void unwrap(api.testDecisionProvider())
+                  .then((result) => notify(result))
+                  .catch((error) => notify(error.message, true))
+                  .finally(() => setTestingDecision(false))
+              }}
+            >
+              {testingDecision ? <LoaderCircle size={15} className="spin" /> : <Zap size={15} />}
+              测试决策模型
+            </button>
+            {dirty && <span className="muted">先保存配置，再测试连接。</span>}
+          </div>
         </div>
         <h3>模型调用限额</h3>
         <div className="row">
-          {(['usageBudgetEnabled', 'costLimitEnabled'] as const).map((field) => (
-            <label key={field}>
+          {(['unlimited', 'custom'] as const).map((mode) => (
+            <label key={mode}>
               <input
-                type="checkbox"
-                checked={form.modelLimits?.[field] ?? limits[field]}
-                onChange={(event) => {
+                type="radio"
+                name="model-limit-mode"
+                checked={modelLimitMode(form.modelLimits ?? limits) === mode}
+                onChange={() => {
                   setForm((previous) => ({
                     ...previous,
-                    modelLimits: {
-                      ...limits,
-                      ...previous.modelLimits,
-                      [field]: event.target.checked,
-                    },
+                    modelLimits: { ...limits, ...previous.modelLimits, mode },
                   }))
                   setDirty(true)
                 }}
               />
-              {field === 'costLimitEnabled' ? '启用人民币消费上限' : '启用累计调用及用量预算'}
+              {mode === 'unlimited' ? '不限额' : '自定义限额'}
             </label>
           ))}
+        </div>
+        <p className="muted">
+          不限额模式按模型容量运行，持续记录调用与费用。DeepSeek 长任务由 DSH 自动压缩并继续执行。
+        </p>
+        <label>
+          <span>本地模型默认输出（tokens，留空遵循模型）</span>
+          <input
+            type="number"
+            min={1}
+            max={(snapshot.device.localModelCapacity ?? legacyLocalCapacity).maximumOutputTokens}
+            placeholder={String(
+              (snapshot.device.localModelCapacity ?? legacyLocalCapacity).defaultOutputTokens,
+            )}
+            value={form.localModel?.outputTokens ?? ''}
+            onChange={(event) => {
+              setForm((previous) => ({
+                ...previous,
+                localModel: {
+                  outputTokens: event.target.value ? Number(event.target.value) : undefined,
+                },
+              }))
+              setDirty(true)
+            }}
+          />
+        </label>
+        <p className="muted">
+          模型默认 {(snapshot.device.localModelCapacity ?? legacyLocalCapacity).defaultOutputTokens}
+          ，最大 {
+            (snapshot.device.localModelCapacity ?? legacyLocalCapacity).maximumOutputTokens
+          }{' '}
+          tokens ·{' '}
+          {localCapacitySourceLabels[snapshot.device.localModelCapacity?.source ?? 'legacy']}
+        </p>
+        <div className="row">
+          {(['usageBudgetEnabled', 'costLimitEnabled', 'inputLimitEnabled'] as const).map(
+            (field) => (
+              <label key={field}>
+                <input
+                  type="checkbox"
+                  disabled={unlimited}
+                  checked={form.modelLimits?.[field] ?? limits[field] ?? true}
+                  onChange={(event) => {
+                    setForm((previous) => ({
+                      ...previous,
+                      modelLimits: {
+                        ...limits,
+                        ...previous.modelLimits,
+                        [field]: event.target.checked,
+                      },
+                    }))
+                    setDirty(true)
+                  }}
+                />
+                {field === 'costLimitEnabled'
+                  ? '启用人民币消费上限'
+                  : field === 'inputLimitEnabled'
+                    ? '启用额外输入字节上限'
+                    : '启用累计调用及用量预算'}
+              </label>
+            ),
+          )}
         </div>
         <div className="form-grid">
           {(
@@ -260,21 +591,15 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
               ['maxRequestsPerDay', '每日最多云端请求', 1, 10000],
               ['maxTokenUnitsPerTask', '单任务用量额度', 1000, 10000000],
               ['maxTokenUnitsPerDay', '每日用量额度', 1000, 100000000],
-              ['maxInputBytes', '单次上下文上限（字节）', 1000, 1000000],
-              ['maxOutputTokens', '单次最大输出 token', 512, 8192],
+              ['maxInputBytes', 'Coloop 额外输入上限（字节）', 1000, 1000000],
+              ['maxOutputTokens', 'Coloop 额外输出上限（tokens）', 512, 1048576],
               ['minRequestIntervalMs', '云端请求最小间隔（毫秒）', 0, 60000],
-              ['maxNoProgressRequests', '无新进展连续调用上限', 2, 32],
               ['maxCostYuanPerTask', '单任务费用上限（元）', 0.01, 10000],
               ['maxCostYuanPerDay', '每日费用上限（元）', 0.01, 100000],
               ['maxCostYuanTotal', '累计费用上限（元，留空不限制）', 0.01, 100000],
               ['inputYuanPerMillion', '输入单价（元/百万 token）', 0, 1000000],
               ['outputYuanPerMillion', '输出单价（元/百万 token）', 0, 1000000],
-            ] as [
-              Exclude<keyof ModelLimits, 'usageBudgetEnabled' | 'costLimitEnabled'>,
-              string,
-              number,
-              number,
-            ][]
+            ] as const
           ).map(([field, label, min, max]) => (
             <label key={field}>
               <span>{label}</span>
@@ -283,9 +608,15 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
                 min={min}
                 max={max}
                 disabled={
-                  (['maxRequestsPerDay', 'maxTokenUnitsPerTask', 'maxTokenUnitsPerDay'].includes(
-                    field,
-                  ) &&
+                  (unlimited && !['inputYuanPerMillion', 'outputYuanPerMillion'].includes(field)) ||
+                  (field === 'maxInputBytes' &&
+                    !(form.modelLimits?.inputLimitEnabled ?? limits.inputLimitEnabled ?? true)) ||
+                  ([
+                    'maxRequestsPerTask',
+                    'maxRequestsPerDay',
+                    'maxTokenUnitsPerTask',
+                    'maxTokenUnitsPerDay',
+                  ].includes(field) &&
                     !(form.modelLimits?.usageBudgetEnabled ?? limits.usageBudgetEnabled)) ||
                   (['maxCostYuanPerTask', 'maxCostYuanPerDay', 'maxCostYuanTotal'].includes(
                     field,
@@ -297,7 +628,9 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
                 onChange={(event) => {
                   const value =
                     event.target.value === '' &&
-                    ['inputYuanPerMillion', 'outputYuanPerMillion'].includes(field)
+                    ['maxCostYuanTotal', 'inputYuanPerMillion', 'outputYuanPerMillion'].includes(
+                      field,
+                    )
                       ? undefined
                       : Number(event.target.value)
                   setForm((previous) => ({
@@ -328,7 +661,7 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
           <div className="row">
             <button
               className="button secondary"
-              disabled={testing || dirty || saving}
+              disabled={testing || testingDecision || dirty || saving}
               onClick={() => {
                 setTesting(true)
                 void unwrap(api.testProvider())
@@ -341,7 +674,7 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
             </button>
             <button
               className="button primary"
-              disabled={saving || testing}
+              disabled={saving || testing || testingDecision}
               onClick={() => void save()}
             >
               {saving ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />}保存配置
@@ -357,7 +690,9 @@ export function ModelsPage({ snapshot, notify, onSaved }: Props) {
             API Key 使用 Windows 凭据加密。请求直接发往你配置的服务地址；任务内容与相关 OCR
             文本会交给该服务处理。Coloop 不设中转服务器。
           </p>
-          <p>当前每个工作区使用一个云端连接。模型名称是可编辑示例，实际可用性以服务商账户为准。</p>
+          <p>
+            可单独配置 Auto Agent Work 决策模型。模型名称是可编辑示例，实际可用性以服务商账户为准。
+          </p>
           {snapshot.settings.provider.hasKey && (
             <button
               className="text-button danger"

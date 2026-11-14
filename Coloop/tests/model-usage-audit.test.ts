@@ -90,6 +90,34 @@ it('accepts durable provider cooldown metadata without inventing another request
   expect(result.report.status).toBe('within_limits')
 })
 
+it('reports explicit unlimited mode even when older quota switches remain set', async () => {
+  const directory = await fixture()
+  await writeFile(
+    join(directory, 'state.json'),
+    JSON.stringify({
+      settings: {
+        modelLimits: {
+          ...limits,
+          mode: 'unlimited',
+          costLimitEnabled: true,
+          maxOutputTokens: 65536,
+        },
+      },
+    }),
+  )
+  await ledger(directory, 0, 0)
+  await log(directory, [])
+  const { report } = await audit(directory)
+  expect(report.configuration.effectiveLimits).toMatchObject({
+    mode: 'unlimited',
+    usageBudgetEnabled: false,
+    costLimitEnabled: false,
+    inputLimitEnabled: false,
+    minRequestIntervalMs: 0,
+    maxOutputTokens: 65536,
+  })
+})
+
 it('reconciles settled and reserved requests without exposing secrets or writing the profile', async () => {
   const directory = await fixture()
   await ledger(directory, 3, 2275)
@@ -148,16 +176,16 @@ it('reports missing ledger and log as unknown rather than claiming zero cloud ca
   expect(report.consistency.status).toBe('unknown')
 })
 
-it('recognizes explicitly empty complete evidence but flags disabled default budgets', async () => {
+it('recognizes empty complete evidence with unlimited default budgets', async () => {
   const directory = await fixture()
   await writeFile(join(directory, 'state.json'), '{"settings":{}}')
   await writeFile(join(directory, 'model-usage-state.json'), '{"version":1,"days":{},"tasks":{}}')
   await writeFile(join(directory, 'model-usage.jsonl'), '')
   const { code, report } = await audit(directory)
-  expect(code).toBe(1)
+  expect(code).toBe(0)
   expect(report.configuration.origin).toBe('defaults')
   expect(report.configuration.effectiveLimits.usageBudgetEnabled).toBe(false)
-  expect(report.violations).toEqual(['CUMULATIVE_BUDGET_DISABLED'])
+  expect(report.violations).toEqual([])
   expect(report.log.summary.uniqueRequests).toBe(0)
 })
 

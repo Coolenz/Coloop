@@ -27,7 +27,7 @@ const ranges = {
   maxTokenUnitsPerTask: [1000, 10000000],
   maxTokenUnitsPerDay: [1000, 100000000],
   maxInputBytes: [1000, 1000000],
-  maxOutputTokens: [512, 8192],
+  maxOutputTokens: [512, 1048576],
   minRequestIntervalMs: [0, 60000],
   maxNoProgressRequests: [2, 32],
 }
@@ -64,7 +64,11 @@ function configuration(source) {
   if (raw !== undefined && !object(raw)) return { status: 'invalid', effectiveLimits: null }
   const limits = { ...defaults }
   for (const [name, value] of Object.entries(raw ?? {})) {
-    if (name === 'usageBudgetEnabled' || name === 'costLimitEnabled') {
+    if (name === 'mode') {
+      if (!['unlimited', 'custom'].includes(value))
+        return { status: 'invalid', effectiveLimits: null }
+      limits.mode = value
+    } else if (['usageBudgetEnabled', 'costLimitEnabled', 'inputLimitEnabled'].includes(name)) {
       if (typeof value !== 'boolean') return { status: 'invalid', effectiveLimits: null }
       limits[name] = value
     } else if (Object.hasOwn(ranges, name)) {
@@ -92,6 +96,14 @@ function configuration(source) {
         return { status: 'invalid', effectiveLimits: null }
     }
   }
+  limits.mode ??=
+    limits.usageBudgetEnabled || limits.costLimitEnabled || limits.inputLimitEnabled
+      ? 'custom'
+      : 'unlimited'
+  limits.inputLimitEnabled = limits.mode === 'custom' && (limits.inputLimitEnabled ?? true)
+  limits.usageBudgetEnabled = limits.mode === 'custom' && limits.usageBudgetEnabled
+  limits.costLimitEnabled = limits.mode === 'custom' && limits.costLimitEnabled
+  if (limits.mode === 'unlimited') limits.minRequestIntervalMs = 0
   return {
     status: 'ready',
     origin: raw === undefined ? 'defaults' : 'profile',
@@ -308,7 +320,6 @@ export async function auditProfile(profile) {
     violations = []
   const limits = config.effectiveLimits
   if (!limits) warnings.push('CONFIGURATION_UNKNOWN')
-  else if (!limits.usageBudgetEnabled) violations.push('CUMULATIVE_BUDGET_DISABLED')
   if (state.status !== 'ready') warnings.push('LEDGER_' + state.status.toUpperCase())
   if (events.status !== 'ready') warnings.push('LOG_' + events.status.toUpperCase())
   const compare = (a, b, key) => {

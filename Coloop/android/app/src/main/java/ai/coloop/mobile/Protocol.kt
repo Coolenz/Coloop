@@ -135,6 +135,8 @@ fun responseValue(value: JSONObject): JSONObject {
     return value.getJSONObject("value")
 }
 fun safeError(code: String): String = when (code) {
+    "APPROVAL_STALE" -> "审批已处理或已结束，请刷新当前任务"
+    "APPROVAL_UNAVAILABLE" -> "请更新电脑端 Coloop 后审批"
     "VIOLOOP_UNAVAILABLE" -> "Coloop 暂不可用，请在电脑检查 RK 连接与服务版本，再刷新状态"
     "VIOLOOP_BUSY" -> "Coloop 正在执行任务，请先停止或等待结束"
     "VIOLOOP_CONFLICT" -> "任务编号已被使用，请刷新并核对原任务"

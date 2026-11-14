@@ -1,3 +1,4 @@
+import { taskApprovalAnswerSchema, type TaskApproval } from './task-approval'
 import { z } from 'zod'
 import { sessionCommandSchema } from './sessions'
 import type { SessionControlSnapshot } from './sessions'
@@ -30,6 +31,13 @@ export const remotePairRequestSchema = z
   .strict()
 const empty = z.object({}).strict()
 export const remoteRpcSchema = z.discriminatedUnion('operation', [
+  z
+    .object({
+      operation: z.literal('approval_answer'),
+      payload: taskApprovalAnswerSchema,
+      expiresAt: z.number().int().safe(),
+    })
+    .strict(),
   z
     .object({
       operation: z.literal('reconnect'),
@@ -84,6 +92,7 @@ export interface RemotePairingInvitation {
   uri: string
 }
 export interface RemoteMobileSnapshot {
+  approval?: TaskApproval
   hostName: string
   sessionControl: SessionControlSnapshot
   progress: { sessionHandle: string; text: string; at: string }[]

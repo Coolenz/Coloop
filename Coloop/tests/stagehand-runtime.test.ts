@@ -72,7 +72,7 @@ it('uses the host callback only, preserves schemas and blocks images or action-t
 })
 
 it.runIf(process.platform === 'win32')(
-  'runs official Stagehand against local Chrome and a host-owned synthetic model endpoint',
+  'runs official Stagehand against local Edge and a host-owned synthetic model endpoint',
   async () => {
     const writes: string[] = []
     const web = createServer(async (request, response) => {
@@ -137,6 +137,7 @@ it.runIf(process.platform === 'win32')(
         },
       })
       const page = await runtime.context.newPage()
+      expect(await page.evaluate(() => navigator.userAgent)).toContain('Edg/')
       await page.goto(url)
       const snapshot = await runtime.snapshot(page)
       expect(snapshot.formattedTree).toContain('保存订单')
@@ -421,11 +422,16 @@ it.runIf(process.platform === 'win32')(
       ).toMatchObject({ verified: true, keep_open_requested: true })
       const runtime = [...ownedRuntimes(reader)][0]
       expect(runtime).toBeDefined()
+      expect(await runtime.context.pages()[0].evaluate(() => navigator.userAgent)).toContain('Edg/')
       await session.dispose(true)
       expect(ownedRuntimes(reader).size).toBe(1)
-      expect(await runtime.context.pages().at(-1)!.locator('body').innerText()).toContain(
-        '附件已保存',
-      )
+      expect(
+        await runtime.context
+          .pages()
+          .find((page) => page.url().startsWith(url))!
+          .locator('body')
+          .innerText(),
+      ).toContain('附件已保存')
     } finally {
       await session.dispose()
       await reader.dispose()

@@ -1,5 +1,6 @@
 import { createRequire } from 'node:module'
 import OpenAI from 'openai'
+import { legacyLocalCapacity } from '../../shared/local-model'
 import type {
   AgentTARS,
   AgentEventStream,
@@ -22,6 +23,9 @@ export interface TarsRuntimeModel {
   headers?: Record<string, string>
   toolCallEngine?: 'native' | 'prompt_engineering'
   requestTimeoutMs?: number
+  contextWindow?: number
+  maxOutputTokens?: number
+  maximumOutputTokens?: number
 }
 
 export interface TarsRuntimeTool {
@@ -32,6 +36,7 @@ export interface TarsRuntimeTool {
 }
 
 export interface TarsRuntimeOptions {
+  playwrightExtension?: import('./playwright-extension').PlaywrightExtensionOptions
   /** Harness-only explicit continuation; legacy TARS starts a fresh loop. */
   resume?: boolean
   /** Trusted execution location used by Harness persisted-context isolation. */
@@ -50,6 +55,13 @@ export interface TarsRuntimeOptions {
   fetch?: typeof globalThis.fetch
   maxIterations?: number
   maxTokens?: number
+  toolDecision?(name: string, args: unknown): { kind: 'allow' | 'ask' | 'deny'; reason?: string }
+  requestApproval?(request: {
+    toolName: string
+    callId: string
+    arguments?: unknown
+    signal: AbortSignal
+  }): Promise<'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'>
   visibleTool?(name: string): boolean
   completion?(): { finished: boolean; message?: string }
   requestContext?(): string | undefined
@@ -107,7 +119,12 @@ export function createTarsRuntime(options: TarsRuntimeOptions): AgentTARS {
     mcpServer: { exclude: ['browser', 'filesystem', 'commands'] },
     browser: { control: 'dom', headless: true },
     maxIterations: options.maxIterations ?? 64,
-    maxTokens: options.maxTokens ?? 8192,
+    maxTokens:
+      options.maxTokens ??
+      options.model.maxOutputTokens ??
+      (options.model.toolCallEngine === 'prompt_engineering'
+        ? legacyLocalCapacity.defaultOutputTokens
+        : 8192),
     logLevel: tars.LogLevel.SILENT,
   })
 
@@ -206,6 +223,9 @@ export function createTarsRuntime(options: TarsRuntimeOptions): AgentTARS {
 
 export type TarsRuntimeEvent =
   | AgentEventStream.Event
+  | { type: 'agent_error'; error: string }
+  | { type: 'tool_call'; name: string; toolCallId: string; arguments: unknown }
+  | { type: 'tool_result'; name: string; toolCallId: string; content: unknown; error?: string }
   | {
       type: 'coloop_recovered_tool_state'
       name: string

@@ -2,16 +2,22 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { TarsRuntimeModel } from './tars-runtime'
 import { projectObservationContext } from './observation-context'
+import {
+  legacyLocalCapacity,
+  localOutputBudget,
+  localOutputReserve,
+  localPromptBytes,
+  type LocalModelCapacity,
+  type LocalInferenceResult,
+} from '../../shared/local-model'
 
 const endpoint = 'https://rk.coloop.invalid/v1'
 type Message = { role: 'user' | 'assistant'; content: string }
-const contextBytes = 16_384
-const outputTokens = 1024
-const outputReserveBytes = Math.max(1024, outputTokens + 128)
+export const rkContextBudgetBytes = 16_384
+const contextBytes = rkContextBudgetBytes
 // Keep exactly BoardClient.infer's accounting: content bytes plus one newline
 // between turns, no role/JSON wrapper charge and no separator after system.
-const promptBytes = (system: string, messages: Message[]) =>
-  Buffer.byteLength(system + messages.map((message) => message.content).join('\n'), 'utf8')
+const promptBytes = localPromptBytes
 
 function supersededObservation(value: Record<string, unknown>) {
   return {
@@ -24,7 +30,13 @@ function supersededObservation(value: Record<string, unknown>) {
 
 /** The host retains full observations for all guards and audit events. Only
  * obsolete visual context and native binding metadata are reduced for the NPU. */
-function compactMessages(messages: Message[], system: string): Message[] {
+function compactMessages(
+  messages: Message[],
+  system: string,
+  outputTokens: number,
+  contextBytes: number,
+): Message[] {
+  const outputReserveBytes = localOutputReserve(outputTokens)
   const parsed = messages.map((message, index) => {
     const match = /^Tool: (coloop_[a-z0-9_]+)(?:\\n|\n)Result:(?:\\n|\n)([\s\S]+)$/.exec(
       message.content,
@@ -251,7 +263,8 @@ export function createRkTarsFetch(
     messages: Message[],
     signal: AbortSignal,
     maxTokens: number,
-  ) => Promise<string>,
+  ) => Promise<string | LocalInferenceResult>,
+  capacity: LocalModelCapacity = legacyLocalCapacity,
 ): typeof globalThis.fetch {
   return async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -261,6 +274,11 @@ export function createRkTarsFetch(
     signal.throwIfAborted()
     if (typeof init.body !== 'string') throw new Error('RK_MODEL_REQUEST_INVALID')
     const request = requestSchema.parse(JSON.parse(init.body))
+    const explicit =
+      request.max_tokens === undefined
+        ? request.max_completion_tokens
+        : Math.min(request.max_tokens, request.max_completion_tokens ?? request.max_tokens)
+    const outputTokens = localOutputBudget(capacity, explicit).tokens
     if (request.model !== rkTarsModel.id) throw new Error('RK_MODEL_NOT_AVAILABLE')
     let system = request.messages
       .filter((m) => m.role === 'system')
@@ -284,7 +302,7 @@ export function createRkTarsFetch(
     }
     let messages: Message[]
     try {
-      messages = compactMessages(history, system)
+      messages = compactMessages(history, system, outputTokens, capacity.contextWindow)
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       if (!/^(?:RK_CONTEXT_BUDGET_EXCEEDED|OBSERVATION_CONTEXT_[A-Z_]+)$/.test(code)) throw error
@@ -297,17 +315,9 @@ export function createRkTarsFetch(
         { status: 400, headers: { 'content-type': 'application/json' } },
       )
     }
+    const result = await complete(system, messages, signal, outputTokens)
     const answer = normalizeToolEnvelopes(
-      await complete(
-        system,
-        messages,
-        signal,
-        Math.min(
-          request.max_tokens ?? outputTokens,
-          request.max_completion_tokens ?? outputTokens,
-          outputTokens,
-        ),
-      ),
+      typeof result === 'string' ? result : result.text,
       system.includes('coloop_recommend'),
     )
     signal.throwIfAborted()
@@ -321,7 +331,25 @@ export function createRkTarsFetch(
             object: 'chat.completion.chunk',
             created: Math.floor(Date.now() / 1000),
             model: request.model,
-            choices: [{ index: 0, delta, finish_reason: index ? 'stop' : null }],
+            choices: [
+              {
+                index: 0,
+                delta,
+                finish_reason: index
+                  ? typeof result === 'string'
+                    ? 'stop'
+                    : result.finishReason
+                  : null,
+              },
+            ],
+            ...(typeof result === 'string'
+              ? {}
+              : {
+                  usage: {
+                    prompt_tokens: result.promptTokens,
+                    completion_tokens: result.completionTokens,
+                  },
+                }),
           }) +
           '\n\n',
       )

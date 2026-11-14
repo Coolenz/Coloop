@@ -25,6 +25,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
   componentDidCatch() {
     if (controlSurface) void window.coloopControl?.stop().catch(() => {})
+    else requestAnimationFrame(() => requestAnimationFrame(() => window.coloop?.rendererReady?.()))
   }
   render() {
     if (this.state.error && controlSurface)

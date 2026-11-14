@@ -6,10 +6,12 @@ import type { CloudGateway } from '../infrastructure/cloud'
 import type { Task, TaskRequest } from '../../shared/contracts'
 import { errorMessage } from '../domain/errors'
 import { CooperativeAgent } from './cooperative'
+import { localOutputBudget, legacyLocalCapacity } from '../../shared/local-model'
+import { effectiveModelLimits } from '../../shared/model-usage'
 import { cloudTaskPolicy, parseCloudTaskPlan } from '../domain/cloud-task-plan'
 
 export class TaskService {
-  private active?: { id: string; controller: AbortController }
+  private active?: { id: string; controller: AbortController; supplements: string[] }
   get running() {
     return !!this.active
   }
@@ -27,9 +29,30 @@ export class TaskService {
       target: TaskRequest['target'],
       workspace?: string,
       cloudFields?: TaskRequest['cloudFields'],
+      policy?: TaskRequest['policy'],
     ) => Promise<string>,
+    private chooseRoute?: (
+      id: string,
+      goal: string,
+      signal: AbortSignal,
+      mode: NonNullable<TaskRequest['policy']>['mode'],
+    ) => Promise<'rk' | 'cloud'>,
   ) {}
   start(request: TaskRequest, taskId: string = randomUUID()): string {
+    request = {
+      ...request,
+      policy: structuredClone(
+        request.policy ?? {
+          mode:
+            request.target === 'rk'
+              ? 'local'
+              : request.target === 'cloud'
+                ? 'cloud'
+                : (this.store.config.executionMode ?? this.store.config.autoTaskRouting ?? 'cloud'),
+          cloudFallback: request.target !== 'rk' && this.store.config.allowCloudFallback !== false,
+        },
+      ),
+    }
     if (this.store.tasks.some((task) => task.id === taskId))
       throw new Error('TASK_ID_ALREADY_EXISTS')
     if (this.active) throw new Error('已有任务正在运行，请等待或停止后重试')
@@ -41,6 +64,7 @@ export class TaskService {
         throw new Error('协作模式需要 RK 服务启用请求级日志隐私保护')
     }
     const task: Task = {
+      policy: request.policy,
       id: taskId,
       prompt: request.prompt,
       target: request.target,
@@ -57,7 +81,7 @@ export class TaskService {
             : 'RK 隐私 Agent · 按需云端分析',
     }
     const controller = new AbortController()
-    this.active = { id: task.id, controller }
+    this.active = { id: task.id, controller, supplements: [] }
     const previousTasks = this.store.tasks
     this.store.tasks = [task, ...previousTasks].slice(0, 200)
     try {
@@ -70,6 +94,19 @@ export class TaskService {
     this.onChange()
     void this.execute(task, request, controller)
     return task.id
+  }
+  append(taskId: string, text: string) {
+    if (
+      !this.active ||
+      this.active.id !== taskId ||
+      !this.executeDesktop ||
+      this.active.controller.signal.aborted
+    )
+      throw new Error('该任务当前无法接收补充')
+    this.active.supplements.push(text)
+  }
+  takeSupplements(taskId: string) {
+    return this.active?.id === taskId ? this.active.supplements.splice(0) : []
   }
   private async execute(task: Task, request: TaskRequest, controller: AbortController) {
     try {
@@ -92,15 +129,53 @@ export class TaskService {
           : request.context
       if (context.length > 50_000) throw new Error('参考文本超过 50000 字，请缩短后重试')
       controller.signal.throwIfAborted()
+      if (request.target === 'hybrid' && this.chooseRoute) {
+        task.stage = '正在判断任务分配'
+        this.onChange()
+        const target = await this.chooseRoute(
+          task.id,
+          request.prompt,
+          controller.signal,
+          request.policy!.mode,
+        )
+        controller.signal.throwIfAborted()
+        request = { ...request, target }
+      }
       task.stage = '正在生成回答'
       this.onChange()
       let answer: string
       if (this.executeDesktop) {
-        const plan =
-          request.intent === 'execute'
-            ? { type: 'execute' as const }
-            : await this.planTask(task, request, context, controller.signal)
+        let plan: Awaited<ReturnType<TaskService['planTask']>>
+        try {
+          plan =
+            request.intent === 'execute'
+              ? { type: 'execute' }
+              : await this.planTask(task, request, context, controller.signal)
+        } catch (error) {
+          controller.signal.throwIfAborted()
+          if (
+            request.target === 'cloud' ||
+            !request.policy?.cloudFallback ||
+            !/CONTEXT|预算|timeout|超时|RK_CONNECTION_CLOSED|ECONNRESET|ECONNREFUSED/i.test(
+              error instanceof Error ? error.message : '',
+            )
+          )
+            throw error
+          request = { ...request, target: 'cloud', policy: { ...request.policy, mode: 'cloud' } }
+          task.stage = '本地模型暂不可用，正在转交云端理解'
+          this.onChange()
+          plan = await this.planTask(task, request, context, controller.signal)
+        }
         controller.signal.throwIfAborted()
+        while (this.active?.id === task.id && this.active.supplements.length) {
+          const supplements = this.active.supplements.splice(0)
+          request = { ...request, prompt: [request.prompt, ...supplements].join('\n\n') }
+          plan =
+            request.intent === 'execute'
+              ? { type: 'execute' }
+              : await this.planTask(task, request, context, controller.signal)
+          controller.signal.throwIfAborted()
+        }
         if (plan.type === 'answer') {
           answer = plan.answer
         } else {
@@ -122,14 +197,28 @@ export class TaskService {
             request.target,
             request.workspace,
             request.cloudFields,
+            request.policy,
           )
         }
       } else if (request.target === 'rk') {
-        answer = await this.board.generate(request.prompt, context, controller.signal, (text) => {
-          if (controller.signal.aborted) return
-          task.answer = text
-          this.onChange()
-        })
+        const limits = effectiveModelLimits(this.store.config.modelLimits)
+        const budget = localOutputBudget(
+          this.board.localCapacity?.() ?? legacyLocalCapacity,
+          undefined,
+          this.store.config.localModel?.outputTokens,
+          limits.mode === 'custom' ? limits.maxOutputTokens : undefined,
+        )
+        answer = await this.board.generate(
+          request.prompt,
+          context,
+          controller.signal,
+          (text) => {
+            if (controller.signal.aborted) return
+            task.answer = text
+            this.onChange()
+          },
+          budget.tokens,
+        )
       } else {
         const result = await new CooperativeAgent(this.board, this.cloud).run(
           request.prompt,

@@ -4,9 +4,115 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ModelUsageLedger } from '../src/main/infrastructure/model-usage'
 import { CloudGateway } from '../src/main/infrastructure/cloud'
-import type { ModelLimits } from '../src/shared/model-usage'
+import {
+  effectiveModelLimits,
+  modelLimitsSchema,
+  type ModelLimits,
+} from '../src/shared/model-usage'
+import { cloudModelCapacity } from '../src/shared/model-capacity'
 
 const directories: string[] = []
+
+it('resolves per-model cloud capacity independently from the RK budget', () => {
+  expect(
+    cloudModelCapacity({ baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash' }),
+  ).toMatchObject({
+    contextWindow: 1048576,
+    maxOutputTokens: 65536,
+    maximumOutputTokens: 393216,
+    officialDeepSeek: true,
+  })
+  expect(
+    cloudModelCapacity({
+      baseUrl: 'https://other.invalid',
+      model: 'deepseek-flash',
+      contextWindow: 131072,
+      maxOutputTokens: 16384,
+    }),
+  ).toMatchObject({
+    contextWindow: 131072,
+    maxOutputTokens: 16384,
+    officialDeepSeek: false,
+  })
+  expect(cloudModelCapacity({ baseUrl: '', model: '' }).contextWindow).toBe(65536)
+  expect(
+    effectiveModelLimits({ usageBudgetEnabled: false, costLimitEnabled: false }),
+  ).toMatchObject({ mode: 'unlimited', inputLimitEnabled: false, minRequestIntervalMs: 0 })
+  expect(effectiveModelLimits({ usageBudgetEnabled: true })).toMatchObject({
+    mode: 'custom',
+    inputLimitEnabled: true,
+  })
+})
+
+it.each([undefined, 'unlimited'] as const)(
+  'sends and meters a large DSH request without hidden limits in %s mode',
+  async (mode) => {
+    const { ledger } = fixture({
+      mode,
+      usageBudgetEnabled: mode === 'unlimited',
+      costLimitEnabled: mode === 'unlimited',
+      maxInputBytes: 1000,
+      maxRequestsPerTask: 1,
+      minRequestIntervalMs: 60000,
+    })
+    const network = vi.fn(async (_url, init) => {
+      const body = JSON.parse(init!.body as string)
+      expect(body.max_tokens).toBe(65536)
+      expect(Buffer.byteLength(JSON.stringify(body))).toBeGreaterThan(96000)
+      return stream()
+    })
+    for (let index = 0; index < 2; index++) {
+      await (
+        await ledger.wrap(network, context)('https://api.deepseek.com/chat/completions', {
+          ...request(),
+          body: JSON.stringify({
+            model: 'deepseek-flash',
+            messages: [{ role: 'user', content: '上下文'.repeat(40000) }],
+            max_tokens: 65536,
+          }),
+        })
+      ).text()
+    }
+    expect(ledger.taskSnapshot(context.taskId)).toMatchObject({ requests: 2, tokenUnits: 240 })
+  },
+)
+
+it('lets custom mode disable only its additional input byte guard', async () => {
+  const { ledger } = fixture({
+    mode: 'custom',
+    inputLimitEnabled: false,
+    maxInputBytes: 1000,
+    maxRequestsPerTask: 1,
+  })
+  const network = vi.fn(async () => stream())
+  await (
+    await ledger.wrap(network, context)('https://model.invalid', {
+      ...request(),
+      body: JSON.stringify({ model: 'test', messages: ['x'.repeat(100000)] }),
+    })
+  ).text()
+  await expect(ledger.wrap(network, context)('https://model.invalid', request())).rejects.toThrow(
+    'MODEL_TASK_REQUEST_LIMIT',
+  )
+  expect(network).toHaveBeenCalledOnce()
+})
+
+it('loads legacy limits while discarding the retired no-progress cutoff', () => {
+  const limits = modelLimitsSchema.parse({
+    maxNoProgressRequests: 4,
+    usageBudgetEnabled: true,
+    maxRequestsPerTask: 16,
+    costLimitEnabled: true,
+    maxCostYuanTotal: 3,
+  })
+  expect(limits).not.toHaveProperty('maxNoProgressRequests')
+  expect(limits).toMatchObject({
+    usageBudgetEnabled: true,
+    maxRequestsPerTask: 16,
+    costLimitEnabled: true,
+    maxCostYuanTotal: 3,
+  })
+})
 afterEach(() => {
   vi.useRealTimers()
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
@@ -40,6 +146,73 @@ const stream = () =>
     'data: {"choices":[{"delta":{"content":"done"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}\n\ndata: [DONE]\n\n',
     { headers: { 'content-type': 'text/event-stream' } },
   )
+
+it('keeps unlimited task requests when usage budgets are disabled', async () => {
+  const { ledger } = fixture({ usageBudgetEnabled: false, maxRequestsPerTask: 1 })
+  const network = vi.fn(async () => stream())
+  for (let i = 0; i < 65; i++)
+    await (await ledger.wrap(network, context)('https://model.invalid', request())).text()
+  expect(ledger.taskSnapshot(context.taskId)).toMatchObject({ requests: 65, tokenUnits: 65 * 120 })
+})
+
+it('uses per-role price snapshots while keeping one persistent task budget', async () => {
+  const { ledger, directory, limits } = fixture({ inputYuanPerMillion: 1, outputYuanPerMillion: 2 })
+  const fetcher = vi.fn(async () => stream())
+  await (
+    await ledger.wrap(fetcher, { ...context, role: 'default' })('https://model.invalid', request())
+  ).text()
+  await (
+    await ledger.wrap(fetcher, {
+      ...context,
+      role: 'decision',
+      pricing: { inputYuanPerMillion: 10, outputYuanPerMillion: 20 },
+    })('https://strong.invalid', request())
+  ).text()
+  const reopened = new ModelUsageLedger(directory, limits)
+  expect(reopened.taskSnapshot(context.taskId)).toMatchObject({
+    requests: 2,
+    tokenUnits: 240,
+    estimatedCostYuan: 0.00154,
+  })
+  const unpriced = fixture({
+    costLimitEnabled: true,
+    inputYuanPerMillion: 1,
+    outputYuanPerMillion: 2,
+  })
+  await expect(
+    unpriced.ledger.wrap(fetcher, { ...context, role: 'decision', pricing: {} })(
+      'https://strong.invalid',
+      request(),
+    ),
+  ).rejects.toThrow('MODEL_PRICING_REQUIRED')
+})
+
+it('meters image input separately from the text context limit and reconciles actual usage', async () => {
+  const { ledger } = fixture({ maxInputBytes: 1000, usageBudgetEnabled: false })
+  const fetcher = vi.fn(async () => stream())
+  await (
+    await ledger.wrap(fetcher, context)('https://model.invalid', {
+      ...request(),
+      body: JSON.stringify({
+        model: 'test',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image_url',
+                image_url: {
+                  url: 'data:image/png;base64,' + Buffer.alloc(100000).toString('base64'),
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    })
+  ).text()
+  expect(ledger.taskSnapshot(context.taskId)).toMatchObject({ requests: 1, tokenUnits: 120 })
+})
 
 it('fails closed when monetary protection has no complete pricing', async () => {
   const { ledger } = fixture({ costLimitEnabled: true, inputYuanPerMillion: 2 })

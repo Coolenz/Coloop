@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { DesktopPipe, DesktopPipeError } from './desktop-pipe'
 import type { ProactiveObservation } from '../services/proactive-agent'
+import { safeInputDiagnostics } from './editor-binding-diagnostics'
 
 type Channel = Readable & Writable & { close(): void }
 type Row = Record<string, unknown>
@@ -13,7 +14,9 @@ export function rkMemoryNamespace(isolatedDirectory?: string): string {
   if (!isolatedDirectory) return 'production'
   const path = resolve(isolatedDirectory)
   const identity = process.platform === 'win32' ? path.toLowerCase() : path
-  return 'qa:profile:' + createHash('sha256').update(identity).digest('hex')
+  // Memory tags accept at most 64 characters. The full digest produced a
+  // 75-character tag, so every isolated profile's memory write was rejected.
+  return 'qa:profile:' + createHash('sha256').update(identity).digest('hex').slice(0, 32)
 }
 
 const errorCode = (error: unknown, fallback: string) => {
@@ -46,6 +49,8 @@ export class RkTarsBridge {
   private disposed = false
   private task?: { task_id: string; generation: string | number }
   private stopping = false
+  private resumingDraft = false
+  private lifecycleVersion = 0
   private views = new Map<string, ProactiveObservation>()
   private clipboardPreparations = new Set<Promise<unknown>>()
   constructor(private options: Options) {}
@@ -97,6 +102,7 @@ export class RkTarsBridge {
       pipe.on('closed', () => {
         if (this.executor !== pipe) return
         this.executor = undefined
+        this.lifecycleVersion++
         clearInterval(this.heartbeat)
         this.stopping = true
         if (this.task) void this.options.releaseClipboard(this.task.task_id).catch(() => {})
@@ -156,12 +162,48 @@ export class RkTarsBridge {
 
   async begin(task: { task_id: string; generation: string | number }) {
     await this.connect()
-    if (this.task && !this.stopping) throw new Error('RK_ADAPTER_BUSY')
+    if (this.resumingDraft || (this.task && !this.stopping)) throw new Error('RK_ADAPTER_BUSY')
     const result = this.checkResult(await this.executor!.request('begin', task))
     this.task = task
     this.stopping = false
     this.views.clear()
     return result
+  }
+
+  async resumeDraft(value: {
+    task_id: string
+    generation: string | number
+    command_id: string
+    paste_command_id: string
+  }) {
+    await this.connect()
+    if (this.resumingDraft || (this.task && !this.stopping)) throw new Error('RK_ADAPTER_BUSY')
+    if (
+      this.task &&
+      (this.task.task_id !== value.task_id || this.task.generation !== value.generation)
+    )
+      throw new Error('RK_ADAPTER_STALE_TASK')
+    const pipe = this.executor!
+    const version = this.lifecycleVersion
+    const task = { task_id: value.task_id, generation: value.generation }
+    this.task = task
+    this.stopping = true
+    this.resumingDraft = true
+    this.views.clear()
+    try {
+      const result = this.checkResult(await pipe.request('resume_draft', value))
+      if (this.disposed || this.executor !== pipe || this.lifecycleVersion !== version) {
+        // A stop may have reached RK before its queued resume. Close that narrow
+        // session again; never expose it to execute after the user's stop won.
+        if (this.executor === pipe && !this.disposed)
+          await pipe.request('stop', task).catch(() => {})
+        throw new Error('RK_ADAPTER_STALE_TASK')
+      }
+      this.stopping = false
+      return result
+    } finally {
+      this.resumingDraft = false
+    }
   }
 
   async execute(value: {
@@ -221,6 +263,7 @@ export class RkTarsBridge {
       value.generation !== this.task.generation
     )
       throw new Error('RK_ADAPTER_STALE_TASK')
+    this.lifecycleVersion++
     this.stopping = true
     if (!this.executor) throw new Error('RK_ADAPTER_DISCONNECTED')
     const result = this.checkResult(await this.executor.request('stop', value))
@@ -250,12 +293,21 @@ export class RkTarsBridge {
     await this.connectMemory()
     return this.checkResult(await this.memory!.request('memory.remember', value))
   }
+  async feedback(value: Row) {
+    await this.connectMemory()
+    return this.checkResult(await this.memory!.request('memory.feedback', value))
+  }
+  async choice(value: Row) {
+    await this.connectMemory()
+    return this.checkResult(await this.memory!.request('memory.choice', value))
+  }
 
   private async hostRequest(pipe: DesktopPipe, packet: Row) {
     if (this.executor !== pipe || this.disposed) return
     this.options.onEvent?.(packet)
     if (packet.type !== 'request') return
     const op = String(packet.op)
+    let diagnosticStage = op
     const value = packet.value as Row
     const cleanup = op === 'clipboard.finish'
     try {
@@ -271,7 +323,9 @@ export class RkTarsBridge {
         if (!cleanup) {
           const view = this.views.get(String(value.observation_id))
           if (!view) throw new Error('OBSERVATION_EXPIRED')
+          diagnosticStage = 'input.guard'
           const guard = (await this.options.input('input.guard', view, value)) as Row
+          diagnosticStage = op
           if (guard?.allowed !== true) throw new Error('INPUT_GUARD_CHANGED')
           if (
             this.stopping ||
@@ -334,12 +388,14 @@ export class RkTarsBridge {
           type: 'reply',
           id: packet.id,
           error: errorCode(error, 'RK_ADAPTER_RPC_FAILED'),
+          diagnostics: safeInputDiagnostics(error, diagnosticStage),
         })
     }
   }
 
   async dispose() {
     if (this.disposed) return
+    this.lifecycleVersion++
     if (this.task && !this.stopping) await this.stop(this.task).catch(() => {})
     this.disposed = true
     await Promise.allSettled([...this.clipboardPreparations])

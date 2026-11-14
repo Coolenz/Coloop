@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { BrowserContext, ElementHandle, Page } from 'playwright-core'
+import type { BrowserContext, ElementHandle, Page, Dialog } from 'playwright-core'
 import { z } from 'zod'
 import { validateWebReadUrl } from './web-reader'
 import type { WorkspaceSession } from '../services/workspace-session'
@@ -97,17 +97,26 @@ export class WebSession {
   private page?: Page
   private observed?: Observed
   private initialText?: string
+  private navigationUrl?: string
   private effects = 0
   private disposed = false
   private retainOnSuccess = false
   private closing?: Promise<void>
   private permittedOrigins: Set<string>
   private stop: () => void
+  private closePopup = (popup: Page) => {
+    void popup.close().catch(() => {})
+  }
+  private dismissDialog = (dialog: Dialog) => {
+    void dialog.dismiss().catch(() => {})
+  }
   constructor(
     private context: BrowserContext,
     private goal: string,
     private signal: AbortSignal,
     private stagehand?: StagehandRuntime,
+    readonly browserInfo?: Record<string, unknown>,
+    private onHandoff?: () => void,
   ) {
     this.permittedOrigins = new Set(
       (goal.match(/https?:\/\/[^\s<>"']+/g) ?? []).flatMap((value) => {
@@ -138,7 +147,9 @@ export class WebSession {
   private async ensurePage() {
     this.check()
     if (this.page) return this.page
-    await this.context.route('**/*', async (route) => {
+    this.page = await this.context.newPage()
+    await this.stagehand?.registerPage(this.page)
+    await this.page.route('**/*', async (route) => {
       const request = route.request()
       try {
         this.url(request.url())
@@ -152,13 +163,8 @@ export class WebSession {
         await route.abort().catch(() => {})
       }
     })
-    this.page = await this.context.newPage()
-    this.page.on('popup', (popup) => {
-      void popup.close().catch(() => {})
-    })
-    this.page.on('dialog', (dialog) => {
-      void dialog.dismiss().catch(() => {})
-    })
+    this.page.on('popup', this.closePopup)
+    this.page.on('dialog', this.dismissDialog)
     return this.page
   }
   private async capture(): Promise<Observed> {
@@ -311,6 +317,7 @@ export class WebSession {
       return this.observe(request.start_character, request.start_control)
     }
     if (request.operation === 'navigate') {
+      this.navigationUrl = undefined
       await this.forget()
       const page = await this.ensurePage()
       const response = await page.goto(this.url(request.url), {
@@ -319,7 +326,7 @@ export class WebSession {
       })
       if (!response || response.status() >= 400)
         throw new Error(`WEB_SOURCE_HTTP_${response?.status() ?? 'UNAVAILABLE'}`)
-      this.url(page.url())
+      this.navigationUrl = this.url(page.url())
       return this.observe()
     }
     if (request.operation === 'discover' || request.operation === 'extract') {
@@ -378,16 +385,21 @@ export class WebSession {
       request.operation === 'verify' ? undefined : request.target_id,
     )
     if (request.operation === 'verify') {
+      const navigationOnly =
+        request.keep_open && !this.effects && current.url === this.navigationUrl
+      const expectedPresent =
+        current.text.includes(request.expected_text) ||
+        (navigationOnly && (await this.page!.title()).includes(request.expected_text))
       if (
-        !this.effects ||
-        current.text === this.initialText ||
-        !current.text.includes(request.expected_text)
+        (!navigationOnly && (!this.effects || current.text === this.initialText)) ||
+        !expectedPresent
       )
         throw new Error('WEB_RESULT_NOT_VERIFIED')
       this.retainOnSuccess = request.keep_open
       return {
         keep_open_requested: request.keep_open,
         verified: true,
+        verification_scope: navigationOnly ? 'navigation' : 'page_change',
         observation_id: current.id,
         source_url: current.url,
         expected_text: request.expected_text,
@@ -509,9 +521,21 @@ export class WebSession {
     this.signal.removeEventListener('abort', this.stop)
     this.closing = (async () => {
       await this.forget()
-      if (!completed || !this.retainOnSuccess) {
-        if (this.stagehand) await this.stagehand.close()
-        else await this.context.close().catch(() => {})
+      if (completed && this.retainOnSuccess) {
+        this.page?.off('popup', this.closePopup)
+        this.page?.off('dialog', this.dismissDialog)
+        await this.page?.unrouteAll({ behavior: 'wait' })
+        if (this.stagehand?.attached) await this.stagehand.close(true)
+        else {
+          await this.context.unrouteAll({ behavior: 'wait' })
+          this.stagehand?.handoff()
+        }
+        this.onHandoff?.()
+      } else {
+        if (this.stagehand) {
+          if (this.stagehand.attached) await this.page?.close().catch(() => {})
+          await this.stagehand.close()
+        } else await this.context.close().catch(() => {})
       }
     })()
     return this.closing

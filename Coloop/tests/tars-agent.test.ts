@@ -7,9 +7,15 @@ import { TarsAgentService, type TarsAgentOptions } from '../src/main/services/ta
 import { ExecutionCheckpointStore } from '../src/main/infrastructure/execution-checkpoints'
 import { WorkspaceSession } from '../src/main/services/workspace-session'
 import { ModelUsageLedger } from '../src/main/infrastructure/model-usage'
+import { modelLimitsSchema } from '../src/shared/model-usage'
 
-const factory = vi.hoisted(() => ({ create: vi.fn() }))
-vi.mock('../src/main/infrastructure/tars-runtime', () => ({ createTarsRuntime: factory.create }))
+const factory = vi.hoisted(() => ({ create: vi.fn(), route: vi.fn() }))
+vi.mock('../src/main/infrastructure/agent-runtime', () => ({
+  createAgentRuntime: (engine: string, options: TarsRuntimeOptions) => {
+    factory.route(engine)
+    return factory.create(options)
+  },
+}))
 type RuntimeMock = {
   options: TarsRuntimeOptions
   initialize: ReturnType<typeof vi.fn>
@@ -28,8 +34,19 @@ const deferred = <T = unknown>() => {
   })
   return { promise, resolve, reject }
 }
-const call = (runtime: RuntimeMock, name: string, args: unknown = {}) =>
-  Promise.resolve(runtime.options.tools.find((tool) => tool.name === name)!.execute(args))
+const call = (runtime: RuntimeMock, name: string, args: unknown = {}) => {
+  const execute = () => runtime.options.tools.find((tool) => tool.name === name)!.execute(args)
+  if (runtime.options.toolDecision?.(name, args).kind === 'ask')
+    return runtime.options.requestApproval!({
+      toolName: name,
+      callId: 'test-call',
+      signal: new AbortController().signal,
+    }).then((outcome) => {
+      if (outcome !== 'allowed-once') throw new Error('TOOL_DENIED')
+      return execute()
+    })
+  return Promise.resolve(execute())
+}
 const view = (id: string) => ({
   observation_id: id,
   window_id: 'window',
@@ -49,6 +66,7 @@ describe('TarsAgentService official runtime facade', () => {
     directory = await mkdtemp(join(tmpdir(), 'coloop-tars-'))
     runtimes = []
     scripts = []
+    factory.route.mockReset()
     factory.create.mockReset().mockImplementation((config: TarsRuntimeOptions) => {
       const script = scripts.shift()
       const runtime: RuntimeMock = {
@@ -107,6 +125,117 @@ describe('TarsAgentService official runtime facade', () => {
     await service.dispose()
     await rm(directory, { recursive: true, force: true })
   })
+  it('passes controlled browser settings and task identity through the normal web tool', async () => {
+    const settings = {
+      browser: 'edge' as const,
+      viewport: { width: 1280, height: 720 },
+      locale: 'zh-CN',
+    }
+    options.configureBrowser = vi.fn(async () => ({ settings, source: 'task', remembered: true }))
+    options.openWeb = vi.fn(
+      async () =>
+        ({
+          browserInfo: { settings, verified: true },
+          call: vi.fn(async () => ({ source_url: 'https://example.invalid/', sha256: 'page' })),
+          dispose: vi.fn(async () => {}),
+        }) as unknown as Awaited<ReturnType<NonNullable<TarsAgentOptions['openWeb']>>>,
+    )
+    scripts.push(async (runtime) => {
+      await call(runtime, 'coloop_browser_config', {
+        operation: 'configure',
+        settings,
+        source_quote: '以后用 Edge',
+        remember: true,
+      })
+      const result = await call(runtime, 'coloop_web', {
+        operation: 'navigate',
+        url: 'https://example.invalid/',
+      })
+      expect(result).toMatchObject({ browser: { settings, verified: true } })
+      await expect(
+        call(runtime, 'coloop_browser_config', {
+          operation: 'configure',
+          settings,
+          source_quote: '以后用 Edge',
+        }),
+      ).rejects.toThrow('BROWSER_CONFIG_SESSION_ALREADY_OPEN')
+      return completedRun(runtime)
+    })
+    const id = await service.startTask('以后用 Edge')
+    await vi.waitFor(() => expect(service.active).toBe(false))
+    expect(options.openWeb).toHaveBeenCalledWith(
+      '以后用 Edge',
+      expect.any(AbortSignal),
+      expect.any(Function),
+      id,
+      settings,
+    )
+  })
+  it('routes the selected personal browser through Playwright and requires a fresh successful assertion', async () => {
+    options.useBrowserExtension = true
+    options.resolveBrowser = async () => ({
+      browser: 'edge',
+      locale: 'zh-CN',
+      viewport: { width: 1440, height: 1000 },
+    })
+    options.openWeb = vi.fn()
+    scripts.push(async (runtime) => {
+      expect(runtime.options.playwrightExtension).toMatchObject({ browser: 'edge' })
+      expect(runtime.options.tools.some((tool) => tool.name === 'coloop_web')).toBe(false)
+      runtime.options.requestContext?.()
+      const emit = (name: string, error?: string) => {
+        runtime.options.onEvent?.({ type: 'tool_call', name, toolCallId: name, arguments: {} })
+        runtime.options.onEvent?.({
+          type: 'tool_result',
+          name,
+          toolCallId: name,
+          content: [{ type: 'text', text: 'result' }],
+          error,
+        })
+      }
+      const verify = 'mcp__playwright__browser_verify_text_visible'
+      emit(verify)
+      expect(runtime.options.completion?.().finished).toBe(false)
+      emit('mcp__playwright__browser_navigate')
+      expect(runtime.options.completion?.().finished).toBe(false)
+      emit(verify, 'text not visible')
+      expect(runtime.options.completion?.().finished).toBe(false)
+      emit(verify, '')
+      expect(runtime.options.completion?.().finished).toBe(false)
+      emit(verify)
+      expect(runtime.options.completion?.().finished).toBe(true)
+      emit('mcp__playwright__browser_snapshot')
+      expect(runtime.options.completion?.().finished).toBe(false)
+      emit(verify)
+      return { content: '已验证页面', finishReason: 'stop' }
+    })
+    await service.startTask('用 Edge 打开邮箱并验证')
+    await vi.waitFor(() => expect(service.active).toBe(false))
+    expect(options.openWeb).not.toHaveBeenCalled()
+  })
+  it('queues running-task messages in order and prevents completion before the next model turn', async () => {
+    const gate = deferred()
+    scripts.push(async (runtime) => {
+      await completedRun(runtime)
+      await gate.promise
+      return { content: '完成', finishReason: 'stop' }
+    })
+    const id = await service.startTask('原任务')
+    await vi.waitFor(() => expect(runtimes[0]?.options.completion?.().finished).toBe(true))
+    expect(service.appendMessage('改用中文')).toBe(id)
+    expect(service.appendMessage('再检查标题')).toBe(id)
+    expect(runtimes).toHaveLength(1)
+    expect(runtimes[0].options.completion?.().finished).toBe(false)
+    const context = runtimes[0].options.requestContext?.() ?? ''
+    expect(context.indexOf('改用中文')).toBeLessThan(context.indexOf('再检查标题'))
+    expect(context).toContain('再检查标题')
+    expect(runtimes[0].options.completion?.().finished).toBe(false)
+    await completedRun(runtimes[0])
+    expect(runtimes[0].options.completion?.().finished).toBe(true)
+    gate.resolve(undefined)
+    await vi.waitFor(() => expect(service.active).toBe(false))
+    expect(() => service.appendMessage('过期消息')).toThrow()
+  })
   async function completedRun(runtime: RuntimeMock) {
     const before = (await call(runtime, 'coloop_observe')) as ReturnType<typeof view>
     await call(runtime, 'coloop_execute', {
@@ -131,6 +260,297 @@ describe('TarsAgentService official runtime facade', () => {
     })
     options.preferLocal = () => true
   }
+
+  it.each(['rk', 'cloud'] as const)(
+    'uses the auto classifier decision %s for the full runtime',
+    async (route) => {
+      useLocalModel()
+      options.selectAutoRoute = vi.fn(async () => route)
+      await service.startTask(route === 'rk' ? '记录这句话' : '打开网页并整理资料')
+      await settled()
+      expect(options.selectAutoRoute).toHaveBeenCalledOnce()
+      expect(runtimes[0].options.model.id).toBe(route === 'rk' ? 'local-test' : 'test')
+      expect(runtimes[0].options.historyBoundary).toBe(route === 'rk' ? 'local' : 'remote')
+    },
+  )
+
+  it('keeps classified complex work on cloud after a provider failure', async () => {
+    useLocalModel()
+    options.selectAutoRoute = vi.fn(async () => 'cloud' as const)
+    options.fetch = vi.fn(async () => new Response('{}', { status: 503 }))
+    scripts.push(async (runtime) => {
+      await runtime.options.fetch!('https://example.invalid', { body: '{}' })
+      return { finishReason: 'error' }
+    })
+    await service.startTask('打开网页处理复杂表格')
+    await settled()
+    expect(runtimes).toHaveLength(1)
+    expect(runtimes[0].options.model.id).toBe('test')
+  })
+
+  it('hands off an automatic local context failure to a fresh cloud session and resumes that session', async () => {
+    useLocalModel()
+    options.selectAutoRoute = async () => 'rk'
+    options.allowCloudContextFallback = () => true
+    options.checkpoints = new ExecutionCheckpointStore(join(directory, 'checkpoints'))
+    let cloudId = ''
+    scripts.push(async (runtime) => {
+      runtime.options.onEvent?.({ type: 'agent_error', error: '400: RK_CONTEXT_BUDGET_EXCEEDED' })
+      return { finishReason: 'error' }
+    })
+    scripts.push(async (runtime) => {
+      expect(runtime.options.historyBoundary).toBe('remote')
+      expect(runtime.options.resume).toBe(false)
+      expect(runtime.options.model.id).toBe('test')
+      cloudId = runtime.options.id
+      return { finishReason: 'error' }
+    })
+    const taskId = await service.startTask('继续网页任务')
+    await settled()
+    expect(runtimes).toHaveLength(2)
+    expect(cloudId).not.toBe(taskId)
+    expect(runtimes[0].dispose).toHaveBeenCalled()
+    expect(runtimes[1].run.mock.calls[0][0].input).toContain('避免重复发送')
+    expect(await options.checkpoints.get(taskId)).toMatchObject({
+      autoRoute: 'cloud',
+      cloudSessionId: cloudId,
+    })
+    await service.dispose()
+    service = new TarsAgentService(options)
+    await service.resumeTask(taskId)
+    await settled()
+    expect(runtimes.at(-1)?.options.id).toBe(cloudId)
+    expect(runtimes.at(-1)?.options.historyBoundary).toBe('remote')
+    expect(runtimes.at(-1)?.options.resume).toBe(true)
+  })
+
+  it('honors an explicit RK request on a context failure', async () => {
+    useLocalModel()
+    options.allowCloudContextFallback = () => true
+    scripts.push(async (runtime) => {
+      runtime.options.onEvent?.({ type: 'agent_error', error: 'RK_CONTEXT_BUDGET_EXCEEDED' })
+      return { finishReason: 'error' }
+    })
+    await service.startTask('本地处理', undefined, 'rk')
+    await settled()
+    expect(runtimes).toHaveLength(1)
+    expect(service.snapshot().error).toBe('RK_CONTEXT_BUDGET_EXCEEDED')
+  })
+  it.each(
+    ['RK_CONTEXT_BUDGET_EXCEEDED', 'inference timeout', 'ECONNRESET'].flatMap((error) =>
+      ['return', 'throw'].map((delivery) => ({ error, delivery })),
+    ),
+  )(
+    'uses the captured local fallback policy for $error via $delivery',
+    async ({ error, delivery }) => {
+      useLocalModel()
+      options.allowCloudContextFallback = () => false
+      scripts.push(async (runtime) => {
+        runtime.options.onEvent?.({ type: 'agent_error', error })
+        if (delivery === 'throw') throw new Error(error)
+        return { finishReason: 'error' }
+      })
+      scripts.push(completedRun)
+      await service.startTask('本地处理后核验', undefined, 'rk', undefined, [], undefined, {
+        mode: 'local',
+        cloudFallback: true,
+      })
+      await settled()
+      expect(runtimes).toHaveLength(2)
+      expect(runtimes[1].options.model.id).toBe('test')
+      expect(service.snapshot().phase).toBe('completed')
+      expect(options.execution.execute).toHaveBeenCalledOnce()
+      expect(options.input).toHaveBeenCalledOnce()
+    },
+  )
+  it.each(['return', 'throw'])(
+    'keeps automatic work local when its captured fallback switch is off via %s',
+    async (delivery) => {
+      useLocalModel()
+      options.allowCloudContextFallback = () => true
+      scripts.push(async (runtime) => {
+        runtime.options.onEvent?.({ type: 'agent_error', error: 'RK_CONTEXT_BUDGET_EXCEEDED' })
+        if (delivery === 'throw') throw new Error('RK_CONTEXT_BUDGET_EXCEEDED')
+        return { finishReason: 'error' }
+      })
+      await service.startTask('本地独立验证', undefined, 'auto', undefined, [], undefined, {
+        mode: 'local',
+        cloudFallback: false,
+      })
+      await settled()
+      expect(runtimes).toHaveLength(1)
+      expect(runtimes[0].options.model.id).toBe('local-test')
+      expect(service.snapshot().error).toBe('RK_CONTEXT_BUDGET_EXCEEDED')
+    },
+  )
+
+  it('does not hand off a local runtime rejection after the user stops', async () => {
+    useLocalModel()
+    options.allowCloudContextFallback = () => true
+    const pending = deferred<void>()
+    scripts.push(async (runtime) => {
+      await pending.promise
+      runtime.options.onEvent?.({ type: 'agent_error', error: 'inference timeout' })
+      throw new Error('inference timeout')
+    })
+    await service.startTask('本地处理', undefined, 'auto')
+    await vi.waitFor(() => expect(runtimes[0]?.run).toHaveBeenCalledOnce())
+    await service.stop()
+    pending.resolve()
+    await settled()
+    expect(runtimes).toHaveLength(1)
+    expect(service.snapshot().phase).toBe('cancelled')
+    expect(options.execution.execute).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['HARNESS_SESSION_ROUTE_MISMATCH', 'Error'],
+    ['HARNESS_TOOL_OUTCOME_UNKNOWN_REQUIRES_VERIFICATION', 'Error'],
+    ['inference timeout', 'AbortError'],
+  ])('does not hand off a local %s rejection with name %s', async (message, name) => {
+    useLocalModel()
+    options.allowCloudContextFallback = () => true
+    scripts.push(async (runtime) => {
+      runtime.options.onEvent?.({ type: 'agent_error', error: message })
+      throw Object.assign(new Error(message), { name })
+    })
+    await service.startTask('本地处理', undefined, 'auto')
+    await settled()
+    expect(runtimes).toHaveLength(1)
+    expect(service.snapshot().phase).toBe('failed')
+    expect(options.execution.execute).not.toHaveBeenCalled()
+  })
+
+  it('preserves unknown input when a local runtime subsequently rejects', async () => {
+    useLocalModel()
+    options.allowCloudContextFallback = () => true
+    vi.mocked(options.execution.execute).mockResolvedValue({})
+    scripts.push(async (runtime) => {
+      const observed = (await call(runtime, 'coloop_observe')) as ReturnType<typeof view>
+      await expect(
+        call(runtime, 'coloop_execute', {
+          observation_id: observed.observation_id,
+          action: { action: 'paste', target_id: 1, text: '追加中文正文' },
+        }),
+      ).rejects.toThrow('INPUT_OUTCOME_UNKNOWN')
+      runtime.options.onEvent?.({ type: 'agent_error', error: 'inference timeout' })
+      throw new Error('inference timeout')
+    })
+    await service.startTask('本地处理', undefined, 'auto')
+    await settled()
+    expect(runtimes).toHaveLength(1)
+    expect(service.snapshot().phase).toBe('input_unknown')
+    expect(options.execution.execute).toHaveBeenCalledOnce()
+    expect(options.memory.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('preserves tool approval across a local runtime rejection and handoff', async () => {
+    useLocalModel()
+    scripts.push(async (runtime) => {
+      runtime.options.onEvent?.({ type: 'agent_error', error: 'inference timeout' })
+      throw new Error('inference timeout')
+    })
+    scripts.push(async (runtime) => {
+      expect(runtime.options.toolDecision?.('coloop_execute', {})).toMatchObject({ kind: 'ask' })
+      return { finishReason: 'error' }
+    })
+    await service.startTask('本地处理', undefined, 'rk', undefined, [], undefined, {
+      mode: 'local',
+      cloudFallback: true,
+      permissionMode: 'ask',
+    })
+    await settled()
+    expect(runtimes).toHaveLength(2)
+    expect(options.execution.execute).not.toHaveBeenCalled()
+  })
+
+  it('rechecks confirmed input after a local runtime rejection without replaying it', async () => {
+    useLocalModel()
+    scripts.push(async (runtime) => {
+      await completedRun(runtime)
+      runtime.options.onEvent?.({ type: 'agent_error', error: 'inference timeout' })
+      throw new Error('inference timeout')
+    })
+    scripts.push(async (runtime) => {
+      expect(runtime.options.completion?.().finished).toBe(false)
+      const observed = (await call(runtime, 'coloop_observe')) as ReturnType<typeof view>
+      await call(runtime, 'coloop_verify', {
+        observation_id: observed.observation_id,
+        evidence_mode: 'editor_text',
+        expected_text: '追加中文正文',
+      })
+      return { content: '已独立读回并完成', finishReason: 'stop' }
+    })
+    await service.startTask('追加正文', undefined, 'rk', undefined, [], undefined, {
+      mode: 'local',
+      cloudFallback: true,
+    })
+    await settled()
+    expect(runtimes).toHaveLength(2)
+    expect(service.snapshot().phase).toBe('completed')
+    expect(options.execution.execute).toHaveBeenCalledOnce()
+    expect(options.input).toHaveBeenCalledTimes(2)
+    expect(options.memory.enqueue).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the request limit across a rejected local runtime handoff', async () => {
+    options.modelLimits = () => ({ usageBudgetEnabled: true, maxRequestsPerTask: 1 })
+    options.fetch = vi.fn(async () => new Response('{}'))
+    const localFetch = vi.fn(async () => new Response('{}'))
+    options.localModel = () => ({ model: { ...options.model(), id: 'local' }, fetch: localFetch })
+    scripts.push(async (runtime) => {
+      await runtime.options.fetch!('https://example.invalid', { body: '{}' })
+      runtime.options.onEvent?.({ type: 'agent_error', error: 'inference timeout' })
+      throw new Error('inference timeout')
+    })
+    scripts.push(async (runtime) => {
+      await expect(
+        runtime.options.fetch!('https://example.invalid', { body: '{}' }),
+      ).rejects.toThrow('MODEL_TASK_REQUEST_LIMIT')
+      return { finishReason: 'error' }
+    })
+    await service.startTask('本地处理', undefined, 'rk', undefined, [], undefined, {
+      mode: 'local',
+      cloudFallback: true,
+    })
+    await settled()
+    expect(runtimes).toHaveLength(2)
+    expect(localFetch).toHaveBeenCalledOnce()
+    expect(options.fetch).not.toHaveBeenCalled()
+    expect(service.snapshot()).toMatchObject({
+      phase: 'blocked',
+      error: 'MODEL_TASK_REQUEST_LIMIT',
+    })
+  })
+
+  it('persists the selected auto route and resumes without reclassification', async () => {
+    useLocalModel()
+    options.runtimeName = 'harness'
+    options.checkpoints = new ExecutionCheckpointStore(join(directory, 'checkpoints'))
+    options.selectAutoRoute = vi.fn(async () => 'cloud' as const)
+    const id = await service.startTask('打开网页')
+    await settled()
+    expect((await options.checkpoints.get(id))?.autoRoute).toBe('cloud')
+    await service.dispose()
+    options.selectAutoRoute = vi.fn(async () => 'rk' as const)
+    service = new TarsAgentService(options)
+    await service.resumeTask(id)
+    await settled()
+    expect(options.selectAutoRoute).not.toHaveBeenCalled()
+    expect(runtimes.at(-1)?.options.model.id).toBe('test')
+  })
+
+  it.each(['rk', 'cloud'] as const)(
+    'preserves explicit %s routing without classification',
+    async (route) => {
+      useLocalModel()
+      options.selectAutoRoute = vi.fn(async () => 'cloud' as const)
+      await service.startTask('操作任务', undefined, route)
+      await settled()
+      expect(options.selectAutoRoute).not.toHaveBeenCalled()
+      expect(runtimes[0].options.model.id).toBe(route === 'rk' ? 'local-test' : 'test')
+    },
+  )
 
   it('restores committed artifacts with the original task identity but requires fresh verification', async () => {
     options.runtimeName = 'harness'
@@ -334,7 +754,11 @@ describe('TarsAgentService official runtime facade', () => {
   )
 
   it('charges nested browser model reads to the parent task and shares its request ceiling', async () => {
-    options.modelLimits = () => ({ maxRequestsPerTask: 1, minRequestIntervalMs: 0 })
+    options.modelLimits = () => ({
+      usageBudgetEnabled: true,
+      maxRequestsPerTask: 1,
+      minRequestIntervalMs: 0,
+    })
     options.modelUsage = new ModelUsageLedger(join(directory, 'usage'), options.modelLimits)
     options.fetch = vi.fn(async (_url, init) => {
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test')
@@ -471,6 +895,7 @@ describe('TarsAgentService official runtime facade', () => {
     options.readWeb = vi.fn()
     options.openWeb = vi.fn()
     options.readEditor = vi.fn()
+    options.memory.remember = vi.fn()
     options.openWorkspace = vi.fn(
       async () =>
         ({ root: directory }) as Awaited<
@@ -488,7 +913,7 @@ describe('TarsAgentService official runtime facade', () => {
       onEvent: (e) => {
         if (e.type === 'system' && e.level === 'error') sdkErrors.push(e.message)
       },
-      requestContext: undefined,
+      requestContext: runtimes[0].options.requestContext,
       completion: undefined,
       maxIterations: 3,
       fetch: createRkTarsFetch(async (system, messages) => {
@@ -500,7 +925,9 @@ describe('TarsAgentService official runtime facade', () => {
       await sdk.run('复制input.txt为copy.txt')
       expect(sdkErrors).toEqual([])
       expect(measured).toHaveLength(1)
-      expect(measured[0]).toBeLessThan(8000)
+      // The running RK profile has a 16 KiB byte budget. Include the pinned
+      // goal and memory tools, retaining at least 4 KiB for working history.
+      expect(measured[0]).toBeLessThan(12 * 1024)
       expect(runtimes[0].options.tools.some((t) => t.name === 'coloop_patch_text')).toBe(true)
       expect(runtimes[0].options.tools.some((t) => t.name === 'coloop_web')).toBe(true)
     } finally {
@@ -542,7 +969,7 @@ describe('TarsAgentService official runtime facade', () => {
       expect(runtime.options.visibleTool!('coloop_observe')).toBe(false)
       await call(runtime, 'coloop_enable_tools', { group: 'workbook' })
       expect(runtime.options.visibleTool!('coloop_read_workbook')).toBe(true)
-      expect(runtime.options.visibleTool!('coloop_list')).toBe(false)
+      expect(runtime.options.visibleTool!('coloop_list')).toBe(true)
       expect(runtime.options.visibleTool!('coloop_copy_file')).toBe(true)
       expect(runtime.options.visibleTool!('coloop_observe')).toBe(false)
       await call(runtime, 'coloop_enable_tools', { group: 'native' })
@@ -581,6 +1008,35 @@ describe('TarsAgentService official runtime facade', () => {
     expect(service.snapshot().phase).toBe('completed')
   })
 
+  it('keeps basic file tools available with memory and gives actionable missing-file recovery', async () => {
+    useLocalModel()
+    const missing = Object.assign(new Error('ENOENT: 邮件 1.txt'), { code: 'ENOENT' })
+    const files = { root: directory, call: vi.fn().mockRejectedValue(missing) }
+    options.openWorkspace = vi.fn(async () => files as unknown as WorkspaceSession)
+    let exercised = false
+    scripts.push(async (runtime) => {
+      for (const group of [undefined, 'memory', 'files']) {
+        if (group) await call(runtime, 'coloop_enable_tools', { group })
+        for (const name of [
+          'coloop_list',
+          'coloop_read_text',
+          'coloop_write_text',
+          'coloop_memory_search',
+        ])
+          expect(runtime.options.visibleTool!(name)).toBe(true)
+      }
+      await expect(call(runtime, 'coloop_read_text', { path: '邮件 1.txt' })).rejects.toThrow(
+        '请调用 coloop_list',
+      )
+      expect(files.call).toHaveBeenCalledOnce()
+      exercised = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask('按已保存偏好回复邮件1.txt', undefined, 'rk', directory)
+    await settled()
+    expect(exercised).toBe(true)
+  })
+
   it('keeps the same consultation waiting through a transient provider refusal', async () => {
     options.consult = vi
       .fn()
@@ -600,6 +1056,52 @@ describe('TarsAgentService official runtime facade', () => {
     expect(options.execution.begin).toHaveBeenCalledOnce()
     expect(service.snapshot().phase).toBe('completed')
   })
+
+  it('folds local browser tools into discoverable groups', async () => {
+    options.localModel = () => ({ model: options.model(), fetch: globalThis.fetch })
+    options.useBrowserExtension = true
+    options.resolveBrowser = async () => ({
+      browser: 'edge',
+      locale: 'zh-CN',
+      viewport: { width: 1440, height: 1000 },
+    })
+    let checked = false
+    scripts.push(async (runtime) => {
+      const visible = runtime.options.visibleTool!
+      expect(visible('mcp__playwright__browser_navigate')).toBe(false)
+      await call(runtime, 'coloop_enable_tools', { group: 'web' })
+      expect(visible('mcp__playwright__browser_navigate')).toBe(true)
+      expect(visible('mcp__playwright__browser_verify_text_visible')).toBe(true)
+      expect(visible('mcp__playwright__browser_file_upload')).toBe(false)
+      expect(visible('coloop_observe')).toBe(false)
+      expect(visible('coloop_browser_repair')).toBe(false)
+      await call(runtime, 'coloop_enable_tools', { group: 'web_more' })
+      expect(visible('mcp__playwright__browser_file_upload')).toBe(true)
+      expect(visible('mcp__playwright__browser_navigate')).toBe(false)
+      checked = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask('打开邮箱', undefined, 'rk')
+    await settled()
+    expect(checked).toBe(true)
+  })
+
+  it.each(['RK_CONTEXT_BUDGET_EXCEEDED', 'MODEL_SERVICE_UNAVAILABLE'])(
+    'preserves the model error %s in terminal task feedback',
+    async (code) => {
+      scripts.push(async (runtime) => {
+        runtime.options.onEvent?.({
+          type: 'agent_error',
+          error: code === 'MODEL_SERVICE_UNAVAILABLE' ? '503: service_unavailable_error' : code,
+        })
+        return { content: '', finishReason: 'error' }
+      })
+      await service.startTask('打开邮箱', undefined, 'cloud')
+      await settled()
+      expect(service.snapshot().error).toBe(code)
+      expect(service.snapshot().summary).not.toBe('任务未通过实际页面结果核验')
+    },
+  )
 
   it('keeps explicit local mode free of cloud consulting tools', async () => {
     options.consult = vi.fn()
@@ -716,31 +1218,44 @@ describe('TarsAgentService official runtime facade', () => {
       vi.restoreAllMocks()
     }
   })
-  it('cuts off repeated model requests without progress and releases the execution session', async () => {
-    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
-    options.fetch = vi.fn(async () => new Response('{}'))
-    scripts.push(async (runtime) => {
-      for (let index = 0; index < 2; index++)
-        await runtime.options.fetch!('https://example.invalid/v1', { method: 'POST', body: '{}' })
-      await expect(
-        runtime.options.fetch!('https://example.invalid/v1', { method: 'POST', body: '{}' }),
-      ).rejects.toThrow('MODEL_NO_PROGRESS_LIMIT')
-      return { finishReason: 'error' }
-    })
-    await service.startTask('恢复失败时检查实际结果', 'limited-task')
-    await settled()
-    expect(options.fetch).toHaveBeenCalledTimes(2)
-    expect(options.execution.stop).toHaveBeenCalledOnce()
-    expect(options.memory.enqueue).not.toHaveBeenCalled()
-    expect(service.snapshot()).toMatchObject({
-      active: false,
-      phase: 'blocked',
-      error: 'MODEL_NO_PROGRESS_LIMIT',
-    })
-  })
+  it.each([
+    ['cloud', false],
+    ['cloud', true],
+    ['rk', false],
+    ['rk', true],
+  ] as const)(
+    'lets DSH continue %s requests without progress with usage budgets %s',
+    async (route, usageBudgetEnabled) => {
+      options.modelLimits = () =>
+        modelLimitsSchema.parse({
+          maxNoProgressRequests: 2,
+          usageBudgetEnabled,
+          maxRequestsPerTask: 16,
+        })
+      const fetcher = vi.fn(async () => new Response('{}'))
+      options.fetch = fetcher
+      options.localModel = () => ({ model: { ...options.model(), id: 'local' }, fetch: fetcher })
+      scripts.push(async (runtime) => {
+        for (let index = 0; index < 12; index++)
+          await runtime.options.fetch!('https://example.invalid/v1', { method: 'POST', body: '{}' })
+        expect(service.snapshot()).toMatchObject({ active: true, progress: { units: 0 } })
+        expect(runtime.options.completion?.().finished).toBe(false)
+        return completedRun(runtime)
+      })
+      await service.startTask('继续检查实际结果', 'continued-task', route)
+      await settled()
+      expect(fetcher).toHaveBeenCalledTimes(12)
+      expect(factory.route).toHaveBeenCalledExactlyOnceWith('harness')
+      expect(options.execution.stop).toHaveBeenCalledOnce()
+      expect(service.snapshot()).toMatchObject({
+        active: false,
+        phase: 'completed',
+        runtime: 'harness',
+      })
+    },
+  )
 
-  it('resets the no-progress request counter after an actual verified edit', async () => {
-    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
+  it('keeps verified completion available after further model requests', async () => {
     options.fetch = vi.fn(async () => new Response('{}'))
     scripts.push(async (runtime) => {
       for (let index = 0; index < 2; index++)
@@ -760,7 +1275,6 @@ describe('TarsAgentService official runtime facade', () => {
     await mkdir(join(directory, 'input'))
     await writeFile(join(directory, 'input', 'source.txt'), 'source content')
     options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
-    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
     options.fetch = vi.fn(async () => new Response('{}'))
     scripts.push(async (runtime) => {
       const requests = async () => {
@@ -789,10 +1303,9 @@ describe('TarsAgentService official runtime facade', () => {
     expect(service.snapshot().phase).toBe('completed')
   })
 
-  it('does not reset stalled model calls when the same directory is listed through aliases', async () => {
+  it('deduplicates directory evidence without stopping the model loop', async () => {
     await writeFile(join(directory, 'source.txt'), 'unchanged')
     options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
-    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
     options.fetch = vi.fn(async () => new Response('{}'))
     scripts.push(async (runtime) => {
       for (const path of ['.', directory]) {
@@ -800,25 +1313,24 @@ describe('TarsAgentService official runtime facade', () => {
         await runtime.options.fetch!('https://example.invalid', { body: '{}' })
       }
       await call(runtime, 'coloop_workspace', { operation: 'list', arguments: { path: './' } })
-      await expect(
-        runtime.options.fetch!('https://example.invalid', { body: '{}' }),
-      ).rejects.toThrow('MODEL_NO_PROGRESS_LIMIT')
-      return { finishReason: 'error' }
+      await runtime.options.fetch!('https://example.invalid', { body: '{}' })
+      expect(service.snapshot()).toMatchObject({ active: true, progress: { units: 1 } })
+      expect(runtime.options.completion?.().finished).toBe(false)
+      return { finishReason: 'stop' }
     })
     await service.startTask('不要反复读取同一目录', undefined, 'cloud', directory)
     await settled()
-    expect(options.fetch).toHaveBeenCalledTimes(2)
+    expect(options.fetch).toHaveBeenCalledTimes(3)
     expect(service.snapshot()).toMatchObject({
       phase: 'blocked',
       progress: { units: 1 },
-      error: 'MODEL_NO_PROGRESS_LIMIT',
+      error: 'TARS_VERIFICATION_FAILED',
     })
   })
 
   it('recognizes changed source hashes in a previously listed directory as new evidence', async () => {
     await writeFile(join(directory, 'source.txt'), 'before')
     options.openWorkspace = (root) => WorkspaceSession.open(root, 'unused-worker', async () => '')
-    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
     options.fetch = vi.fn(async () => new Response('{}'))
     scripts.push(async (runtime) => {
       for (const content of ['before', 'after!']) {
@@ -837,7 +1349,7 @@ describe('TarsAgentService official runtime facade', () => {
   })
 
   it('keeps the request limit across a cloud-to-local fallback', async () => {
-    options.modelLimits = () => ({ maxRequestsPerTask: 1 })
+    options.modelLimits = () => ({ usageBudgetEnabled: true, maxRequestsPerTask: 1 })
     options.fetch = vi.fn(async () => new Response('{}', { status: 402 }))
     const localFetch = vi.fn(async () => new Response('{}'))
     options.localModel = () => ({ model: { ...options.model(), id: 'local' }, fetch: localFetch })
@@ -2022,7 +2534,6 @@ describe('TarsAgentService official runtime facade', () => {
     },
   )
   it('binds a verified control transition to the clicked runtime identity and observed coordinates', async () => {
-    options.modelLimits = () => ({ maxNoProgressRequests: 2 })
     options.fetch = vi.fn(async () => new Response('{}'))
     vi.mocked(options.observe)
       .mockResolvedValueOnce({
@@ -2328,6 +2839,302 @@ describe('TarsAgentService official runtime facade', () => {
     await settled()
     expect(exercised).toBe(true)
     expect(service.snapshot().phase).toBe('cancelled')
+  })
+
+  it('keeps the original scoped goal and memory tools available across file groups and supplements', async () => {
+    useLocalModel()
+    options.memory.remember = vi.fn(async () => ({ ok: true }))
+    options.openWorkspace = vi.fn(
+      async () => ({ root: directory, invalidateReviews: vi.fn() }) as unknown as WorkspaceSession,
+    )
+    const goal =
+      '仅针对身份测试甲，请记住偏好“中文先写结论，署名小林”。读取邮件1.txt，写回复草稿到草稿1.txt。'
+    let exercised = false
+    scripts.push(async (runtime) => {
+      for (const group of ['files', 'workbook', 'native']) {
+        await call(runtime, 'coloop_enable_tools', { group })
+        for (const name of [
+          'coloop_memory_search',
+          'coloop_memory_get',
+          'coloop_remember_preference',
+        ])
+          expect(runtime.options.visibleTool!(name)).toBe(true)
+        expect(runtime.options.requestContext!()).toContain(goal)
+      }
+      service.appendMessage('只改署名为林悦，其他偏好保持。')
+      const context = runtime.options.requestContext!()
+      expect(context).toContain(goal)
+      expect(context).toContain('只改署名为林悦')
+      expect(context).toContain('部分纠正先读原记录')
+      exercised = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask(goal, undefined, 'rk', directory)
+    await settled()
+    expect(exercised, JSON.stringify(service.snapshot())).toBe(true)
+  })
+
+  it('uses a confirmed saved record for partial correction without overwriting other preferences', async () => {
+    useLocalModel()
+    const key = 'preference:coloop:scoped-test:email'
+    options.memory.remember = vi.fn(async (value) => ({
+      ok: true,
+      result: {
+        id: 'saved',
+        readback_verified: true,
+        memories: [{ ...value, id: 'saved', kind: 'preference' }],
+      },
+    }))
+    let exercised = false
+    scripts.push(async (runtime) => {
+      await call(runtime, 'coloop_remember_preference', {
+        key,
+        value: '中文先写结论，署名小林',
+        source_quote: '请记住偏好“中文先写结论，署名小林”',
+      })
+      expect(runtime.options.requestContext!()).toContain('本轮已完成偏好保存并读回')
+      expect(runtime.options.requestContext!()).toContain(key)
+      service.appendMessage('更新署名偏好为林悦')
+      await call(runtime, 'coloop_remember_preference', {
+        key,
+        value: '林悦',
+        replace_text: '小林',
+        source_quote: '更新署名偏好为林悦',
+      })
+      expect(options.memory.remember).toHaveBeenLastCalledWith({
+        key,
+        value: '中文先写结论，署名林悦',
+        source_task_id: expect.any(String),
+      })
+      exercised = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask('请记住偏好“中文先写结论，署名小林”')
+    await settled()
+    expect(exercised).toBe(true)
+  })
+
+  it.each(['林悦', '$&', '$$', '$`', "$'"])(
+    'applies a literal partial correction to %s using a natural update instruction',
+    async (replacement) => {
+      useLocalModel()
+      const key = 'preference:coloop:测试甲:email'
+      options.memory.remember = vi.fn(async () => ({ ok: true }))
+      vi.mocked(options.memory.get).mockResolvedValue({
+        ok: true,
+        result: {
+          memories: [{ id: 'original', key, kind: 'preference', value: '中文先写结论，署名小林' }],
+        },
+      })
+      const goal = `测试甲，只把署名改成${replacement}，其他保持。`
+      let exercised = false
+      scripts.push(async (runtime) => {
+        await call(runtime, 'coloop_memory_get', { ids: ['original'] })
+        await call(runtime, 'coloop_remember_preference', {
+          key,
+          scope: '测试甲',
+          value: replacement,
+          replace_text: '小林',
+          source_quote: goal,
+        })
+        exercised = true
+        return { content: '', finishReason: 'stop' }
+      })
+      await service.startTask(goal)
+      await settled()
+      expect(exercised).toBe(true)
+      expect(options.memory.remember).toHaveBeenCalledExactlyOnceWith({
+        key,
+        value: `中文先写结论，署名${replacement}`,
+        source_task_id: expect.any(String),
+      })
+    },
+  )
+
+  it('rejects overlapping matches when partially correcting a preference', async () => {
+    useLocalModel()
+    const key = 'preference:coloop:signature'
+    options.memory.remember = vi.fn(async () => ({ ok: true }))
+    vi.mocked(options.memory.get).mockResolvedValue({
+      ok: true,
+      result: { memories: [{ id: 'original', key, kind: 'preference', value: '署名aaa' }] },
+    })
+    let exercised = false
+    scripts.push(async (runtime) => {
+      await call(runtime, 'coloop_memory_get', { ids: ['original'] })
+      await expect(
+        call(runtime, 'coloop_remember_preference', {
+          key,
+          value: '林悦',
+          replace_text: 'aa',
+          source_quote: '更新署名偏好为林悦',
+        }),
+      ).rejects.toThrow('PREFERENCE_REQUIRES_UNIQUE_READBACK_MATCH')
+      exercised = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask('更新署名偏好为林悦')
+    await settled()
+    expect(exercised).toBe(true)
+    expect(options.memory.remember).not.toHaveBeenCalled()
+  })
+
+  it('requires fresh readback and clears the saved hint after an uncertain correction', async () => {
+    useLocalModel()
+    const key = 'preference:coloop:测试甲:email'
+    options.memory.remember = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          readback_verified: true,
+          memories: [{ id: 'saved', key, kind: 'preference', value: '中文先写结论，署名小林' }],
+        },
+      })
+      .mockRejectedValueOnce(new Error('PREFERENCE_READBACK_MISMATCH'))
+    let exercised = false
+    scripts.push(async (runtime) => {
+      await call(runtime, 'coloop_remember_preference', {
+        key,
+        scope: '测试甲',
+        value: '中文先写结论，署名小林',
+        source_quote: '请记住偏好中文先写结论，署名小林',
+      })
+      expect(runtime.options.requestContext!()).toContain('本轮已完成偏好保存并读回')
+      service.appendMessage('只把署名改成林悦')
+      const correction = {
+        key,
+        scope: '测试甲',
+        value: '林悦',
+        replace_text: '小林',
+        source_quote: '只把署名改成林悦',
+      }
+      await expect(call(runtime, 'coloop_remember_preference', correction)).rejects.toThrow(
+        'PREFERENCE_READBACK_MISMATCH',
+      )
+      expect(runtime.options.requestContext!()).not.toContain('本轮已完成偏好保存并读回')
+      await expect(call(runtime, 'coloop_remember_preference', correction)).rejects.toThrow(
+        'PREFERENCE_REQUIRES_UNIQUE_READBACK_MATCH',
+      )
+      exercised = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask('测试甲，请记住偏好中文先写结论，署名小林')
+    await settled()
+    expect(exercised).toBe(true)
+    expect(options.memory.remember).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves scoped preferences through save, independent recall, correction and recall tasks', async () => {
+    useLocalModel()
+    const key = 'preference:coloop:测试甲:email'
+    const records = new Map([
+      [
+        'other',
+        {
+          id: 'other',
+          key: 'preference:coloop:测试乙:email',
+          kind: 'preference',
+          value: '英文，署名李明',
+        },
+      ],
+    ])
+    options.memory.remember = vi.fn(async (input) => {
+      const record = { id: 'saved', key: input.key, kind: 'preference', value: input.value }
+      records.set(record.id, record)
+      return { ok: true, result: { readback_verified: true, memories: [record] } }
+    })
+    vi.mocked(options.memory.catalog).mockImplementation(async () => ({
+      ok: true,
+      result: { memories: records.has('saved') ? [{ id: 'saved' }] : [] },
+    }))
+    vi.mocked(options.memory.get).mockImplementation(async (input) => ({
+      ok: true,
+      result: { memories: (input.ids as string[]).map((id) => records.get(id)), missing: [] },
+    }))
+    const goals = [
+      '测试甲，请记住偏好中文先写结论，署名小林',
+      '读取测试甲的邮件偏好',
+      '测试甲，只把署名改成林悦，其他保持',
+      '再次读取测试甲的邮件偏好',
+    ]
+    let exercised = 0
+    for (const [round, goal] of goals.entries()) {
+      scripts.push(async (runtime) => {
+        expect(runtime.options.requestContext!()).not.toContain('本轮已完成偏好保存并读回')
+        const correction = {
+          key,
+          scope: '测试甲',
+          value: '林悦',
+          replace_text: '小林',
+          source_quote: goal,
+        }
+        if (round === 2) {
+          await expect(call(runtime, 'coloop_remember_preference', correction)).rejects.toThrow(
+            'PREFERENCE_REQUIRES_UNIQUE_READBACK_MATCH',
+          )
+        }
+        const result = await call(runtime, 'coloop_memory_search', {
+          query: '测试甲',
+          tags: ['user_preference'],
+          limit: 3,
+        })
+        if (round > 0) {
+          expect(result).toMatchObject({
+            result: {
+              memories: [{ key, value: `中文先写结论，署名${round === 3 ? '林悦' : '小林'}` }],
+            },
+          })
+        }
+        if (round === 0) {
+          await call(runtime, 'coloop_remember_preference', {
+            key,
+            scope: '测试甲',
+            value: '中文先写结论，署名小林',
+            source_quote: goal,
+          })
+        }
+        if (round === 2) await call(runtime, 'coloop_remember_preference', correction)
+        exercised++
+        return { content: '', finishReason: 'stop' }
+      })
+      await service.startTask(goal, `preference-round-${round}`, 'rk')
+      await settled()
+    }
+    expect(exercised).toBe(4)
+    expect(options.memory.remember).toHaveBeenCalledTimes(2)
+    expect(records.get('other')?.value).toBe('英文，署名李明')
+  })
+
+  it('binds an explicit preference identity even when the model supplies a generic key', async () => {
+    useLocalModel()
+    options.memory.remember = vi.fn(async () => ({ ok: true }))
+    let exercised = false
+    scripts.push(async (runtime) => {
+      const input = {
+        key: 'preference:coloop:email-style',
+        scope: '测试甲',
+        value: '署名小林',
+        source_quote: '请记住偏好署名小林',
+      }
+      await expect(
+        call(runtime, 'coloop_remember_preference', { ...input, scope: '测试乙' }),
+      ).rejects.toThrow('PREFERENCE_SCOPE_REQUIRES_USER_QUOTE')
+      await expect(
+        call(runtime, 'coloop_remember_preference', { ...input, replace_text: '小林' }),
+      ).rejects.toThrow('PREFERENCE_SCOPE_MISMATCH')
+      await call(runtime, 'coloop_remember_preference', input)
+      expect(options.memory.remember).toHaveBeenCalledExactlyOnceWith({
+        key: 'preference:coloop:测试甲:email-style',
+        value: '署名小林',
+        source_task_id: expect.any(String),
+      })
+      exercised = true
+      return { content: '', finishReason: 'stop' }
+    })
+    await service.startTask('仅针对测试甲，请记住偏好署名小林')
+    await settled()
+    expect(exercised).toBe(true)
   })
 
   it('registers preference readback from search before allowing an exact partial correction', async () => {
@@ -3122,6 +3929,28 @@ describe('TarsAgentService official runtime facade', () => {
     await settled()
     expect(service.snapshot().phase).toBe('input_unknown')
   })
+  it.each(['允许本次', '拒绝本次', 'stop'])(
+    'gates execution until explicit approval %s',
+    async (answer) => {
+      scripts.push(async (runtime) => {
+        await call(runtime, 'coloop_observe', {})
+        return { content: '完成' }
+      })
+      await service.startTask('授权测试', 'permission-task', 'cloud', undefined, [], undefined, {
+        mode: 'cloud',
+        cloudFallback: false,
+        permissionMode: 'ask',
+      })
+      await vi.waitFor(() => expect(service.snapshot().phase).toBe('waiting_user'))
+      expect(options.observe).not.toHaveBeenCalled()
+      if (answer === 'stop') await service.stop()
+      else
+        service.answer('permission-task', String(service.snapshot().question?.question_id), answer)
+      await settled()
+      expect(options.observe).toHaveBeenCalledTimes(answer === '允许本次' ? 1 : 0)
+      expect(service.snapshot().question).toBeUndefined()
+    },
+  )
   it('waits for typed user answer and rejects stale answers', async () => {
     scripts.push(async (runtime) => {
       const result = await call(runtime, 'coloop_ask_user', {

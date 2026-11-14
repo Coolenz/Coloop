@@ -81,6 +81,7 @@ async function fixture(
   options: {
     online?: boolean
     modelHealth?: Record<string, unknown>
+    profileMetadata?: Record<string, unknown>
     healthStatus?: number
     startSucceeds?: boolean
     clockOffsetMs?: number
@@ -159,26 +160,29 @@ async function fixture(
             return
           }
           if (script.includes('scripts/start.sh') && options.startSucceeds) modelOnline = true
-          const result = script.includes('scripts/start.sh')
-            ? '{}'
-            : script.includes('/proc/meminfo')
-              ? JSON.stringify({
-                  ...health,
-                  boardTimeMs:
-                    options.clockOffsetMs === undefined
-                      ? undefined
-                      : Date.now() + options.clockOffsetMs,
-                })
-              : script.includes('rk-coloop-admin')
-                ? JSON.stringify({ at: Date.now() / 1000, rtc_saved: true })
-                : script.includes('api-key')
-                  ? apiKey
-                  : script.includes('.runtime/coloop-hook')
-                    ? JSON.stringify({
-                        root: '/home/cat/rk-opencode',
-                        path: '/home/cat/rk-opencode/.runtime/coloop-hook/connection.json',
-                      })
-                    : JSON.stringify({ ready: true, active_sessions: 0 })
+          const result =
+            script.includes('from model_profiles import load_profile') && options.profileMetadata
+              ? JSON.stringify(options.profileMetadata)
+              : script.includes('scripts/start.sh')
+                ? '{}'
+                : script.includes('/proc/meminfo')
+                  ? JSON.stringify({
+                      ...health,
+                      boardTimeMs:
+                        options.clockOffsetMs === undefined
+                          ? undefined
+                          : Date.now() + options.clockOffsetMs,
+                    })
+                  : script.includes('rk-coloop-admin')
+                    ? JSON.stringify({ at: Date.now() / 1000, rtc_saved: true })
+                    : script.includes('api-key')
+                      ? apiKey
+                      : script.includes('.runtime/coloop-hook')
+                        ? JSON.stringify({
+                            root: '/home/cat/rk-opencode',
+                            path: '/home/cat/rk-opencode/.runtime/coloop-hook/connection.json',
+                          })
+                        : JSON.stringify({ ready: true, active_sessions: 0 })
           stream.write(result + '\n')
           stream.exit(0)
           stream.end()
@@ -236,6 +240,57 @@ function gateway() {
 }
 
 describe('SSH identity and tunneled RK model service', () => {
+  it.each(['health', 'profile'] as const)(
+    'uses declared 256 default and 2048 maximum from %s',
+    async (source) => {
+      const { config, requests } = await fixture({
+        modelHealth: { ...modelHealthV3, ...(source === 'health' ? { default_output: 256 } : {}) },
+        profileMetadata: {
+          model_id: modelHealthV3.model,
+          context: 16384,
+          max_output: 2048,
+          default_output: 256,
+          fingerprint: modelHealthV3.profile_fingerprint,
+        },
+        chat: (_body, response) => {
+          response.setHeader('X-RK-Privacy', 'metadata-only')
+          answer(response, '完整结果')
+        },
+      })
+      const device = gateway()
+      await device.connect(config, 'test-password')
+      expect(device.localCapacity()).toMatchObject({
+        defaultOutputTokens: 256,
+        maximumOutputTokens: 2048,
+        source: source === 'health' ? 'health' : 'verified-profile',
+      })
+      await device.privacyConversation(
+        '固定规则',
+        [{ role: 'user', content: '任务' }],
+        new AbortController().signal,
+      )
+      await device.privacyConversation(
+        '固定规则',
+        [{ role: 'user', content: '任务' }],
+        new AbortController().signal,
+        2048,
+      )
+      expect(
+        requests
+          .filter((item) => item.url === '/v1/chat/completions')
+          .map((item) => item.body?.max_tokens),
+      ).toEqual([256, 2048])
+      await expect(
+        device.privacyConversation(
+          '规则',
+          [{ role: 'user', content: '任务' }],
+          new AbortController().signal,
+          2049,
+        ),
+      ).rejects.toThrow('LOCAL_MODEL_OUTPUT_LIMIT')
+    },
+  )
+
   it('corrects board clock through the pinned connection and throttles repeated corrections', async () => {
     const { config, commands } = await fixture({ clockOffsetMs: -76_000_000 })
     const device = gateway()
@@ -439,7 +494,7 @@ describe('SSH identity and tunneled RK model service', () => {
     const body = requests.find((request) => request.url === '/v1/chat/completions')?.body
     expect(body).toMatchObject({
       model: 'qwen35-4b-rkllm',
-      max_tokens: 512,
+      max_tokens: 1024,
       stream: false,
       tools: [],
       tool_choice: 'none',
@@ -797,7 +852,7 @@ describe('SSH identity and tunneled RK model service', () => {
     expect(device.busy).toBe(false)
   })
 
-  it.each([15, 1025, 16.5, Number.NaN])(
+  it.each([0, 1025, 16.5, Number.NaN])(
     'rejects an invalid privacy-agent output budget of %s',
     async (maxTokens) => {
       const { config, requests } = await fixture({
@@ -807,7 +862,7 @@ describe('SSH identity and tunneled RK model service', () => {
       await device.connect(config, 'test-password')
       await expect(
         device.privacyAgent('fixed', 'private', new AbortController().signal, maxTokens),
-      ).rejects.toThrow('16..1024')
+      ).rejects.toThrow('LOCAL_MODEL_OUTPUT_LIMIT')
       expect(requests.filter((request) => request.url === '/v1/chat/completions')).toHaveLength(0)
     },
   )

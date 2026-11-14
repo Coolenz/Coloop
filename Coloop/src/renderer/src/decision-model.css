@@ -1,0 +1,54 @@
+.decision-model-section {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-6) 0;
+  margin: var(--space-6) 0;
+}
+
+.decision-model-section .section-bar {
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.decision-model-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  cursor: pointer;
+}
+
+.settings-panel .decision-model-toggle {
+  flex-direction: row;
+}
+
+.decision-model-toggle input {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  accent-color: var(--accent);
+}
+
+.image-capability {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.image-capability output {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+}
+
+.image-capability small {
+  color: var(--muted);
+}
+
+.decision-model-test {
+  margin-top: var(--space-4);
+}

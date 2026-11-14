@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { providerSchema, type ProviderConfig } from '../../shared/contracts'
 import { parseStrictJson } from '../domain/strict-json'
 import { ModelUsageError, type ModelUsageLedger } from './model-usage'
+import { cloudModelCapacity } from '../../shared/model-capacity'
 
 export interface CloudAnalysis {
   summary: string
@@ -389,10 +390,23 @@ export class CloudGateway {
     signal: AbortSignal,
     onText: (text: string) => void,
     systemOverride?: string,
+    maxTokens?: number,
   ): Promise<string> {
     if (!key && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(config.baseUrl).hostname))
       throw new Error('请在「模型连接」配置并保存 API Key')
     const request = providerRequest(config, key, prompt, context, 'assistant', systemOverride)
+    maxTokens ??= config.maxOutputTokens
+    if (maxTokens !== undefined) {
+      if (
+        !Number.isInteger(maxTokens) ||
+        maxTokens < 1 ||
+        maxTokens > cloudModelCapacity(config).maximumOutputTokens
+      )
+        throw new Error('MODEL_OUTPUT_LIMIT_INVALID')
+      const body = request.body as Record<string, unknown>
+      if (config.protocol === 'gemini') body.generationConfig = { maxOutputTokens: maxTokens }
+      else body.max_tokens = maxTokens
+    }
     const response = await this.transport('cloud_generate', signal)(request.url, {
       method: 'POST',
       headers: request.headers,

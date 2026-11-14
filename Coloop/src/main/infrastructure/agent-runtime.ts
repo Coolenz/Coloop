@@ -1,5 +1,4 @@
-import { createTarsRuntime, type TarsRuntimeOptions } from './tars-runtime'
-import { createHarnessRuntime } from './harness-runtime'
+import { createHarnessRuntime, type HarnessRuntimeOptions } from './harness-runtime'
 import { reconcileReadOnly } from './harness-recovery'
 
 /** The task service owns physical effects; runtimes own only model/tool turns. */
@@ -12,8 +11,11 @@ export interface AgentRuntime {
 
 export type AgentEngine = 'harness' | 'tars'
 
-export function createAgentRuntime(engine: AgentEngine, options: TarsRuntimeOptions): AgentRuntime {
-  return engine === 'harness'
-    ? createHarnessRuntime({ ...options, reconcileUnknown: reconcileReadOnly })
-    : createTarsRuntime(options)
+/** Accept legacy engine identifiers at the API boundary while all application
+ * capabilities run through the same DSH session, tools and recovery hooks. */
+export function createAgentRuntime(_engine: AgentEngine, options: HarnessRuntimeOptions) {
+  return createHarnessRuntime({
+    ...options,
+    reconcileUnknown: options.reconcileUnknown ?? reconcileReadOnly,
+  })
 }

@@ -40,6 +40,7 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
   const [authorized, setAuthorized] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [messageStatus, setMessageStatus] = useState('')
   const [voiceBusy, setVoiceBusy] = useState(false)
   const [voiceInfo, setVoiceInfo] = useState('')
   const voiceGeneration = useRef(0)
@@ -83,10 +84,17 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
   }
   async function start(event: React.FormEvent) {
     event.preventDefault()
-    if (submitting || busy || voiceBusy) return
+    if (submitting || (busy && !snapshot.proactive?.active) || voiceBusy) return
     setSubmitting(true)
     setError('')
+    setMessageStatus('')
     try {
+      if (snapshot.proactive?.active) {
+        await unwrap(api.dispatchTask({ prompt: goal, target, context: '', source: 'text' }))
+        setGoal('')
+        setMessageStatus('已加入当前任务消息队列')
+        return
+      }
       const request = {
         prompt: goal,
         target,
@@ -135,167 +143,194 @@ export function DesktopPage({ snapshot }: { snapshot: AppSnapshot }) {
           {snapshot.proactive?.runtime === 'harness' ? 'DeepSeek Harness' : 'Agent TARS'}
         </span>
       </div>
-      <form className="desktop-form" onSubmit={(event) => void start(event)}>
-        <fieldset disabled={submitting || busy || voiceBusy}>
+      {snapshot.proactive?.active ? (
+        <form className="desktop-form" onSubmit={(event) => void start(event)}>
           <div className="desktop-field">
-            <label htmlFor="voice-command">导入 WAV 语音指令</label>
-            <input
-              id="voice-command"
-              type="file"
-              accept=".wav,audio/wav"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                event.target.value = ''
-                if (file) void importVoice(file)
-              }}
-            />
-            <p>
-              中文离线识别，支持16 kHz、单声道、16位PCM WAV，最长120秒。核对识别文字后开始任务。
-            </p>
-            {voiceInfo && <p role="status">{voiceInfo}</p>}
-          </div>
-          <div className="desktop-field">
-            <label htmlFor="computer-goal">让电脑完成什么</label>
+            <label htmlFor="computer-message">补充当前任务</label>
             <textarea
-              id="computer-goal"
+              id="computer-message"
               value={goal}
               onChange={(event) => setGoal(event.target.value)}
-              placeholder="例如：保留当前文档的标题，在末尾补充三条简短中文大纲。"
               rows={4}
               maxLength={24000}
               required
+              readOnly={submitting}
+              placeholder="补充要求，发送后加入当前任务消息队列"
             />
-            <p>先打开目标应用，再回到 Coloop 提交。开始后主窗口收起，由小窗显示进度。</p>
           </div>
-          <div className="desktop-field">
-            <label htmlFor="computer-model-route">任务模型</label>
-            <select
-              id="computer-model-route"
-              value={target}
-              onChange={(event) => setTarget(event.target.value as typeof target)}
-            >
-              <option value="hybrid">本地执行与最小云端分析</option>
-              <option value="rk">本地执行</option>
-              <option value="cloud">云端任务规划</option>
-            </select>
-            {target === 'cloud' ? (
-              <p>云端任务规划使用本次目标及工具读回的原文上下文。</p>
-            ) : (
-              <p>本地模型处理原始资料。协作分析采用固定问题和明确批准的字段。</p>
-            )}
-          </div>
-          {target === 'hybrid' && (
-            <div className="desktop-field">
-              <label htmlFor="cloud-identifier-fields">
-                允许云端分析的编号字段（逗号分隔，可留空）
-              </label>
-              <input
-                id="cloud-identifier-fields"
-                value={identifierFields}
-                onChange={(event) => setIdentifierFields(event.target.value)}
-                placeholder="例如 订单号"
-              />
-              <label htmlFor="cloud-number-fields">
-                允许云端分析的数值字段（逗号分隔，可留空）
-              </label>
-              <input
-                id="cloud-number-fields"
-                value={numberFields}
-                onChange={(event) => setNumberFields(event.target.value)}
-                placeholder="例如 金额"
-              />
-              <p>宿主从实际来源提取所选字段。留空时，云端仅接收通用步骤问题。</p>
-            </div>
-          )}
-          <div className="desktop-field">
-            <label htmlFor="computer-scheduled-at">定时执行（{timezone}，留空立即执行）</label>
-            <input
-              id="computer-scheduled-at"
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(event) => setScheduledAt(event.target.value)}
-            />
-            <p>到时读取最新来源。设备暂不可用时保留排队，执行编号提前登记。</p>
-          </div>
-          <div className="desktop-field">
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
-                void unwrap(api.chooseTaskWorkspace()).catch((failure) =>
-                  setError((failure as Error).message),
-                )
-              }}
-            >
-              选择任务文件目录
-            </button>
-            <p>
-              {snapshot.settings.taskWorkspace ??
-                '选择目录后，允许任务读取源文件并创建 WPS 工作簿。'}
-            </p>
-          </div>
-          <label className="desktop-authorize">
-            <input
-              type="checkbox"
-              checked={authorized}
-              onChange={(event) => setAuthorized(event.target.checked)}
-            />
-            允许本次任务在目标应用发送键鼠输入
-          </label>
-        </fieldset>
-        <div className="desktop-actions">
-          {voiceBusy && (
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
-                const generation = ++voiceGeneration.current
-                setVoiceInfo('正在取消语音识别。')
-                void unwrap(api.cancelVoiceTranscription())
-                  .then(() => setVoiceInfo('语音识别已取消。'))
-                  .catch((failure) => setError((failure as Error).message))
-                  .finally(() => {
-                    if (generation === voiceGeneration.current) setVoiceBusy(false)
-                  })
-              }}
-            >
-              <LoaderCircle size={15} className="spin" />
-              取消语音识别
-            </button>
-          )}
-          <p>
-            {!connected
-              ? '请先在「设备管理」连接 RK。'
-              : !providerReady
-                ? '请在「模型连接」配置 OpenAI 兼容模型与访问凭据。'
-                : unknown
-                  ? '请先检查上次输入结果，并恢复控制。'
-                  : '单步执行后读取新观察，结束前核验结果。记忆由 RK 在后台整理。'}
-          </p>
-          <button
-            type="submit"
-            className="button primary"
-            disabled={
-              submitting ||
-              voiceBusy ||
-              busy ||
-              !connected ||
-              !providerReady ||
-              unknown ||
-              !authorized ||
-              !goal.trim()
-            }
-          >
-            {submitting ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}
-            {scheduledAt ? '登记定时任务' : '开始电脑操作'}
+          <button type="submit" className="button primary" disabled={submitting || !goal.trim()}>
+            发送消息
           </button>
-        </div>
-        {error && (
-          <p className="desktop-error" role="alert">
-            {error}
-          </p>
-        )}
-      </form>
+          {messageStatus && <p role="status">{messageStatus}</p>}
+          {error && (
+            <p className="desktop-error" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      ) : (
+        <form className="desktop-form" onSubmit={(event) => void start(event)}>
+          <fieldset disabled={submitting || busy || voiceBusy}>
+            <div className="desktop-field">
+              <label htmlFor="voice-command">导入 WAV 语音指令</label>
+              <input
+                id="voice-command"
+                type="file"
+                accept=".wav,audio/wav"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (file) void importVoice(file)
+                }}
+              />
+              <p>
+                中文离线识别，支持16 kHz、单声道、16位PCM WAV，最长120秒。核对识别文字后开始任务。
+              </p>
+              {voiceInfo && <p role="status">{voiceInfo}</p>}
+            </div>
+            <div className="desktop-field">
+              <label htmlFor="computer-goal">让电脑完成什么</label>
+              <textarea
+                id="computer-goal"
+                value={goal}
+                onChange={(event) => setGoal(event.target.value)}
+                placeholder="例如：保留当前文档的标题，在末尾补充三条简短中文大纲。"
+                rows={4}
+                maxLength={24000}
+                required
+              />
+              <p>先打开目标应用，再回到 Coloop 提交。开始后主窗口收起，由小窗显示进度。</p>
+            </div>
+            <div className="desktop-field">
+              <label htmlFor="computer-model-route">任务模型</label>
+              <select
+                id="computer-model-route"
+                value={target}
+                onChange={(event) => setTarget(event.target.value as typeof target)}
+              >
+                <option value="hybrid">本地执行与最小云端分析</option>
+                <option value="rk">本地执行</option>
+                <option value="cloud">云端任务规划</option>
+              </select>
+              {target === 'cloud' ? (
+                <p>云端任务规划使用本次目标及工具读回的原文上下文。</p>
+              ) : (
+                <p>本地模型处理原始资料。协作分析采用固定问题和明确批准的字段。</p>
+              )}
+            </div>
+            {target === 'hybrid' && (
+              <div className="desktop-field">
+                <label htmlFor="cloud-identifier-fields">
+                  允许云端分析的编号字段（逗号分隔，可留空）
+                </label>
+                <input
+                  id="cloud-identifier-fields"
+                  value={identifierFields}
+                  onChange={(event) => setIdentifierFields(event.target.value)}
+                  placeholder="例如 订单号"
+                />
+                <label htmlFor="cloud-number-fields">
+                  允许云端分析的数值字段（逗号分隔，可留空）
+                </label>
+                <input
+                  id="cloud-number-fields"
+                  value={numberFields}
+                  onChange={(event) => setNumberFields(event.target.value)}
+                  placeholder="例如 金额"
+                />
+                <p>宿主从实际来源提取所选字段。留空时，云端仅接收通用步骤问题。</p>
+              </div>
+            )}
+            <div className="desktop-field">
+              <label htmlFor="computer-scheduled-at">定时执行（{timezone}，留空立即执行）</label>
+              <input
+                id="computer-scheduled-at"
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(event) => setScheduledAt(event.target.value)}
+              />
+              <p>到时读取最新来源。设备暂不可用时保留排队，执行编号提前登记。</p>
+            </div>
+            <div className="desktop-field">
+              <button
+                type="button"
+                className="button"
+                onClick={() => {
+                  void unwrap(api.chooseTaskWorkspace()).catch((failure) =>
+                    setError((failure as Error).message),
+                  )
+                }}
+              >
+                选择任务文件目录
+              </button>
+              <p>
+                {snapshot.settings.taskWorkspace ??
+                  '选择目录后，允许任务读取源文件并创建 WPS 工作簿。'}
+              </p>
+            </div>
+            <label className="desktop-authorize">
+              <input
+                type="checkbox"
+                checked={authorized}
+                onChange={(event) => setAuthorized(event.target.checked)}
+              />
+              允许本次任务在目标应用发送键鼠输入
+            </label>
+          </fieldset>
+          <div className="desktop-actions">
+            {voiceBusy && (
+              <button
+                type="button"
+                className="button"
+                onClick={() => {
+                  const generation = ++voiceGeneration.current
+                  setVoiceInfo('正在取消语音识别。')
+                  void unwrap(api.cancelVoiceTranscription())
+                    .then(() => setVoiceInfo('语音识别已取消。'))
+                    .catch((failure) => setError((failure as Error).message))
+                    .finally(() => {
+                      if (generation === voiceGeneration.current) setVoiceBusy(false)
+                    })
+                }}
+              >
+                <LoaderCircle size={15} className="spin" />
+                取消语音识别
+              </button>
+            )}
+            <p>
+              {!connected
+                ? '请先在「设备管理」连接 RK。'
+                : !providerReady
+                  ? '请在「模型连接」配置 OpenAI 兼容模型与访问凭据。'
+                  : unknown
+                    ? '请先检查上次输入结果，并恢复控制。'
+                    : '单步执行后读取新观察，结束前核验结果。记忆由 RK 在后台整理。'}
+            </p>
+            <button
+              type="submit"
+              className="button primary"
+              disabled={
+                submitting ||
+                voiceBusy ||
+                busy ||
+                !connected ||
+                !providerReady ||
+                unknown ||
+                !authorized ||
+                !goal.trim()
+              }
+            >
+              {submitting ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}
+              {scheduledAt ? '登记定时任务' : '开始电脑操作'}
+            </button>
+          </div>
+          {error && (
+            <p className="desktop-error" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      )}
       {!!snapshot.proactive?.recoverable?.length && (
         <section className="desktop-form" aria-label="可恢复任务">
           <h2>可恢复任务</h2>

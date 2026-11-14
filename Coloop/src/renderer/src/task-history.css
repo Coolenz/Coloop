@@ -1,0 +1,37 @@
+.task-history-detail .answer {
+  max-height: none;
+  overflow: visible;
+}
+
+.task-history-events {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+
+.task-history-events li + li {
+  border-top: 1px solid var(--border, #dedede);
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.task-history-events summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+
+.task-history-events time {
+  color: var(--muted);
+  font-size: 12px;
+  margin-left: 12px;
+}
+
+.task-history-events pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.8;
+  max-height: 480px;
+  overflow: auto;
+}

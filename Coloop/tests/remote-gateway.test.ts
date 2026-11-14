@@ -327,6 +327,48 @@ describe('remote encrypted pairing and storage', () => {
 })
 
 describe('authenticated remote RPC boundaries', () => {
+  it('shares one approval with a paired phone and rejects stale decisions', async () => {
+    let approval: RemoteMobileSnapshot['approval'] = {
+      taskId: randomUUID(),
+      questionId: randomUUID(),
+      title: '测试任务',
+      question: '允许操作？',
+      toolName: 'coloop_execute',
+      callId: 'call-1',
+    }
+    const initial = { ...approval }
+    const answerApproval = vi.fn((input) => {
+      if (!approval || input.taskId !== approval.taskId || input.questionId !== approval.questionId)
+        throw new Error('APPROVAL_STALE')
+      approval = undefined
+    })
+    const f = await create({
+      answerApproval,
+      getSnapshot: () => ({ ...mobileSnapshot(), approval }),
+    })
+    const phone = await paired(f.service, f.url)
+    const snapshot = await post(f.url, 'rpc', frame(phone.identity, phone.key, rpc(), 1))
+    expect(open(phone.key, snapshot.body).value.approval).toEqual(initial)
+    const payload = {
+      taskId: initial.taskId,
+      questionId: initial.questionId,
+      decision: 'allowed-once',
+    }
+    const request = frame(phone.identity, phone.key, rpc('approval_answer', payload), 2)
+    const accepted = await post(f.url, 'rpc', request)
+    expect(open(phone.key, accepted.body).value.accepted).toBe(true)
+    await post(f.url, 'rpc', request)
+    expect(answerApproval).toHaveBeenCalledOnce()
+    const stale = await post(
+      f.url,
+      'rpc',
+      frame(phone.identity, phone.key, rpc('approval_answer', payload), 3),
+    )
+    expect(open(phone.key, stale.body).error.code).toBe('APPROVAL_STALE')
+    const cleared = await post(f.url, 'rpc', frame(phone.identity, phone.key, rpc(), 4))
+    expect(open(phone.key, cleared.body).value.approval).toBeUndefined()
+  })
+
   it('projects connection readiness and admits a paired reconnect without desktop input', async () => {
     const reconnect = vi.fn()
     const connection = {

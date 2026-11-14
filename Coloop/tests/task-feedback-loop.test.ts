@@ -47,6 +47,24 @@ function fixture() {
   return { service, store, board, cloud, execute, screen }
 }
 describe('cloud task planning and verified execution', () => {
+  it('incorporates supplements accepted while the initial model is planning', async () => {
+    const f = fixture()
+    let reply!: (value: string) => void
+    f.cloud.generate.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          reply = resolve
+        }),
+    )
+    f.cloud.generate.mockResolvedValueOnce('{"type":"answer","answer":"已包含补充要求"}')
+    const id = f.service.start(request)
+    await vi.waitFor(() => expect(f.cloud.generate).toHaveBeenCalledOnce())
+    f.service.append(id, '加入最新一周的数据')
+    reply('{"type":"answer","answer":"首轮分析"}')
+    await vi.waitFor(() => expect(f.store.tasks[0].status).toBe('completed'))
+    expect(f.cloud.generate.mock.calls[1][2]).toContain('加入最新一周的数据')
+    expect(f.store.tasks[0].answer).toBe('已包含补充要求')
+  })
   it('plans explicit local-mode requests without contacting the cloud', async () => {
     const f = fixture()
     f.board.state.qwenReady = true
@@ -63,6 +81,7 @@ describe('cloud task planning and verified execution', () => {
       'rk',
       undefined,
       undefined,
+      { mode: 'local', cloudFallback: false },
     )
   })
   it('answers local-mode questions without desktop input or cloud traffic', async () => {
@@ -101,6 +120,7 @@ describe('cloud task planning and verified execution', () => {
       'cloud',
       undefined,
       undefined,
+      { mode: 'cloud', cloudFallback: true },
     )
     expect(f.store.tasks[0].execution).toBe('desktop')
   })

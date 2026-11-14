@@ -20,9 +20,39 @@ export class MemoryManagementService {
     this.credentials.ensureMemoryEntry()
     const parsed = memoryBrowseSchema.safeParse(input)
     if (!parsed.success) throw new Error('记忆查询条件无效')
-    return memoryBrowseResultSchema.parse(
-      await this.board.memories({ op: 'browse', ...parsed.data }),
+    const { tag, sort, ...request } = parsed.data
+    if (!tag && sort !== 'title')
+      return memoryBrowseResultSchema.parse(await this.board.memories({ op: 'browse', ...request }))
+    const first = memoryBrowseResultSchema.parse(
+      await this.board.memories({ op: 'browse', ...request, offset: 0, limit: 50 }),
     )
+    const items = [...first.items]
+    let offset = first.items.length
+    while (offset < first.total) {
+      const next = memoryBrowseResultSchema.parse(
+        await this.board.memories({ op: 'browse', ...request, offset, limit: 50 }),
+      )
+      if (!next.items.length) break
+      items.push(...next.items)
+      offset += next.items.length
+    }
+    const filtered = items.filter(
+      (entry) => !tag || (entry.category === 'ordinary' && entry.tags?.includes(tag)),
+    )
+    if (sort === 'title')
+      filtered.sort((a, b) =>
+        (a.category === 'ordinary' ? (a.key ?? '') : a.origin).localeCompare(
+          b.category === 'ordinary' ? (b.key ?? '') : b.origin,
+          'zh-CN',
+        ),
+      )
+    return {
+      ...first,
+      items: filtered.slice(request.offset, request.offset + request.limit),
+      total: filtered.length,
+      offset: request.offset,
+      limit: request.limit,
+    }
   }
   async save(input: unknown) {
     this.credentials.ensureMemoryEntry()

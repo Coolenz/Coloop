@@ -70,7 +70,7 @@ class RemoteRepository(private val store: SecureStore, private val http: RemoteH
         store.save(store.load().filterNot { it.hostId == hostId }); runtime.remove(hostId)
     } }
     suspend fun rpc(hostId: String, operation: String, payload: JSONObject = JSONObject()): JSONObject = mutex.withLock { withContext(Dispatchers.IO) {
-        require(operation in setOf("snapshot", "command", "stop", "resume", "unpair", "violoop_message", "reconnect"))
+        require(operation in setOf("snapshot", "command", "stop", "resume", "unpair", "violoop_message", "reconnect", "approval_answer"))
         var host = store.load().first { it.hostId == hostId }
         try {
             var live = runtime[hostId]

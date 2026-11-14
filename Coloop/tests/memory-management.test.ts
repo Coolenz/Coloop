@@ -21,6 +21,41 @@ function setup() {
   return { board, credentials, service: new MemoryManagementService(board, credentials) }
 }
 describe('unified memory management', () => {
+  it('filters tags across pages before applying title order and pagination', async () => {
+    const { board, service } = setup()
+    const item = (id: string, key: string, tags: string[]) => ({
+      id,
+      key,
+      tags,
+      category: 'ordinary',
+      text: key,
+      kind: 'fact',
+      source: 'test',
+      verified: true,
+      expiresAt: null,
+    })
+    board.memories.mockImplementation(async (input) => ({
+      mode: 'all',
+      items: input.offset === 0 ? [item('one', 'Z', ['project'])] : [item('two', 'A', ['project'])],
+      total: 2,
+      offset: input.offset,
+      limit: input.limit,
+      private_memory: { enabled: true, available: true, records: 0 },
+    }))
+    const result = await service.browse({
+      category: 'ordinary',
+      tag: 'project',
+      sort: 'title',
+      limit: 1,
+    })
+    expect(result.total).toBe(2)
+    expect(result.items[0].id).toBe('two')
+    expect(
+      board.memories.mock.calls.every(
+        ([request]) => request.tag === undefined && request.sort === undefined,
+      ),
+    ).toBe(true)
+  })
   it('forwards tags and catalog summaries without allowing provenance promotion', async () => {
     const { board, service } = setup()
     await service.save({

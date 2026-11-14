@@ -18,6 +18,14 @@ class ColoopTest {
         assertEquals("RK 需要首次连接", connectionTitle(state.copy(snapshot = ready().copy(connection = ConnectionInfo("needs_setup", "请连接一次", true)))))
     }
     private fun base() = JSONObject("""{"hostName":"Test PC","sessionControl":{"stopped":false,"controlActive":false,"unconfirmedCount":0,"sessions":[],"commands":[]},"progress":[]}""")
+    @Test fun projectsSharedApprovalAndClearsItFromTheNextSnapshot() {
+        val request = JSONObject("""{"taskId":"task-1","questionId":"11111111-1111-4111-8111-111111111111","title":"整理资料","question":"是否允许操作？","toolName":"coloop_workspace","callId":"call-1"}""")
+        val snapshot = RemoteSnapshot.parse(base().put("approval", request))
+        assertEquals("coloop_workspace", snapshot.approval!!.toolName)
+        assertEquals("task-1", snapshot.approval.taskId)
+        assertNull(RemoteSnapshot.parse(base()).approval)
+        assertTrue(safeError("APPROVAL_STALE").contains("已处理"))
+    }
     @Test fun olderHostsRemainReadableWithoutColoop() {
         assertNull(RemoteSnapshot.parse(base()).coloop)
     }

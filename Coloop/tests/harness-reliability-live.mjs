@@ -53,7 +53,6 @@ const settings = {
     maxCostYuanTotal: 3,
     maxRequestsPerTask: 6,
     maxRequestsPerDay: 24,
-    maxNoProgressRequests: 4,
     maxTokenUnitsPerTask: 150000,
     maxTokenUnitsPerDay: 300000,
     maxOutputTokens: 2048,

@@ -1,3 +1,4 @@
+import { taskApprovalSchema, type TaskApprovalAnswer } from '../../shared/task-approval'
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { hostname } from 'node:os'
@@ -71,6 +72,7 @@ const commandSchema = z.object({
   controlResolved: z.boolean().optional(),
 })
 const mobileSchema = z.object({
+  approval: taskApprovalSchema.optional(),
   connection: remoteConnectionSchema.optional(),
   violoop: violoopSnapshotSchema.optional(),
   hostName: z.string().min(1).max(160),
@@ -154,6 +156,7 @@ export interface RemoteGatewayOptions {
   decrypt: (value: string) => string
   onChange: () => void
   getSnapshot: () => RemoteMobileSnapshot
+  answerApproval?: (input: TaskApprovalAnswer) => void | Promise<void>
   command: (input: SessionCommandInput) => Promise<CommandSnapshot>
   violoopMessage?: (input: VioloopMessage, deviceId: string) => VioloopTask | Promise<VioloopTask>
   stop: () => Promise<void>
@@ -734,6 +737,19 @@ export class RemoteGatewayService {
     this.notify()
     try {
       switch (request.operation) {
+        case 'approval_answer':
+          if (!this.options.answerApproval)
+            return failure('APPROVAL_UNAVAILABLE', '此电脑暂不支持审批')
+          await this.options.answerApproval(request.payload)
+          return {
+            ok: true,
+            value: {
+              accepted: true,
+              questionId: request.payload.questionId,
+              decision: request.payload.decision,
+            },
+          }
+
         case 'reconnect':
           if (!this.options.reconnect)
             return failure(
@@ -769,6 +785,8 @@ export class RemoteGatewayService {
           return { ok: true, value: { revoked: true } }
       }
     } catch (error) {
+      if (request.operation === 'approval_answer')
+        return failure('APPROVAL_STALE', '审批已处理或已结束，请刷新当前任务')
       if (request.operation === 'violoop_message') {
         const code = error instanceof Error ? error.message : ''
         const allowed = [

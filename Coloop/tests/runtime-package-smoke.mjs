@@ -1,7 +1,8 @@
 // Scripted package-runtime verification with local synthetic model responses.
 // This is not an autonomous model business acceptance test.
 import { build } from 'esbuild'
-import { spawn } from 'node:child_process'
+import { spawn, fork } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
@@ -103,6 +104,74 @@ await writeFile(
 )
 
 try {
+  const uiaProbe = await new Promise((resolveProbe, reject) => {
+    const child = spawn(join(resources, 'auto-work-uia', 'Coloop.AutoWork.Uia.exe'), ['--probe'], {
+      cwd: output,
+      env,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let text = '',
+      errors = ''
+    const deadline = setTimeout(() => {
+      child.kill()
+      reject(new Error('Packaged FlaUI probe timeout'))
+    }, 10000)
+    child.stdout.on('data', (part) => {
+      text += part
+    })
+    child.stderr.on('data', (part) => {
+      errors += part
+    })
+    child.once('error', reject)
+    child.once('close', (code) => {
+      clearTimeout(deadline)
+      code === 0 ? resolveProbe(JSON.parse(text.trim())) : reject(new Error(errors || text))
+    })
+  })
+  assert.equal(uiaProbe.ready, true)
+  assert.equal(uiaProbe.backend, 'FlaUI.UIA3')
+  assert.equal(uiaProbe.readOnly, true)
+  await writeFile(join(output, 'auto-work-uia-probe.json'), JSON.stringify(uiaProbe, null, 2))
+  const schedulerProbe = await new Promise((resolveProbe, reject) => {
+    const child = fork(join(resources, 'harness', 'coloop-scheduler.mjs'), [], {
+      execPath: node, execArgv: [], cwd: output, windowsHide: true,
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+      env: { ...env, COLOOP_SCHEDULER_MANIFEST: join(app, 'package.json'), COLOOP_SCHEDULER_HOME: join(output, 'native-schedules') },
+    })
+    let errors = '', result
+    const deadline = setTimeout(() => { child.kill(); reject(new Error('Native scheduler probe timeout')) }, 30000)
+    child.stderr.on('data', chunk => { errors += chunk })
+    child.on('message', message => {
+      try {
+        if (message.error) throw new Error(message.error)
+        if (message.event === 'ready') {
+          assert.ok(message.modules.every(path => resolve(path).startsWith(app + sep)), 'Scheduler dependencies must resolve inside the package')
+          result = { modules: message.modules, delivered: false }
+          child.send({ id: 1, method: 'create', sessionId: randomUUID(), request: { title: 'Package probe', prompt: 'Synthetic delivery', after_seconds: 1 } })
+        } else if (message.event === 'due') {
+          result.delivered = true
+          child.send({ reply: message.id })
+          child.send({ id: 2, method: 'catalog' })
+        } else if (message.id === 2) {
+          if (message.value[0].status === 'active') {
+            setTimeout(() => child.send({ id: 2, method: 'catalog' }), 100)
+            return
+          }
+          assert.equal(message.value[0].status, 'inactive')
+          result.catalog = message.value
+          child.send({ id: 3, method: 'close' })
+        }
+      } catch (error) { child.kill(); reject(error) }
+    })
+    child.once('error', reject)
+    child.once('exit', code => {
+      clearTimeout(deadline)
+      if (code === 0 && result?.delivered) resolveProbe(result)
+      else reject(new Error(errors || 'Native scheduler failed'))
+    })
+  })
+  await writeFile(join(output, 'native-scheduler-probe.json'), JSON.stringify(schedulerProbe, null, 2))
   await build({
     entryPoints: [join(root, 'tests', 'fixtures', 'runtime-package-probe.ts')],
     outfile: probe,
@@ -142,4 +211,17 @@ try {
   console.log(JSON.stringify({ ok: true, output, target, scope: report.scope }))
 } finally {
   await rm(probe, { force: true })
+  for (const name of [
+    'profile',
+    'temp',
+    'authorized-files',
+    'harness-home',
+    'local-harness-home',
+    'native-schedules',
+    'docling-cache',
+    '归档',
+    '结果.zip',
+    '中文隔离验收.docx',
+  ])
+    await rm(join(output, name), { recursive: true, force: true })
 }

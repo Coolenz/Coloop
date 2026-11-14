@@ -18,6 +18,8 @@ export const memoryBrowseSchema = z
     category: memoryCategorySchema.default('all'),
     offset: z.number().int().min(0).max(100000).default(0),
     limit: z.number().int().min(1).max(50).default(25),
+    tag: z.string().trim().max(64).optional(),
+    sort: z.enum(['source', 'title']).optional(),
   })
   .strict()
 export const ordinaryMemorySchema = z
@@ -33,6 +35,7 @@ export const ordinaryMemorySchema = z
     tags: memoryTagsSchema.optional(),
     summary: z.string().max(160).optional(),
     sourceTaskId: z.string().max(128).nullable().optional(),
+    updatedAt: z.union([z.string(), z.number()]).nullable().optional(),
   })
   .strict()
 export const privateMemorySchema = z

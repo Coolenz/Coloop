@@ -22,14 +22,25 @@ type Editor =
   { type: 'ordinary'; entry?: Extract<MemoryEntry, { category: 'ordinary' }> } | { type: 'private' }
 const kinds = { fact: '事实', preference: '偏好', procedure: '操作方法', task: '任务进度' }
 
-export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
+export function MemoryPage({
+  snapshot,
+  onTask,
+  onConfigure,
+}: {
+  snapshot: AppSnapshot
+  onTask?: (taskId: string) => void
+  onConfigure?: () => void
+}) {
   const [ready, setReady] = useState(false),
     [loading, setLoading] = useState(false),
     [busy, setBusy] = useState(false)
   const [data, setData] = useState<MemoryBrowseResult>()
   const [queryInput, setQueryInput] = useState(''),
     [query, setQuery] = useState('')
-  const [category, setCategory] = useState<'all' | 'ordinary' | 'private'>('all')
+  const category: 'all' | 'ordinary' | 'private' = 'ordinary'
+  const [tagInput, setTagInput] = useState('')
+  const [tag, setTag] = useState('')
+  const [sort, setSort] = useState<'source' | 'title'>('source')
   const [offset, setOffset] = useState(0),
     [editor, setEditor] = useState<Editor>()
   const [deleting, setDeleting] = useState<string>(),
@@ -47,7 +58,9 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
     const id = ++generation.current
     setLoading(true)
     try {
-      const result = await unwrap(api.browseMemories({ query, category, offset, limit: 25 }))
+      const result = await unwrap(
+        api.browseMemories({ query, category, offset, limit: 25, tag, sort }),
+      )
       if (id === generation.current && offset > 0 && result.items.length === 0) {
         setOffset(0)
         return
@@ -83,7 +96,7 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
   useEffect(() => {
     if (ready && connected) void refresh()
     else setData(undefined)
-  }, [ready, connected, query, category, offset])
+  }, [ready, connected, query, category, offset, tag, sort])
   useEffect(
     () =>
       api.onMemorySaved((indexed) => {
@@ -158,7 +171,7 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
       <div className="page-title-row">
         <div>
           <h1>记忆</h1>
-          <p>在同一目录中查找、管理普通记忆与私密记忆。</p>
+          <p>管理 RK 保存的偏好、事实与任务经验。</p>
         </div>
         <span className="badge">
           <ShieldCheck size={14} />
@@ -177,7 +190,20 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
       )}
       {!connected && (
         <p className="inline-warning">
-          请先在「设备管理」连接 RK，再返回记忆页面。查看和管理记忆不需要启动模型。
+          RK 尚未连接，记忆暂不可读取。
+          <button className="text-button" onClick={onConfigure}>
+            前往配置
+          </button>
+          <button
+            className="text-button"
+            onClick={() =>
+              void action(async () => {
+                await unwrap(api.retryRkConnection())
+              })
+            }
+          >
+            重试连接
+          </button>
         </p>
       )}
       {snapshot.credentials?.editorOpen && (
@@ -203,11 +229,6 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
           私密登录窗口已打开。完成登录并关闭该窗口后，可继续管理记忆。
         </p>
       )}
-      {data && !data.private_memory.available && (
-        <p className="inline-warning">
-          私密记忆提供方暂不可用。当前仅显示可用记录，旧的私密引用不会被继续使用。
-        </p>
-      )}
       <div className="memory-controls">
         <form
           className="memory-search"
@@ -215,6 +236,7 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
             event.preventDefault()
             setOffset(0)
             setQuery(queryInput)
+            setTag(tagInput.trim())
             if (query === queryInput && offset === 0) void refresh()
           }}
         >
@@ -234,11 +256,52 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
         <button
           className="button primary"
           disabled={disabled}
-          onClick={() => setEditor({ type: category === 'private' ? 'private' : 'ordinary' })}
+          onClick={() => setEditor({ type: 'ordinary' })}
         >
           <Plus size={15} />
           新建记忆
         </button>
+      </div>
+      <div className="record-filters">
+        <label>
+          标签
+          <input
+            aria-label="按记忆标签筛选"
+            value={tagInput}
+            maxLength={64}
+            onChange={(event) => setTagInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                setOffset(0)
+                setTag(tagInput.trim())
+              }
+            }}
+          />
+        </label>
+        <button
+          className="button"
+          disabled={disabled}
+          onClick={() => {
+            setOffset(0)
+            setTag(tagInput.trim())
+          }}
+        >
+          筛选标签
+        </button>
+        <label>
+          排序
+          <select
+            aria-label="记忆排序"
+            value={sort}
+            onChange={(event) => {
+              setOffset(0)
+              setSort(event.target.value as 'source' | 'title')
+            }}
+          >
+            <option value="source">RK 返回顺序</option>
+            <option value="title">按标题</option>
+          </select>
+        </label>
       </div>
       {editor && (
         <section className="panel settings-panel memory-editor" aria-label="记忆编辑器">
@@ -272,7 +335,6 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
                     onChange={(e) => setEditor({ type: e.target.value as 'ordinary' | 'private' })}
                   >
                     <option value="ordinary">普通记忆</option>
-                    <option value="private">私密凭据</option>
                   </select>
                 </label>
                 {editor.type === 'ordinary' ? (
@@ -376,29 +438,7 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
       )}
       <section className="memory-directory" aria-label="统一记忆目录">
         <div className="memory-list-heading">
-          <div className="memory-filters" role="tablist" aria-label="记忆分类">
-            {(
-              [
-                ['all', '全部'],
-                ['ordinary', '普通记忆'],
-                ['private', '私密记忆'],
-              ] as const
-            ).map(([value, label]) => (
-              <button
-                role="tab"
-                aria-selected={category === value}
-                key={value}
-                className={category === value ? 'selected' : ''}
-                disabled={busy}
-                onClick={() => {
-                  setCategory(value)
-                  setOffset(0)
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <h2>记忆目录</h2>
           <button className="button" disabled={disabled || loading} onClick={() => void refresh()}>
             <RefreshCw size={14} />
             刷新
@@ -416,11 +456,7 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
             <h3>
               {!connected ? '连接 RK 后查看记忆' : query ? '当前查询没有结果' : '这里还没有记忆'}
             </h3>
-            <p>
-              {query
-                ? '尝试调整关键词或切换记忆分类。'
-                : '普通记忆和私密引用都会出现在同一目录中。'}
-            </p>
+            <p>{query ? '尝试调整关键词或标签。' : '在这里保存偏好、事实与任务经验。'}</p>
           </div>
         )}
         <ul className="memory-list">
@@ -447,9 +483,26 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
                   <>
                     {entry.summary && <p>{entry.summary}</p>}
                     {!!entry.tags?.length && <p aria-label="记忆标签">{entry.tags.join(' · ')}</p>}
-                    <p className="memory-body">{entry.text}</p>
+                    <details>
+                      <summary>查看内容与来源</summary>
+                      <p className="memory-body">{entry.text}</p>
+                      <p>来源：{entry.source || '未记录'}</p>
+                      {entry.sourceTaskId && onTask && (
+                        <button className="text-button" onClick={() => onTask(entry.sourceTaskId!)}>
+                          查看来源任务 →
+                        </button>
+                      )}
+                    </details>
                     <small>
-                      {entry.verified ? '已核实' : '未核实'}
+                      更新时间 ·{' '}
+                      {entry.updatedAt
+                        ? new Date(
+                            typeof entry.updatedAt === 'number' && entry.updatedAt < 1e12
+                              ? entry.updatedAt * 1000
+                              : entry.updatedAt,
+                          ).toLocaleString()
+                        : 'RK 未提供'}{' '}
+                      · {entry.verified ? '已核实' : '未核实'}
                       {entry.expiresAt
                         ? ` · 有效期至 ${new Date(entry.expiresAt * 1000).toLocaleDateString('zh-CN')}`
                         : ''}
@@ -541,8 +594,7 @@ export function MemoryPage({ snapshot }: { snapshot: AppSnapshot }) {
         )}
       </section>
       <p className="muted credential-footnote">
-        普通记忆与私密引用共用 Mem0 索引。私密正文不进入普通召回或云端；私密登录窗口仍限定同源
-        HTTPS，输入后需自行检查并提交。
+        记忆保存于 RK。账号密码在“配置 → 凭据与隐私”中管理。
       </p>
     </div>
   )

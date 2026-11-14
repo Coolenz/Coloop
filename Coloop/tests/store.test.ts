@@ -19,6 +19,85 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 describe('local persistence and credential boundary', () => {
+  it('supports read-only inspection without modifying or renaming production state', () => {
+    const { store, directory, codec } = create()
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, apiKey: 'read-only-key' },
+    })
+    const before = readFileSync(join(directory, 'state.json'), 'utf8')
+    const reader = new AppStore(directory, codec, { readOnly: true })
+    expect(reader.decisionModel().apiKey).toBe('read-only-key')
+    expect(() => reader.persist()).toThrow('STORE_READ_ONLY')
+    expect(() => reader.saveSettings(reader.config)).toThrow('STORE_READ_ONLY')
+    expect(readFileSync(join(directory, 'state.json'), 'utf8')).toBe(before)
+    writeFileSync(join(directory, 'state.json'), 'invalid')
+    expect(() => new AppStore(directory, codec, { readOnly: true })).toThrow(
+      'STORE_READ_ONLY_LOAD_FAILED',
+    )
+    expect(readFileSync(join(directory, 'state.json'), 'utf8')).toBe('invalid')
+    expect(readdirSync(directory)).toEqual(['state.json'])
+  })
+  it('migrates the default role without changing history or requiring a second key', () => {
+    const { store, directory, codec } = create()
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, apiKey: 'ordinary-key' },
+    })
+    const state = JSON.parse(readFileSync(join(directory, 'state.json'), 'utf8'))
+    state.schemaVersion = 1
+    delete state.encryptedDecisionKey
+    writeFileSync(join(directory, 'state.json'), JSON.stringify(state))
+    const reopened = new AppStore(directory, codec)
+    expect(reopened.decisionModel()).toMatchObject({ role: 'default', apiKey: 'ordinary-key' })
+    expect(reopened.publicSettings().decisionProvider).toBeUndefined()
+    expect(readdirSync(directory)).toEqual(['state.json'])
+  })
+  it('isolates decision credentials and rates, and does not fall back from a configured role', () => {
+    const { store, directory, codec } = create()
+    store.saveSettings({
+      ...store.config,
+      provider: { ...store.config.provider, apiKey: 'ordinary-key' },
+      decisionProvider: {
+        ...store.config.provider,
+        model: 'strong-model',
+        apiKey: 'decision-secret',
+        imageInput: 'supported',
+      },
+      decisionPricing: { inputYuanPerMillion: 10, outputYuanPerMillion: 20 },
+    })
+    expect(store.publicSettings().decisionProvider).toMatchObject({
+      hasKey: true,
+      imageInput: 'unknown',
+    })
+    expect(store.recordDecisionModelProbe(store.decisionModel(), 'supported')).toBe(true)
+    expect(store.publicSettings().decisionProvider?.imageInput).toBe('supported')
+    expect(JSON.stringify(store.publicSettings())).not.toMatch(/decision-secret|ordinary-key/)
+    expect(readFileSync(join(directory, 'state.json'), 'utf8')).not.toMatch(
+      /decision-secret|ordinary-key/,
+    )
+    const reopened = new AppStore(directory, codec)
+    expect(reopened.decisionModel()).toMatchObject({
+      role: 'decision',
+      apiKey: 'decision-secret',
+      pricing: { inputYuanPerMillion: 10 },
+    })
+    const staleProbe = reopened.decisionModel()
+    reopened.saveSettings({
+      ...reopened.config,
+      decisionProvider: {
+        ...reopened.config.decisionProvider!,
+        baseUrl: 'https://other.example/v1',
+      },
+    })
+    expect(reopened.recordDecisionModelProbe(staleProbe, 'supported')).toBe(false)
+    expect(reopened.publicSettings().decisionProvider?.imageInput).toBe('unknown')
+    expect(reopened.apiKey).toBe('ordinary-key')
+    expect(reopened.decisionModel()).toMatchObject({ role: 'decision', apiKey: '', pricing: {} })
+    reopened.saveSettings({ ...reopened.config, decisionProvider: undefined })
+    expect(reopened.decisionModel()).toMatchObject({ role: 'default', apiKey: 'ordinary-key' })
+    expect(reopened.publicSettings().decisionPricing).toBeUndefined()
+  })
   it('persists model limits and clears stale prices when the model changes', () => {
     const { store, directory, codec } = create()
     store.saveSettings({

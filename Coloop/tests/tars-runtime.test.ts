@@ -114,6 +114,7 @@ describe('official Agent TARS runtime integration', () => {
     const directory = await mkdtemp(join(tmpdir(), 'coloop-sdk-budget-'))
     cleanups.push(() => rm(directory, { recursive: true, force: true }))
     const ledger = new ModelUsageLedger(directory, () => ({
+      usageBudgetEnabled: true,
       minRequestIntervalMs: 0,
       maxRequestsPerTask: 2,
     }))

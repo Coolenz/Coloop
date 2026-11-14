@@ -17,9 +17,11 @@ if (!$source.StartsWith($releaseRoot + '\', [StringComparison]::OrdinalIgnoreCas
   throw 'Install from a verified package under this project release directory.'
 }
 Assert-ColoopPlainTree $source
-$required = @('Coloop.exe', 'resources\app\package.json', 'resources\app\out\main\index.js',
+$required = @('Coloop.exe', 'coloop.cmd', 'resources\cli\coloop-cli.mjs',
+  'resources\cli\with-workspace-cache.mjs', 'resources\app\package.json', 'resources\app\out\main\index.js',
   'resources\app\out\renderer\index.html', 'resources\app\out\preload\control.cjs',
   'resources\harness\coloop-plugin.mjs', 'resources\harness\coloop-compaction.mjs',
+  'resources\harness\coloop-playwright.mjs', 'resources\harness\coloop-scheduler.mjs', 'resources\icon.ico',
   'resources\runtime\node\node.exe', 'resources\runtime\docling\.venv\Scripts\python.exe',
   'resources\runtime\cua-driver\cua-driver.exe')
 foreach ($file in $required) {
@@ -36,6 +38,7 @@ function Assert-AppStopped {
 }
 Assert-AppStopped
 $installation = Copy-ColoopInstallation -Source $source -Programs $programs -NodeExecutable (Join-Path $source 'resources\runtime\node\node.exe')
+& (Join-Path $PSScriptRoot 'repair-shortcut-icons.ps1') -InstallDirectory $installation.installed | Out-Null
 # Finish installed-path acceptance before removing the only candidate package.
 # No backups are created. The caller must prune all build copies after acceptance.
 $installation | Add-Member -NotePropertyName cleanupStatus -NotePropertyValue 'pending_installed_acceptance'

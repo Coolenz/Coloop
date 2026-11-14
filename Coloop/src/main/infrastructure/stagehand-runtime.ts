@@ -1,6 +1,6 @@
 import type { Stagehand, Page as StagehandPage, StagehandBrowser } from '@browserbasehq/stagehand'
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   chromium,
@@ -8,10 +8,14 @@ import {
   type BrowserContext,
   type Page,
   type Request,
+  type Route,
 } from 'playwright-core'
 import { z } from 'zod'
 import { createStagehandModel, type StagehandCompletion } from './stagehand-model'
 import { validateWebReadUrl } from './web-reader'
+import { stagehandExecutablePath } from './browser-executable'
+import { localBrowserEndpointSchema } from './browser-connection'
+import { browserSettingsSchema, type BrowserSettings } from '../services/browser-preferences'
 
 export interface StagehandRuntimeOptions {
   goal: string
@@ -19,6 +23,9 @@ export interface StagehandRuntimeOptions {
   complete: StagehandCompletion
   headless?: boolean
   executablePath?: string
+  browserSettings?: BrowserSettings
+  userDataDir?: string
+  cdpUrl?: string
   onClosed?: (runtime: StagehandRuntime) => void
 }
 
@@ -35,6 +42,25 @@ export type StagehandBoundAction = z.infer<typeof actionSchema>
 /** Official Stagehand v4 primitives on one task-owned local browser. Planning
  * stays in the parent agent; mutations must first pass WebSession's guard. */
 export class StagehandRuntime {
+  get attached() {
+    return !!this.options.cdpUrl
+  }
+  get cdpUrl() {
+    return this.browser.cdpUrl
+  }
+  private ownedPages = new Set<Page>()
+  async registerPage(page: Page) {
+    this.ownedPages.add(page)
+    if (this.attached && this.networkGuard) await page.route('**/*', this.networkGuard)
+  }
+  private networkGuard?: (route: Route) => Promise<void>
+  handedOff = false
+  get userDataDir() {
+    return this.options.userDataDir
+  }
+  get connected() {
+    return this.playwright.isConnected()
+  }
   private operation?: 'read' | 'act' | 'snapshot'
   private closed = false
   private closing?: Promise<void>
@@ -46,6 +72,7 @@ export class StagehandRuntime {
     private readonly playwright: Browser,
     readonly context: BrowserContext,
     private readonly stagehand: Stagehand,
+    readonly identity: { browser: string; userAgent: string },
   ) {
     this.origins = new Set(
       (options.goal.match(/https?:\/\/[^\s<>"']+/g) ?? []).flatMap((value) => {
@@ -64,6 +91,10 @@ export class StagehandRuntime {
 
   static async open(options: StagehandRuntimeOptions): Promise<StagehandRuntime> {
     options.signal.throwIfAborted()
+    const settings = browserSettingsSchema.parse(options.browserSettings ?? {})
+    const executablePath = options.cdpUrl
+      ? undefined
+      : stagehandExecutablePath(options.executablePath, settings.browser)
     // Chrome reads extension files itself and cannot traverse Electron's ASAR.
     // Load the SDK after selecting the unpacked resource location.
     const entry = fileURLToPath(import.meta.resolve('@browserbasehq/stagehand'))
@@ -78,12 +109,22 @@ export class StagehandRuntime {
     }
     const { Stagehand, localBrowser } = await import('@browserbasehq/stagehand')
     options.signal.throwIfAborted()
-    const browser = await localBrowser.launch({
-      headless: options.headless ?? true,
-      executablePath: options.executablePath,
-      viewport: { width: 1440, height: 1000 },
-      // No userDataDir: the SDK owns a fresh temporary profile, not a personal login.
-    })
+    const browser = options.cdpUrl
+      ? await localBrowser.connect({ cdpUrl: localBrowserEndpointSchema.parse(options.cdpUrl) })
+      : await localBrowser.launch({
+          headless: options.headless ?? true,
+          executablePath,
+          // Edge otherwise relaunches through its compatibility layer and the SDK
+          // sees the launcher exit before the debugging port is ready.
+          args:
+            executablePath && basename(executablePath).toLowerCase() === 'msedge.exe'
+              ? ['--edge-skip-compat-layer-relaunch']
+              : undefined,
+          viewport: settings.viewport,
+          locale: settings.locale,
+          userDataDir: options.userDataDir,
+          preserveUserDataDir: !!options.userDataDir,
+        })
     let stagehand: Stagehand | undefined
     let playwright: Browser | undefined
     let runtime: StagehandRuntime | undefined
@@ -107,10 +148,32 @@ export class StagehandRuntime {
       playwright = await chromium.connectOverCDP(browser.cdpUrl)
       const context = playwright.contexts()[0]
       if (!context) throw new Error('STAGEHAND_BROWSER_CONTEXT_UNAVAILABLE')
-      runtime = new StagehandRuntime(options, browser, playwright, context, stagehand)
+      const identitySession = await playwright.newBrowserCDPSession()
+      const { userAgent } = await identitySession.send('Browser.getVersion')
+      await identitySession.detach()
+      if (process.platform === 'win32' && !options.executablePath) {
+        if ((settings.browser === 'edge') !== userAgent.includes('Edg/'))
+          throw new Error('BROWSER_SELECTION_MISMATCH')
+      }
+      runtime = new StagehandRuntime(options, browser, playwright, context, stagehand, {
+        browser: userAgent.includes('Edg/') ? 'edge' : 'chrome',
+        userAgent,
+      })
       // The existing WebSession installs the same restriction. Keep it here too
       // so direct adapter use cannot bypass task-authorized writes.
-      await context.route('**/*', async (route) => {
+      runtime.networkGuard = async (route) => {
+        if (runtime!.attached) {
+          let page: Page | undefined
+          try {
+            page = route.request().frame().page()
+          } catch {
+            /* Background browser request. */
+          }
+          if (!page || !runtime!.ownedPages.has(page)) {
+            await route.continue()
+            return
+          }
+        }
         try {
           const request = route.request()
           runtime!.url(request.url())
@@ -123,14 +186,18 @@ export class StagehandRuntime {
         } catch {
           await route.abort().catch(() => {})
         }
-      })
+      }
+      if (!options.cdpUrl) await context.route('**/*', runtime.networkGuard)
       options.signal.throwIfAborted()
       return runtime
     } catch (error) {
       if (runtime) await runtime.close().catch(() => {})
       else {
-        await stagehand?.close().catch(() => {})
-        await browser.close().catch(() => {})
+        if (options.cdpUrl) await browser.disconnect().catch(() => {})
+        else {
+          await stagehand?.close().catch(() => {})
+          await browser.close().catch(() => {})
+        }
         await playwright?.close().catch(() => {})
       }
       throw error
@@ -324,12 +391,24 @@ export class StagehandRuntime {
     })
   }
 
+  handoff() {
+    this.handedOff = true
+    this.options.signal.removeEventListener('abort', this.stop)
+  }
+
   close(keepOpen = false) {
     if (this.closing) return this.closing
     this.closed = true
     this.options.signal.removeEventListener('abort', this.stop)
     this.closing = (async () => {
-      if (keepOpen && !this.options.signal.aborted) {
+      if (this.networkGuard) {
+        if (this.attached)
+          await Promise.allSettled(
+            [...this.ownedPages].map((page) => page.unroute('**/*', this.networkGuard)),
+          )
+        else await this.context.unroute('**/*', this.networkGuard).catch(() => {})
+      }
+      if (this.attached || (keepOpen && !this.options.signal.aborted)) {
         await this.browser.disconnect()
         // A Playwright connection made by connectOverCDP closes its connection;
         // the underlying local browser remains owned by the handoff recipient.

@@ -130,8 +130,14 @@ try {
     window.rejectTask = false
     window.setFixture({ mode: 'controlling' })
   })
-  assert.equal(await command.isDisabled(), true)
-  assert.equal(await send.isDisabled(), true)
+  assert.equal(await command.isDisabled(), false)
+  assert.equal(await send.isDisabled(), false)
+  await command.fill('运行中追加要求')
+  await send.click()
+  await page.waitForFunction(() => document.querySelector('#island-goal').value === '')
+  assert.equal((await page.evaluate(() => window.calls)).at(-1)[1], '运行中追加要求')
+  await page.getByText('已加入当前任务消息队列', { exact: true }).waitFor()
+  await page.screenshot({ path: resolve(output, 'running-message.png') })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(480, 344))
   for (const mode of ['completed', 'blocked', 'failed']) {
     await page.evaluate((mode) => window.setFixture({ mode, content: '前一个任务已经结束' }), mode)

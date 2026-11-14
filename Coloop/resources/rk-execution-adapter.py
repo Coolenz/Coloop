@@ -2,6 +2,7 @@
 import contextlib
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import queue
@@ -14,8 +15,30 @@ import time
 from coloop_rk_support import canonical_action, encode, parse
 
 
+def input_failure_diagnostics(message, value):
+    categories = {'EDITOR_BINDING_CHANGED': ('editor_binding', (
+        'assistantAllowed', 'window', 'process', 'windowRect', 'focused',
+        'targetFound', 'targetType', 'targetRuntimePresent', 'targetRuntime',
+        'snapshotRuntime', 'editorRectPresent', 'editorRect', 'textReadable', 'textWithinLimit')),
+        'INPUT_TARGET_CHANGED': ('input_target', (
+        'same', 'inside', 'elementValid', 'focusValid', 'observedPointMatches',
+        'observedFocusMatches', 'identityMatches', 'assistantAllowed'))}
+    expected = categories.get(message)
+    if (not expected or not isinstance(value, dict) or value.get('category') != expected[0]
+            or value.get('stage') not in ('input.validate', 'input.guard', 'clipboard.verify')
+            or not isinstance(value.get('checks'), dict)):
+        return None
+    checks = {key: value['checks'][key] for key in expected[1]
+              if key in value['checks'] and type(value['checks'][key]) is bool}
+    if not checks:
+        return None
+    return {'category': expected[0], 'stage': value['stage'], 'checks': checks}
+
+
 class ExecutionError(Exception):
-    pass
+    def __init__(self, message, *, diagnostics=None):
+        super().__init__(message)
+        self.diagnostics = input_failure_diagnostics(message, diagnostics)
 
 
 @contextlib.contextmanager
@@ -139,10 +162,82 @@ class ExecutionAdapter:
                 raise ExecutionError('EXECUTOR_BUSY')
             if self.matches(identity) and self.current['phase'] == 'stopped':
                 raise ExecutionError('SESSION_STOPPED')
+            if self.matches(identity) and self.current.get('restricted_command_id'):
+                raise ExecutionError('RESUME_COMMAND_RESTRICTED')
             self.current = {**identity, 'phase': 'active'}
             self.cancel.clear()
             self.save_session()
             return {'ok': True, **self.current}
+
+    def resume_draft(self, value):
+        identity = self.identity(value)
+        command_id, paste_id = value.get('command_id'), value.get('paste_command_id')
+        if (set(value) != {'task_id', 'generation', 'command_id', 'paste_command_id'}
+                or not isinstance(command_id, str) or not 6 <= len(command_id) <= 128
+                or '\x00' in command_id or not command_id.endswith(':send')
+                or paste_id != command_id[:-5] + ':paste' or len(paste_id) > 128):
+            raise ExecutionError('INVALID_DRAFT_RESUME')
+        with self.guard:
+            if self.closed.is_set():
+                raise ExecutionError('EXECUTOR_CLOSED')
+            if not self.matches(identity):
+                raise ExecutionError('SESSION_MISMATCH')
+            if self.in_flight or self.execution_lock.locked():
+                raise ExecutionError('EXECUTOR_BUSY')
+            if self.current['phase'] != 'stopped':
+                raise ExecutionError('SESSION_NOT_STOPPED')
+            if self.input_unreleased():
+                raise ExecutionError('INPUT_UNKNOWN')
+            with self.connect() as db:
+                sent = db.execute('SELECT command_id FROM commands WHERE command_id=?',
+                                  (command_id,)).fetchone()
+                pasted = db.execute('SELECT * FROM commands WHERE command_id=?',
+                                    (paste_id,)).fetchone()
+            if sent:
+                raise ExecutionError('SEND_ALREADY_RECORDED')
+            if not pasted:
+                raise ExecutionError('PASTE_RECEIPT_REQUIRED')
+            if (pasted['task_id'] != identity['task_id']
+                    or pasted['generation'] != encode(identity['generation'])):
+                raise ExecutionError('SESSION_MISMATCH')
+            receipt = parse(pasted['receipt'])
+            if (receipt.get('action') != 'paste' or receipt.get('release_confirmed') is not True
+                    or receipt.get('outcome') not in ('unknown', 'input_sent', 'effect_verified')
+                    or receipt.get('outcome') != pasted['outcome']):
+                raise ExecutionError('PASTE_RECEIPT_INVALID')
+            previous = self.current
+            self.current = {**identity, 'phase': 'active', 'restricted_command_id': command_id,
+                            'restricted_action': {'action': 'hotkey', 'keys': 'ENTER'}}
+            try:
+                self.save_session()
+            except Exception:
+                self.current = previous
+                raise
+            self.cancel.clear()
+            return {'ok': True, **self.current}
+
+    def check_restricted_command(self, identity, command_id, action):
+        if self.current and self.current.get('restricted_command_id'):
+            if (not self.matches(identity) or command_id != self.current['restricted_command_id']
+                    or action.get('action') != 'hotkey' or action.get('keys') != 'ENTER'):
+                raise ExecutionError('RESUME_COMMAND_RESTRICTED')
+
+    @staticmethod
+    def verification_summary(value):
+        if not isinstance(value, dict):
+            return {'verified': False}
+        summary = {'verified': value.get('verified') is True}
+        for key in ('source', 'failure'):
+            if isinstance(value.get(key), str):
+                summary[key] = value[key][:128]
+        if isinstance(value.get('checks'), dict):
+            summary['checks'] = {key: passed for key, passed in list(value['checks'].items())[:64]
+                                 if isinstance(key, str) and len(key) <= 64 and type(passed) is bool}
+        for key in ('attempts', 'elapsed_ms'):
+            number = value.get(key)
+            if type(number) in (int, float) and math.isfinite(number) and number >= 0:
+                summary[key] = number
+        return summary
 
     def stop(self, value):
         identity = self.identity(value)
@@ -199,7 +294,7 @@ class ExecutionAdapter:
                 except queue.Empty:
                     continue
                 if response.get('error'):
-                    raise ExecutionError(str(response['error']))
+                    raise ExecutionError(str(response['error']), diagnostics=response.get('diagnostics'))
                 return response.get('value')
             raise ExecutionError('HOST_RPC_TIMEOUT')
         finally:
@@ -298,6 +393,8 @@ class ExecutionAdapter:
         canonical = json.dumps({**identity, 'action': action, 'observation': observed},
                                sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
+        with self.guard:
+            self.check_restricted_command(identity, value['command_id'], action)
         if prior:
             if prior['digest'] != digest:
                 raise ExecutionError('COMMAND_CONFLICT')
@@ -317,6 +414,7 @@ class ExecutionAdapter:
                     raise ExecutionError('TASK_STOPPED')
                 if self.input_unreleased():
                     raise ExecutionError('INPUT_UNKNOWN')
+                self.check_restricted_command(identity, value['command_id'], action)
                 self.in_flight = value['command_id']
                 self.record(receipt, digest)
             validated = self.host_rpc('input.validate', args, identity)
@@ -346,15 +444,18 @@ class ExecutionAdapter:
             receipt.update(outcome='input_sent', release_confirmed=True)
             if lease_id:
                 verification = self.host_rpc('clipboard.verify', args, identity)
+                receipt['verification'] = self.verification_summary(verification)
                 if not isinstance(verification, dict) or verification.get('verified') is not True:
                     raise ExecutionError('INPUT_EFFECT_UNKNOWN')
-                receipt.update(outcome='effect_verified', verification=verification)
+                receipt['outcome'] = 'effect_verified'
             self.record(receipt)
             return {'ok': True, 'receipt': receipt}
         except Exception as error:
             code = str(error) if isinstance(error, ExecutionError) else type(error).__name__
             receipt.update(outcome='unknown' if reports_started else 'not_sent',
                            release_confirmed=input_complete or not reports_started, error=code)
+            if isinstance(error, ExecutionError) and error.diagnostics is not None:
+                receipt['diagnostics'] = error.diagnostics
             try:
                 self.record(receipt)
             except (OSError, sqlite3.Error):
@@ -396,7 +497,8 @@ class ExecutionAdapter:
         try:
             if not isinstance(value, dict):
                 raise ExecutionError('INVALID_REQUEST')
-            handler = {'begin': self.begin, 'execute': self.execute, 'status': self.status, 'stop': self.stop}.get(op)
+            handler = {'begin': self.begin, 'resume_draft': self.resume_draft,
+                       'execute': self.execute, 'status': self.status, 'stop': self.stop}.get(op)
             if handler is None:
                 raise ExecutionError('UNSUPPORTED_OPERATION')
             return handler(value)

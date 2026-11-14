@@ -1,14 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import {
   ArrowUpRight,
   ArrowUp,
   ChevronDown,
+  ChevronUp,
   GripHorizontal,
-  Minus,
   LoaderCircle,
   Square,
   TriangleAlert,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { isActiveControlMode, type ControlIndicatorView } from '../../shared/control-indicator'
 import brandMark from '../../../resources/brand.svg'
@@ -35,17 +37,33 @@ export function ControlIndicator() {
   const preparingCommand = useRef<Promise<boolean> | null>(null)
   const composingCommand = useRef(false)
   const [goal, setGoal] = useState('')
+  const [commandStatus, setCommandStatus] = useState('')
+  useEffect(() => {
+    if (!commandStatus) return
+    const timer = setTimeout(() => setCommandStatus(''), 4000)
+    return () => clearTimeout(timer)
+  }, [commandStatus])
   const [hovered, setHovered] = useState(false)
   const [focusWithin, setFocusWithin] = useState(false)
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dragging = useRef(false)
+  const [draggingTab, setDraggingTab] = useState(false)
+  const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null)
+  const suppressClick = useRef(false)
   const surface = useRef<HTMLElement>(null)
   const panel = useRef<HTMLElement>(null)
   const closing = useRef(false)
   const [reducedMotion, setReducedMotion] = useState(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
   )
-  const revealed = hovered || focusWithin || editingAnswer || snapshot.mode === 'preview'
+  const revealed =
+    hovered || focusWithin || editingAnswer || (snapshot.mode === 'preview' && !snapshot.dockEdge)
+  useLayoutEffect(() => {
+    document.body.dataset.dock = snapshot.dockEdge ?? ''
+    return () => {
+      delete document.body.dataset.dock
+    }
+  }, [snapshot.dockEdge])
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
     const update = () => setReducedMotion(preference.matches)
@@ -71,7 +89,7 @@ export function ControlIndicator() {
   useEffect(() => {
     const api = window.coloopControl
     if (!api) {
-      setActionError('Connection unavailable. Open Coloop.')
+      setActionError('连接不可用，请打开 Coloop 检查。')
       return
     }
     let active = true
@@ -85,9 +103,9 @@ export function ControlIndicator() {
     void api.snapshot().then(
       (result) => {
         if (result.ok) accept(result.value)
-        else if (active) setActionError('Connection unavailable. Open Coloop.')
+        else if (active) setActionError('连接不可用，请打开 Coloop 检查。')
       },
-      () => active && setActionError('Connection lost. Open Coloop.'),
+      () => active && setActionError('连接已断开，请打开 Coloop 检查。'),
     )
     return () => {
       active = false
@@ -102,7 +120,7 @@ export function ControlIndicator() {
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
         void window.coloopControl?.snapshot(snapshot.revision).catch(() => {
-          setActionError('Connection lost. Open Coloop.')
+          setActionError('连接已断开，请打开 Coloop 检查。')
         })
       })
     })
@@ -125,9 +143,9 @@ export function ControlIndicator() {
     setActionError('')
     try {
       const result = await window.coloopControl.stop()
-      if (!result.ok) setActionError('Stop unconfirmed. Open Coloop.')
+      if (!result.ok) setActionError('停止结果未确认，请打开 Coloop 检查。')
     } catch {
-      setActionError('Stop unconfirmed. Open Coloop.')
+      setActionError('停止结果未确认，请打开 Coloop 检查。')
     } finally {
       setRequestingStop(false)
     }
@@ -138,36 +156,41 @@ export function ControlIndicator() {
     snapshot.mode === 'unconfirmed' || Boolean(actionError) || Boolean(snapshot.error)
   const detail =
     actionError ||
+    commandStatus ||
     snapshot.detail ||
     (preview
-      ? 'Preview · No actions running'
+      ? '灵动岛预览'
       : stopping
-        ? 'Waiting for stop confirmation'
+        ? '等待停止确认'
         : uncertain
-          ? 'Control status unconfirmed'
+          ? '操作状态待确认'
           : snapshot.mode === 'idle'
             ? snapshot.observationPaused
-              ? 'Observation paused'
-              : 'Ready to help'
+              ? '观察已暂停'
+              : '准备开始'
             : snapshot.mode === 'suggestion'
-              ? 'A suggestion for your work'
+              ? '当前任务有新建议'
               : snapshot.mode === 'question'
-                ? 'Your answer is needed'
+                ? '等待你的回答'
                 : snapshot.mode === 'completed'
-                  ? 'Task completed'
+                  ? '任务已完成'
                   : snapshot.mode === 'blocked'
-                    ? 'Task needs attention'
+                    ? '任务需要处理'
                     : snapshot.mode === 'failed'
-                      ? 'Task could not finish'
-                      : 'Controlling your computer')
+                      ? '任务未完成'
+                      : '正在操作电脑')
   const active = isActiveControlMode(snapshot.mode)
-  const canStartTask = ['idle', 'suggestion', 'completed', 'blocked', 'failed'].includes(
-    snapshot.mode,
-  )
-  const hasPanel = ['suggestion', 'question', 'completed', 'blocked', 'failed'].includes(
-    snapshot.mode,
-  )
-  const expanded = snapshot.expanded ?? hasPanel
+  const canStartTask = [
+    'idle',
+    'suggestion',
+    'completed',
+    'blocked',
+    'failed',
+    'controlling',
+    'question',
+  ].includes(snapshot.mode)
+  const expanded = snapshot.expanded === true
+  const detailsVisible = revealed && expanded
   // Animate a new task/phase, never each polling revision or elapsed-time tick.
   useLayoutEffect(() => {
     if (!panel.current) return
@@ -182,9 +205,9 @@ export function ControlIndicator() {
     setPendingAction(true)
     try {
       const result = await action()
-      if (!result?.ok) setActionError(result?.error || 'Connection unavailable. Open Coloop.')
+      if (!result?.ok) setActionError(result?.error || '连接不可用，请打开 Coloop 检查。')
     } catch {
-      setActionError('Request failed. Open Coloop to retry.')
+      setActionError('请求失败，请打开 Coloop 重试。')
     } finally {
       setPendingAction(false)
     }
@@ -249,6 +272,51 @@ export function ControlIndicator() {
       })
     })
 
+  const beginDrag = (event: PointerEvent<HTMLElement>) => {
+    if (
+      event.button !== 0 ||
+      (event.target as Element).closest(
+        '.control-stop, .control-preview-open, .control-preview-close',
+      )
+    )
+      return
+    event.preventDefault()
+    if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    gesture.current = { x: event.screenX, y: event.screenY, moved: false }
+    suppressClick.current = false
+    dragging.current = true
+    setDraggingTab(Boolean((event.target as Element).closest('.island-edge-tab')))
+    const target = (event.target as Element).closest('button, .island-drag-handle')
+    const captureTarget = target instanceof HTMLElement ? target : event.currentTarget
+    captureTarget.setPointerCapture(event.pointerId)
+    void window.coloopControl?.drag('start', { x: event.screenX, y: event.screenY })
+  }
+  const moveDrag = (event: PointerEvent<HTMLElement>) => {
+    const start = gesture.current
+    if (!dragging.current || !start) return
+    if (Math.hypot(event.screenX - start.x, event.screenY - start.y) >= 4) start.moved = true
+    if (start.moved) void window.coloopControl?.drag('move', { x: event.screenX, y: event.screenY })
+  }
+  const endDrag = (event: PointerEvent<HTMLElement>) => {
+    if (!dragging.current) return
+    dragging.current = false
+    setDraggingTab(false)
+    suppressClick.current = gesture.current?.moved ?? false
+    gesture.current = null
+    void window.coloopControl?.drag('end', { x: event.screenX, y: event.screenY })
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+  const toggleDetails = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current)
+    setHovered(true)
+    void runAction(async () => {
+      const revealed = await window.coloopControl?.setRevealed(true, reducedMotion)
+      if (!revealed?.ok) return revealed || { ok: false }
+      return (await window.coloopControl?.setExpanded(!expanded)) || { ok: false }
+    })
+  }
+
   if (snapshot.mode === 'hidden' && !actionError) return null
   return (
     <main
@@ -257,88 +325,139 @@ export function ControlIndicator() {
       data-mode={snapshot.mode}
       data-expanded={expanded}
       data-revealed={revealed}
-      onMouseEnter={() => {
+      data-details-visible={detailsVisible}
+      data-attention={snapshot.attention && snapshot.mode === 'question'}
+      data-snap={snapshot.snapEdge}
+      data-dock={snapshot.dockEdge}
+      data-dock-collapsed={snapshot.dockCollapsed || draggingTab}
+      onMouseEnter={(event) => {
         if (leaveTimer.current) clearTimeout(leaveTimer.current)
-        setHovered(true)
+        if (
+          !snapshot.dockCollapsed &&
+          !dragging.current &&
+          !(event.target as Element).closest('.island-drag-handle')
+        )
+          setHovered(true)
+      }}
+      onMouseMove={(event) => {
+        if (leaveTimer.current) clearTimeout(leaveTimer.current)
+        if (
+          !snapshot.dockCollapsed &&
+          !dragging.current &&
+          !(event.target as Element).closest('.island-drag-handle')
+        )
+          setHovered(true)
       }}
       onMouseLeave={() => {
         if (leaveTimer.current) clearTimeout(leaveTimer.current)
-        leaveTimer.current = setTimeout(() => setHovered(false), 350)
+        leaveTimer.current = setTimeout(() => {
+          if (!dragging.current) setHovered(false)
+        }, 350)
       }}
-      onFocusCapture={() => setFocusWithin(true)}
+      onFocusCapture={(event) =>
+        setFocusWithin(
+          (event.target as HTMLElement).matches(
+            'input, textarea, select, [contenteditable="true"]',
+          ),
+        )
+      }
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocusWithin(false)
+        if (
+          !(event.relatedTarget instanceof HTMLElement) ||
+          !event.relatedTarget.matches('input, textarea, select, [contenteditable="true"]')
+        )
+          setFocusWithin(false)
+      }}
+      onClickCapture={(event) => {
+        if (suppressClick.current) {
+          suppressClick.current = false
+          event.preventDefault()
+          event.stopPropagation()
+        }
       }}
       aria-label="Coloop control status"
     >
-      <header className="island-header">
-        <div
-          className="island-drag-handle"
-          title="按住拖动灵动岛"
-          aria-label="拖动灵动岛"
-          onPointerDown={(event) => {
-            if (event.button !== 0) return
-            event.preventDefault()
-            dragging.current = true
-            event.currentTarget.setPointerCapture(event.pointerId)
-            void window.coloopControl?.drag('start', { x: event.screenX, y: event.screenY })
-          }}
-          onPointerMove={(event) => {
-            if (dragging.current)
-              void window.coloopControl?.drag('move', { x: event.screenX, y: event.screenY })
-          }}
-          onPointerUp={(event) => {
-            if (!dragging.current) return
-            dragging.current = false
-            event.currentTarget.releasePointerCapture(event.pointerId)
-            void window.coloopControl?.drag('end', { x: event.screenX, y: event.screenY })
-          }}
-          onLostPointerCapture={(event) => {
-            if (dragging.current) {
-              dragging.current = false
-              void window.coloopControl?.drag('end', { x: event.screenX, y: event.screenY })
-            }
-          }}
+      {(snapshot.dockCollapsed || draggingTab) && (
+        <button
+          className="island-edge-tab"
+          aria-label="展开 Coloop 浮窗"
+          title="展开 Coloop 浮窗"
+          onPointerDown={beginDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onLostPointerCapture={endDrag}
+          onClick={toggleDetails}
         >
-          <GripHorizontal size={16} aria-hidden="true" />
+          <img src={brandMark} alt="" />
+          {snapshot.dockEdge === 'top' ? (
+            <ChevronDown size={14} />
+          ) : snapshot.dockEdge === 'left' ? (
+            <ChevronRight size={14} />
+          ) : (
+            <ChevronLeft size={14} />
+          )}
+          {snapshot.mode === 'question' && snapshot.attention && (
+            <i className="island-attention-dot" />
+          )}
+        </button>
+      )}
+      <header
+        className="island-header"
+        onPointerDown={beginDrag}
+        onPointerMove={moveDrag}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+      >
+        <div className="island-drag-handle" title="按住拖动灵动岛" aria-label="拖动灵动岛">
+          {snapshot.snapEdge === 'top' ? (
+            <ChevronUp size={16} aria-hidden="true" />
+          ) : snapshot.snapEdge === 'left' ? (
+            <ChevronLeft size={16} aria-hidden="true" />
+          ) : snapshot.snapEdge === 'right' ? (
+            <ChevronRight size={16} aria-hidden="true" />
+          ) : (
+            <GripHorizontal size={16} aria-hidden="true" />
+          )}
         </div>
         <button
           className="control-brand"
-          title="Open Coloop"
-          aria-label="Open Coloop"
-          onClick={() => {
-            void window.coloopControl
-              ?.openMain()
-              .then((result) => {
-                if (!result.ok) setActionError('Unable to open Coloop.')
-              })
-              .catch(() => setActionError('Unable to open Coloop. Use the taskbar.'))
-          }}
+          title={expanded ? '收起任务详情' : '展开任务详情'}
+          aria-label={expanded ? '收起浮窗详情' : '展开浮窗详情'}
+          onClick={toggleDetails}
         >
           <img src={brandMark} alt="" />
           {uncertain && <TriangleAlert className="control-warning" size={12} aria-hidden="true" />}
         </button>
-        <div className="control-copy" role="status" aria-live="polite" aria-atomic="true">
-          <strong className="control-title">Coloop</strong>
-          <span key={detail} className="control-detail" title={detail}>
-            {detail}
-          </span>
-        </div>
-        {active && (
-          <time
-            className="control-timer"
-            aria-label={`Elapsed ${elapsed(snapshot.startedAt, now)}`}
+        <button
+          className="control-copy"
+          aria-label={expanded ? '收起任务详情' : '展开任务详情'}
+          aria-expanded={expanded}
+          disabled={pendingAction}
+          onClick={toggleDetails}
+        >
+          <strong key={snapshot.questionId ?? snapshot.mode} className="control-title">
+            {snapshot.previewDetails === false ? 'Coloop' : (snapshot.title ?? 'Coloop')}
+          </strong>
+          <span
+            className="control-detail"
+            title={snapshot.snapEdge ? undefined : detail}
+            role={snapshot.snapEdge ? 'status' : undefined}
           >
-            {elapsed(snapshot.startedAt, now)}
-          </time>
-        )}
+            {snapshot.snapEdge
+              ? `松开即可收至${{ top: '顶部', left: '左侧', right: '右侧' }[snapshot.snapEdge]}`
+              : detail}
+          </span>
+        </button>
+
         {preview ? (
           <>
             <button
               className="control-preview-open"
               onClick={() => void window.coloopControl?.openMain().catch(() => {})}
-              aria-label="Open Coloop"
-              title="Open Coloop"
+              aria-label="打开 Coloop"
+              title="打开 Coloop"
             >
               <ArrowUpRight size={17} aria-hidden="true" />
             </button>
@@ -358,69 +477,15 @@ export function ControlIndicator() {
             ) : (
               <Square size={11} fill="currentColor" aria-hidden="true" />
             )}
-            <span>{stopping ? 'Stopping' : 'Stop'}</span>
+            <span>{stopping ? '停止中' : '停止'}</span>
           </button>
         ) : null}
-        <div
-          className="island-header-actions"
-          data-visible={revealed}
-          inert={!revealed}
-          aria-hidden={!revealed}
-        >
-          {hasPanel && (
-            <button
-              className="island-expand"
-              aria-expanded={expanded}
-              aria-label={expanded ? 'Collapse' : 'Expand'}
-              onClick={() => void runAction(() => window.coloopControl?.setExpanded(!expanded))}
-            >
-              <ChevronDown size={17} />
-            </button>
-          )}
-          {canStartTask && (
-            <button
-              className="island-text-button"
-              onClick={() =>
-                void runAction(() =>
-                  window.coloopControl?.pauseObservation(!snapshot.observationPaused),
-                )
-              }
-            >
-              {snapshot.observationPaused ? 'Resume' : 'Pause'}
-            </button>
-          )}
-          {!preview && (
-            <button
-              aria-label="收起灵动岛"
-              title="收起灵动岛"
-              onClick={() => {
-                setHovered(false)
-                setFocusWithin(false)
-                setEditingAnswer(false)
-                if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
-                void window.coloopControl?.endAnswer()
-              }}
-            >
-              <Minus size={16} />
-            </button>
-          )}
-          {!preview && (
-            <button
-              aria-label="关闭灵动岛"
-              title={active ? '停止任务并关闭灵动岛' : '关闭灵动岛（从托盘重新打开）'}
-              disabled={pendingAction || stopping}
-              onClick={() => closeSurface()}
-            >
-              <X size={16} />
-            </button>
-          )}
-        </div>
       </header>
-      {!preview && (
+      {!preview && snapshot.mode !== 'question' && (
         <form
-          data-visible={revealed}
-          inert={!revealed}
-          aria-hidden={!revealed}
+          data-visible={detailsVisible}
+          inert={!detailsVisible}
+          aria-hidden={!detailsVisible}
           className="island-command"
           aria-label="主动命令"
           onBlur={(event) => {
@@ -434,7 +499,11 @@ export function ControlIndicator() {
             void runAction(async () => {
               if (!(await prepareCommand())) return { ok: false, error: '无法输入命令，请重试。' }
               const result = await window.coloopControl?.startTask(command)
-              if (result?.ok) setGoal('')
+              if (result?.ok) {
+                setGoal('')
+                setCommandStatus(active ? '已加入当前任务消息队列' : '已发送任务')
+                setActionError('')
+              }
               return result || { ok: false }
             })
           }}
@@ -443,7 +512,13 @@ export function ControlIndicator() {
             ref={commandInput}
             id="island-goal"
             aria-label="让 Coloop 做什么"
-            placeholder={canStartTask ? '让 Coloop 做什么？' : '任务进行中，完成后可输入新命令'}
+            placeholder={
+              active && canStartTask
+                ? '补充要求，Enter 加入消息队列'
+                : canStartTask
+                  ? '让 Coloop 做什么？'
+                  : '正在停止，请稍候'
+            }
             autoComplete="off"
             maxLength={4000}
             value={goal}
@@ -470,7 +545,10 @@ export function ControlIndicator() {
                 event.preventDefault()
               if (event.key === 'Escape') event.currentTarget.blur()
             }}
-            onChange={(event) => setGoal(event.target.value)}
+            onChange={(event) => {
+              setGoal(event.target.value)
+              setCommandStatus('')
+            }}
           />
           <button
             className="island-command-send"
@@ -487,15 +565,19 @@ export function ControlIndicator() {
           </button>
         </form>
       )}
-      {hasPanel && (
+      {!preview && (
         <section
           ref={panel}
           className="island-panel"
           data-visible={revealed && expanded}
           inert={!revealed || !expanded}
           aria-hidden={!revealed || !expanded}
-          aria-label="Task details"
+          aria-label="任务详情"
         >
+          <div className="island-model">
+            <span>{snapshot.model}</span>
+            {active && <span>{elapsed(snapshot.startedAt, now)}</span>}
+          </div>
           {snapshot.title && <h1>{snapshot.title}</h1>}
           {snapshot.content && <div className="island-content">{snapshot.content}</div>}
           {snapshot.error && (
@@ -532,7 +614,7 @@ export function ControlIndicator() {
                   )
                 }
               >
-                Execute
+                执行
               </button>
               <button
                 className="island-secondary"
@@ -546,7 +628,7 @@ export function ControlIndicator() {
                   )
                 }
               >
-                Ignore
+                忽略
               </button>
             </div>
           )}
@@ -564,7 +646,7 @@ export function ControlIndicator() {
                   </button>
                 ))}
               </div>
-              {!editingAnswer ? (
+              {snapshot.questionKind === 'approval' ? null : !editingAnswer ? (
                 <button
                   className="island-secondary"
                   onClick={() =>
@@ -575,7 +657,7 @@ export function ControlIndicator() {
                     })
                   }
                 >
-                  Write an answer
+                  填写回答
                 </button>
               ) : (
                 <form
@@ -584,7 +666,7 @@ export function ControlIndicator() {
                     if (answer.trim()) void submitAnswer(answer.trim())
                   }}
                 >
-                  <label htmlFor="island-answer">Your answer</label>
+                  <label htmlFor="island-answer">你的回答</label>
                   <textarea
                     id="island-answer"
                     autoFocus
@@ -599,7 +681,7 @@ export function ControlIndicator() {
                       type="submit"
                       disabled={pendingAction || !answer.trim()}
                     >
-                      Continue
+                      提交回答
                     </button>
                     <button
                       className="island-secondary"
@@ -609,7 +691,7 @@ export function ControlIndicator() {
                         void window.coloopControl?.endAnswer()
                       }}
                     >
-                      Cancel answer
+                      取消回答
                     </button>
                   </div>
                 </form>
@@ -617,6 +699,38 @@ export function ControlIndicator() {
             </>
           )}
         </section>
+      )}
+      {!preview && detailsVisible && (
+        <footer className="island-footer-actions">
+          <button
+            onClick={() =>
+              void runAction(() =>
+                window.coloopControl?.pauseObservation(!snapshot.observationPaused),
+              )
+            }
+          >
+            {snapshot.observationPaused ? '继续观察' : '暂停观察'}
+          </button>
+          <button
+            onClick={() => {
+              setEditingAnswer(false)
+              setFocusWithin(false)
+              void window.coloopControl?.endAnswer()
+              void window.coloopControl?.setExpanded(false)
+            }}
+          >
+            收起详情
+          </button>
+          <button aria-label="关闭灵动岛" onClick={() => closeSurface()}>
+            关闭浮窗
+          </button>
+          <button
+            className="island-chat-link"
+            onClick={() => void runAction(() => window.coloopControl?.openMain())}
+          >
+            回到聊天 →
+          </button>
+        </footer>
       )}
     </main>
   )

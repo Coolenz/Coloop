@@ -10,7 +10,7 @@
 
 [![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-202124?style=flat-square)](#快速开始) [![Runtime](https://img.shields.io/badge/Agent%20Runtime-DeepSeek%20Harness-202124?style=flat-square)](#执行架构) [![RK3588](https://img.shields.io/badge/Local%20AI-RK3588-202124?style=flat-square)](#模型与硬件) [![App License](https://img.shields.io/badge/App%20License-MIT-202124?style=flat-square)](Coloop/LICENSE)
 
-[能力概览](#能力概览) · [开发预览](#开发预览) · [快速开始](#快速开始) · [文档导航](#文档导航)
+[能力概览](#能力概览) · [开发进展](#开发进展) · [快速开始](#快速开始) · [文档导航](#文档导航)
 
 </div>
 
@@ -29,7 +29,7 @@
 
 ### 读懂文件与网页
 
-通过 Docling 读取 PDF、DOCX 的结构、页码与表格，通过 Stagehand 定位网页元素、提取信息和执行浏览器操作。
+通过 Docling 读取 PDF、DOCX 的结构、页码与表格，通过官方 Playwright 扩展连接现有 Edge 会话，并提供 Stagehand 网页定位、信息提取和受控操作。
 
 </td>
 </tr>
@@ -67,17 +67,17 @@ DeepSeek Harness 保存会话与检查点，Coloop 记录工具意图、回执�
 </tr>
 </table>
 
-以上能力已接入公开主分支的 **0.14.0 DSH 架构**。电脑操作的效果取决于应用、设备与任务环境，具体测试范围记录在各专题文档中。[架构与接入说明](Coloop/docs/harness-migration.md)
+以上能力已接入 GitHub 主分支的 **0.14.0 DSH 架构**。电脑操作的效果取决于应用、设备与任务环境，具体测试范围记录在各专题文档中。[架构与接入说明](Coloop/docs/harness-migration.md)
 
-## 开发预览
+## 开发进展
 
 **近期开发围绕一个持续工作的任务空间展开。** 聊天、工具执行、模型调试与外部 Agent 跟进汇集到同一工作区。
 
 ![Coloop 开发版任务工作区，包含任务列表、持久化聊天和权限选择](docs/assets/coloop-workspace-preview.png)
 
-<p align="center"><sub>本地开发版界面 · 隔离测试环境中的示例任务与合成回复 · 2026 年 11 月</sub></p>
+<p align="center"><sub>开发版测试界面 · 隔离测试环境中的示例任务与合成回复 · 2026 年 11 月</sub></p>
 
-| 最近进展             | 已实现的开发版能力                                                           |
+| 最近进展             | 已同步的源码能力                                                             |
 | -------------------- | ---------------------------------------------------------------------------- |
 | **连续的任务聊天**   | 持久化聊天、草稿与任务队列，追加要求、历史检索和中断后恢复                   |
 | **随手可用的灵动岛** | 顶部及左右贴边、拖动定位、任务标题同步、问题回答与停止                       |
@@ -87,7 +87,7 @@ DeepSeek Harness 保存会话与检查点，Coloop 记录工具意图、回执�
 | **命令行操作**       | 可发现的命令目录与 JSON Schema，任务发起、等待、历史读取及配置管理           |
 | **偏好与恢复可靠性** | 身份范围内的偏好保存和读回核验，部分更新、延期回执及已识别执行异常的接续处理 |
 
-开发进度核对至 **2026-11-14**，对应本地提交 `c6a2997`。本节功能及截图来自本地开发分支，相关源码待同步到公开 `main`。下方快速开始对应当前公开代码。
+开发进度核对至 **2026-11-14**。任务聊天、CLI、三端审批与模型调试等源码已同步到 GitHub `main`。截图来自隔离 UI 测试，各功能的操作入口与参数见 [CLI 操作手册](Coloop/docs/cli.md)。
 
 <details>
 <summary><strong>查看模型调试与灵动岛</strong></summary>
@@ -120,7 +120,7 @@ flowchart TB
     DSH <--> Models[RK 本地模型 / 云端模型]
     DSH --> Tools[授权工具与执行器]
     Tools --> Docs[Docling 文档 / 文件操作]
-    Tools --> Web[Stagehand 浏览器]
+    Tools --> Web[Playwright / Stagehand 浏览器]
     Tools --> Computer[Windows CUA / RK USB HID]
     Docs --> Verify[结果读取与核验]
     Web --> Verify
@@ -148,6 +148,18 @@ npm run dev
 
 在应用中配置自己的模型地址、模型 ID 与 API Key，测试连接后发起任务。开发缓存和临时文件由 `workspace-cache.ps1` 放在应用目录的 `.cache` 中。
 
+### 命令行调用
+
+应用启动后，可在另一个终端发现命令并读取参数 Schema。
+
+```powershell
+npm run --silent cli -- status
+npm run --silent cli -- commands
+npm run --silent cli -- help conversation send
+```
+
+安装版提供根目录 `coloop.cmd`。任务发起、等待、恢复与配置的完整用法见 [CLI 操作手册](Coloop/docs/cli.md)。
+
 ### 按任务准备能力
 
 | 想使用的能力           | 需要准备                                                                                    |
@@ -156,7 +168,7 @@ npm run dev
 | 本地屏幕 OCR           | Python 3.12、OCR 环境与模型，并配置 RK 项目路径                                             |
 | RK 本地推理与 USB 操作 | 已部署兼容模型服务及 HID 环境的 RK 设备、USB OTG 连接与已核对的 SSH 指纹                    |
 | PDF / DOCX 结构化读取  | 准备 Python 3.12，并确保 `python` 指向该版本，再运行 `npm run setup:docling` 安装环境与模型 |
-| 受控网页操作           | 安装 Chrome（或配置 `CHROME_PATH`），运行 `npm run setup:stagehand` 校验环境                |
+| 受控网页操作           | Windows 安装 Microsoft Edge，运行 `npm run setup:stagehand` 校验环境                        |
 | Windows CUA            | 运行 `npm run setup:cua` 准备电脑观察与操作驱动                                             |
 | Android 远程任务       | 构建手机客户端并与电脑端配对，配置对应连接服务                                              |
 

@@ -158,15 +158,34 @@ export class PrivateLoginWindow {
       ])) === true
     )
   }
-  private async fill(field: 'username' | 'password') {
+  async fill(field: 'username' | 'password', index?: number) {
     if (this.closed || this.operation) throw new Error('正在填入，请等待本次操作结束')
     this.operation++
-    this.state = { ...this.state, busy: true }
+    this.state = { ...this.state, busy: true, outcome: 'not_sent' }
     this.update('正在检查输入框…')
     try {
       this.window.focus()
       this.view.webContents.focus()
       await new Promise((resolve) => setTimeout(resolve, 30))
+      if (index !== undefined) {
+        if (!allowedLoginUrl(this.view.webContents.getURL(), this.state.origin))
+          throw new Error('登录网站与凭据不匹配')
+        const types = field === 'password' ? ['password'] : ['text', 'email', 'tel']
+        const focused = await this.view.webContents.executeJavaScriptInIsolatedWorld(999, [
+          {
+            code: `(() => {
+            const fields = [...document.querySelectorAll('input')].filter(e =>
+              ${JSON.stringify(types)}.includes(e.type) && !e.disabled && !e.readOnly &&
+              e.getClientRects().length > 0);
+            const field = fields[${JSON.stringify(index)}];
+            if (!field) return false;
+            field.focus();
+            return document.activeElement === field;
+          })()`,
+          },
+        ])
+        if (!focused) throw new Error('未找到指定输入框')
+      }
       const generation = this.generation
       if (!(await this.probe(field, true))) {
         this.update(
@@ -174,6 +193,7 @@ export class PrivateLoginWindow {
         )
         return this.state
       }
+      this.state = { ...this.state, outcome: 'unknown' }
       const response = await this.board.credentials(
         {
           op: 'fill',
@@ -190,6 +210,7 @@ export class PrivateLoginWindow {
         (response as { state?: string }).state !== 'input_sent'
       )
         throw new Error('填入结果未确认')
+      this.state = { ...this.state, outcome: 'input_sent' }
       this.update('已发送键盘输入。请检查页面，再由你提交登录；这不代表已经登录成功。')
     } catch {
       this.update('填入未完成或结果不确定。请检查页面内容，清空后再按需手动发起，勿重复点击。')

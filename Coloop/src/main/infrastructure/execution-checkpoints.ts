@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, readdir, rename, rm, lstat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import { executionPolicySchema, type ExecutionPolicy } from '../../shared/conversations'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { cloudFieldSchema, type CloudField } from '../../shared/contracts'
@@ -8,6 +9,10 @@ export interface ExecutionCheckpoint {
   taskId: string
   goal: string
   preference: 'auto' | 'cloud' | 'rk'
+  autoRoute?: 'rk' | 'cloud'
+  cloudSessionId?: string
+  policy?: ExecutionPolicy
+  handoffs?: { from: string; to: string; reason: string; at: number }[]
   workspace?: string
   approvedFields: CloudField[]
   supplements: string[]
@@ -27,6 +32,22 @@ const checkpointSchema = z
     taskId: idSchema,
     goal: z.string().min(1).max(24000),
     preference: z.enum(['auto', 'cloud', 'rk']),
+    autoRoute: z.enum(['rk', 'cloud']).optional(),
+    cloudSessionId: idSchema.optional(),
+    policy: executionPolicySchema.optional(),
+    handoffs: z
+      .array(
+        z
+          .object({
+            from: z.string().max(160),
+            to: z.string().max(160),
+            reason: z.string().max(160),
+            at: z.number().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(100)
+      .optional(),
     workspace: z.string().min(1).max(2048).optional(),
     approvedFields: z.array(cloudFieldSchema).max(64),
     supplements: z.array(z.string().max(24000)).max(200),

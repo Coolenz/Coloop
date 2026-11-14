@@ -20,17 +20,29 @@ for (const asset of assets) {
   const bytes = await readFile(join(packageRoot, asset))
   hashes[asset] = createHash('sha256').update(bytes).digest('hex')
 }
-const candidates = [
-  process.env.CHROME_PATH,
-  ...[process.env.LOCALAPPDATA, process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)']]
-    .filter(Boolean)
-    .map((root) => join(root, 'Google', 'Chrome', 'Application', 'chrome.exe')),
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-].filter(Boolean)
+const candidates =
+  process.platform === 'win32'
+    ? [
+        ...[process.env['PROGRAMFILES(X86)'], process.env.PROGRAMFILES, process.env.LOCALAPPDATA]
+          .filter(Boolean)
+          .map((root) => join(root, 'Microsoft', 'Edge', 'Application', 'msedge.exe')),
+      ]
+    : [
+        process.env.CHROME_PATH,
+        ...[process.env.LOCALAPPDATA, process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)']]
+          .filter(Boolean)
+          .map((root) => join(root, 'Google', 'Chrome', 'Application', 'chrome.exe')),
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+      ].filter(Boolean)
 const browser = candidates.find((candidate) => existsSync(candidate))
-if (!browser) throw new Error('STAGEHAND_CHROME_REQUIRED: install local Chrome or set CHROME_PATH')
+if (!browser)
+  throw new Error(
+    process.platform === 'win32'
+      ? 'EDGE_BROWSER_NOT_FOUND: install Microsoft Edge'
+      : 'STAGEHAND_CHROME_REQUIRED: install local Chrome or set CHROME_PATH',
+  )
 console.log(
   JSON.stringify(
     { version: metadata.version, browser, extension: join(packageRoot, 'dist/extension'), hashes },

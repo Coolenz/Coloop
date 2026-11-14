@@ -1,0 +1,58 @@
+.home-activity {
+  margin-bottom: 24px;
+}
+.home-activity > h2 {
+  margin-top: 24px;
+  font-size: 17px;
+}
+.home-task {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+.home-task h3 {
+  margin: 0;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.home-task .section-bar {
+  gap: 16px;
+  align-items: flex-start;
+}
+.home-task .text-button {
+  flex-shrink: 0;
+}
+.home-task p {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.home-task-output {
+  max-height: 360px;
+  overflow: auto;
+  padding: 0;
+  list-style: none;
+}
+.home-task-output li {
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.home-task-output pre,
+.home-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+.home-task-output time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.home-activity [role='switch'][aria-checked='true'] {
+  background: var(--ink);
+  color: var(--surface, white);
+}
+.home-activity [role='switch'] {
+  min-width: 92px;
+  flex-shrink: 0;
+}

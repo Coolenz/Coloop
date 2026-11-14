@@ -22,7 +22,7 @@ data class Receipt(val id: String, val sessionHandle: String, val action: String
 data class Progress(val sessionHandle: String, val text: String, val at: String)
 data class RemoteSnapshot(val hostName: String, val stopped: Boolean, val active: Boolean, val unconfirmed: Int,
     val sessions: List<RemoteSession>, val commands: List<Receipt>, val progress: List<Progress>, val coloop: ColoopSnapshot? = null,
-    val connection: ConnectionInfo? = null) {
+    val connection: ConnectionInfo? = null, val approval: TaskApproval? = null) {
     companion object {
         fun parse(value: JSONObject): RemoteSnapshot {
             val control = value.getJSONObject("sessionControl")
@@ -31,7 +31,7 @@ data class RemoteSnapshot(val hostName: String, val stopped: Boolean, val active
                     session.getBoolean("connected"), session.getBoolean("controlActive"), session.getBoolean("stopping"), (0 until session.getJSONArray("capabilities").length()).any { session.getJSONArray("capabilities").getString(it) == "send_message" }) },
                 control.getJSONArray("commands").objects().map { command -> Receipt(command.getString("commandId"), command.getString("sessionHandle"), command.getString("action"), command.getString("status"), command.optBoolean("controlResolved", false), command.getString("updatedAt")) },
                 value.getJSONArray("progress").objects().map { Progress(it.getString("sessionHandle"), it.getString("text"), it.getString("at")) },
-                value.optJSONObject("violoop")?.let(ColoopSnapshot::parse), value.optJSONObject("connection")?.let(ConnectionInfo::parse))
+                value.optJSONObject("violoop")?.let(ColoopSnapshot::parse), value.optJSONObject("connection")?.let(ConnectionInfo::parse), value.optJSONObject("approval")?.let(TaskApproval::parse))
         }
     }
 }
@@ -195,6 +195,24 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         val hostId = state.value.hostId ?: return@action
         repository.updateEndpoint(hostId, raw); reloadComputers()
         mutable.update { it.copy(link = LinkStatus.CONNECTING, notice = "已验证原电脑并更新地址") }; refreshOnce()
+    }
+    fun answerApproval(approval: TaskApproval, allowed: Boolean) = action {
+        val current = state.value
+        val hostId = current.hostId ?: return@action
+        require(current.link == LinkStatus.ONLINE && current.snapshot?.approval?.questionId == approval.questionId) {
+            "审批已更新，请刷新当前任务"
+        }
+        try {
+            val result = repository.rpc(hostId, "approval_answer", JSONObject()
+                .put("taskId", approval.taskId).put("questionId", approval.questionId)
+                .put("decision", if (allowed) "allowed-once" else "rejected"))
+            require(result.getBoolean("accepted"))
+            if (state.value.hostId == hostId) mutable.update { it.copy(notice = if (allowed) "已批准本次操作" else "已拒绝本次操作") }
+        } finally {
+            // Query the shared request after every response, including a lost acknowledgement.
+            // A retry can only refer to the same question and cannot authorize a later call.
+            if (state.value.hostId == hostId) refreshOnce()
+        }
     }
     fun send(text: String) = action {
         val current = state.value

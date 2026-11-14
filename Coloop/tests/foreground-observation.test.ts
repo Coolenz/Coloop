@@ -679,6 +679,46 @@ describe('Windows target validation and text verification', () => {
     read.mockResolvedValue({ ...meta, window_id: '99' })
     expect((await capture.guard(snapshot, { action: 'click', target_id: 0 })).allowed).toBe(false)
   })
+  it.each([
+    [{ window_id: '99' }, 'same'],
+    [{ point_owner: '99' }, 'inside'],
+    [{ point_target: { ...meta.point_target!, enabled: false } }, 'elementValid'],
+    [{ point_target: { ...meta.point_target!, runtime_id: [42, 99] } }, 'observedPointMatches'],
+  ] as [Partial<ForegroundMetadata>, string][])(
+    'explains denied editor focus clicks without exposing target contents: %j',
+    async (changed, failed) => {
+      const capture = create()
+      vi.spyOn(capture, 'metadata').mockResolvedValue({ ...meta, ...changed })
+      const result = await capture.validate(snapshot, { action: 'click', target_id: 1 })
+      expect(result.allowed).toBe(false)
+      expect(result.checks).toHaveProperty(failed, false)
+      expect(Object.values(result.checks).every((value) => typeof value === 'boolean')).toBe(true)
+      expect(Object.keys(result.checks)).toEqual([
+        'same',
+        'inside',
+        'elementValid',
+        'focusValid',
+        'observedPointMatches',
+        'observedFocusMatches',
+        'identityMatches',
+        'assistantAllowed',
+      ])
+      expect(JSON.stringify(result.checks)).not.toContain('Title')
+    },
+  )
+  it('separates missing focus from missing guard identity in denied input checks', async () => {
+    const capture = create()
+    const read = vi.spyOn(capture, 'metadata').mockResolvedValue({ ...meta, editable_focus: false })
+    expect(await capture.validate(snapshot, { action: 'paste', target_id: 1 })).toMatchObject({
+      allowed: false,
+      checks: { focusValid: false, observedFocusMatches: true, identityMatches: true },
+    })
+    read.mockResolvedValue(meta)
+    expect(await capture.guard(snapshot, { action: 'paste', target_id: 1 })).toMatchObject({
+      allowed: false,
+      checks: { focusValid: true, observedFocusMatches: true, identityMatches: false },
+    })
+  })
   it('requires editable focus and checks full insertion against pre-paste UIA text and selection', async () => {
     const capture = create()
     const read = vi.spyOn(capture, 'metadata').mockResolvedValue({
@@ -797,6 +837,267 @@ describe('Windows target validation and text verification', () => {
     expect((await capture.verifyCurrentText(snapshot, '正文')).verified).toBe(false)
   })
 })
+describe('whole draft reads without selection offsets', () => {
+  const placeholder: NonNullable<ForegroundMetadata['editable_placeholder']> = {
+    kind: 'prosemirror',
+    patterns_match: true,
+    text_matches_name: true,
+    document_child_count: 0,
+    raw_children_complete: true,
+    subtree_matches_placeholder: true,
+    stable: true,
+    child: {
+      type: 'ControlType.Group',
+      class_name: 'placeholder',
+      name_empty: true,
+      content: false,
+      control: false,
+      focusable: false,
+      focused: false,
+      has_children: true,
+      has_value: false,
+      has_text: false,
+    },
+  }
+  it('reads an exact multiline draft while readEditor still rejects unavailable selection', async () => {
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    const text = '[Coloop Auto Agent Work:123]\n中文\nCODE \n'
+    vi.spyOn(capture, 'metadata').mockResolvedValue({ ...meta, editable_text: text })
+    await expect(capture.readDraft(snapshot, 1)).resolves.toEqual({ text })
+    await expect(capture.readEditor(snapshot, 1)).rejects.toThrow('EDITOR_BINDING_CHANGED')
+  })
+  it.each([
+    [{ editable_runtime_id: [42, 99] }, ['targetRuntime', 'snapshotRuntime']],
+    [{ editable_rect: [20, 20, 700, 501] }, ['editorRect']],
+    [{ editable_focus: false }, ['focused']],
+  ] as [Partial<ForegroundMetadata>, string[]][])(
+    'reports only boolean binding facts when the editor changes after successful draft reads: %j',
+    async (changed, failed) => {
+      const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+      const text = '[Coloop Auto Agent Work:123] private draft text'
+      const read = vi.spyOn(capture, 'metadata').mockResolvedValue({ ...meta, editable_text: text })
+      await expect(capture.readDraft(snapshot, 1)).resolves.toEqual({ text })
+      await expect(capture.readDraft(snapshot, 1)).resolves.toEqual({ text })
+      read.mockResolvedValue({ ...meta, editable_text: text, ...changed })
+      const error = await capture.readDraft(snapshot, 1).catch((error: unknown) => error)
+      expect(error).toMatchObject({
+        message: 'EDITOR_BINDING_CHANGED',
+        diagnostics: { category: 'editor_binding' },
+      })
+      const diagnostics = (error as { diagnostics: { checks: Record<string, unknown> } })
+        .diagnostics
+      expect(Object.values(diagnostics.checks).every((value) => typeof value === 'boolean')).toBe(
+        true,
+      )
+      expect(Object.keys(diagnostics.checks).filter((key) => !diagnostics.checks[key])).toEqual(
+        failed,
+      )
+      expect(JSON.stringify(diagnostics)).not.toContain(text)
+      expect(JSON.stringify(diagnostics)).not.toContain('Title')
+      expect(diagnostics.checks).toMatchObject({
+        window: true,
+        process: true,
+        windowRect: true,
+        textReadable: true,
+      })
+    },
+  )
+  it('allows only anchored editor height changes for scoped exact paste verification', async () => {
+    vi.useFakeTimers()
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    const text = '[Coloop Auto Agent Work:123]\n中文\nCODE'
+    const verify = async () => {
+      const pending = capture.verifyCurrentText(snapshot, text, true, 'editor-height')
+      await vi.runAllTimersAsync()
+      return pending
+    }
+    const read = vi
+      .spyOn(capture, 'metadata')
+      .mockResolvedValue({ ...meta, editable_text: text, editable_rect: [20, 0, 700, 500] })
+    expect((await verify()).verified).toBe(true)
+    // Strict draft reads still require their newly captured editor rectangle.
+    await expect(capture.readDraft(snapshot, 1)).rejects.toThrow('EDITOR_BINDING_CHANGED')
+    read.mockResolvedValue({ ...meta, editable_text: text, editable_rect: [20, 20, 700, 550] })
+    expect((await verify()).verified).toBe(true)
+    for (const changed of [
+      { editable_rect: [20, 10, 700, 510] },
+      { editable_rect: [21, 20, 701, 500] },
+      { editable_rect: [20, -1, 700, 500] },
+      { window_rect: [1, 0, 801, 600] },
+      { window_id: 'other' },
+      { process_id: 99 },
+      { editable_runtime_id: [42, 99] },
+      { editable_focus: false },
+      { editable_text: text + '\nuser edit' },
+      { editable_text: text + '\n' },
+    ]) {
+      read.mockResolvedValue({ ...meta, editable_text: text, ...changed })
+      expect((await verify()).verified).toBe(false)
+    }
+  })
+  it('settles stale and unreadable UIA text to the exact draft using only reads', async () => {
+    vi.useFakeTimers()
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    const text = '[Coloop Auto Agent Work:123]\n中文\nCODE '
+    const read = vi
+      .spyOn(capture, 'metadata')
+      .mockResolvedValueOnce({ ...meta, editable_text: 'stale placeholder' })
+      .mockResolvedValueOnce({ ...meta, editable_text: undefined })
+      .mockResolvedValue({
+        ...meta,
+        editable_text: text.replace(/\n/g, '\r\n'),
+        editable_rect: [20, 0, 700, 500],
+      })
+    const pending = capture.verifyCurrentText(snapshot, text, true, 'editor-height')
+    await vi.runAllTimersAsync()
+    expect(await pending).toMatchObject({
+      verified: true,
+      attempts: 3,
+      elapsed_ms: 150,
+      checks: {
+        window: true,
+        process: true,
+        runtime: true,
+        editor_geometry: true,
+        text_exact: true,
+      },
+    })
+    expect(read).toHaveBeenCalledTimes(3)
+    expect(read.mock.calls.every((args) => args.length === 0)).toBe(true)
+  })
+  it.each([
+    { window_id: 'other' },
+    { process_id: 99 },
+    { editable_runtime_id: [42, 99] },
+    { editable_focus: false },
+    { window_rect: [0, 0, 900, 600] },
+    { editable_rect: [20, 10, 700, 510] },
+  ])(
+    'ends settling immediately on identity change without accepting later text: %j',
+    async (change) => {
+      vi.useFakeTimers()
+      const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+      const read = vi
+        .spyOn(capture, 'metadata')
+        .mockResolvedValueOnce({ ...meta, editable_text: 'partial' })
+        .mockResolvedValueOnce({ ...meta, editable_text: 'partial', ...change })
+        .mockResolvedValue({ ...meta, editable_text: 'complete' })
+      const pending = capture.verifyCurrentText(snapshot, 'complete', true, 'editor-height')
+      await vi.runAllTimersAsync()
+      expect(await pending).toMatchObject({
+        verified: false,
+        failure: 'binding_changed',
+        attempts: 2,
+      })
+      expect(read).toHaveBeenCalledTimes(2)
+    },
+  )
+  it('bounds the total wait and returns diagnostics without draft text', async () => {
+    vi.useFakeTimers()
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    const read = vi
+      .spyOn(capture, 'metadata')
+      .mockResolvedValue({ ...meta, editable_text: 'private draft' })
+    const pending = capture.verifyCurrentText(snapshot, 'private expected', true, 'editor-height')
+    await vi.runAllTimersAsync()
+    const result = await pending
+    expect(result).toMatchObject({
+      verified: false,
+      failure: 'text_not_settled',
+      elapsed_ms: 1000,
+      checks: { text_readable: true, text_exact: false, focus: true },
+    })
+    expect(read.mock.calls.length).toBeLessThanOrEqual(15)
+    expect(JSON.stringify(result)).not.toContain('private')
+  })
+  it('includes a stalled native read in the same deadline and ignores its late result', async () => {
+    vi.useFakeTimers()
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    let resolveRead!: (value: ForegroundMetadata) => void
+    const read = vi.spyOn(capture, 'metadata').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve
+        }),
+    )
+    const pending = capture.verifyCurrentText(snapshot, 'complete', true, 'editor-height')
+    await vi.advanceTimersByTimeAsync(1000)
+    const result = await pending
+    expect(result).toMatchObject({
+      verified: false,
+      failure: 'metadata_timeout',
+      attempts: 1,
+      elapsed_ms: 1000,
+    })
+    resolveRead({ ...meta, editable_text: 'complete' })
+    await vi.runAllTimersAsync()
+    expect(result.verified).toBe(false)
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+  it('keeps ordinary exact verification single-read with no settling diagnostics', async () => {
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    const read = vi
+      .spyOn(capture, 'metadata')
+      .mockResolvedValueOnce({ ...meta, editable_text: 'partial' })
+      .mockResolvedValue({ ...meta, editable_text: 'complete' })
+    expect(await capture.verifyCurrentText(snapshot, 'complete', true)).toEqual({
+      verified: false,
+      source: 'uia',
+    })
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+  it.each([
+    { window_id: 'other' },
+    { process_id: 99 },
+    { window_rect: [0, 0, 900, 700] },
+    { editable_focus: false },
+    { editable_runtime_id: [42, 99] },
+    { editable_rect: [30, 20, 700, 500] },
+    { editable_text: undefined },
+  ])('rejects changed identity or unreadable text: %j', async (change) => {
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    vi.spyOn(capture, 'metadata').mockResolvedValue({ ...meta, editable_text: 'draft', ...change })
+    await expect(capture.readDraft(snapshot, 1)).rejects.toThrow('EDITOR_BINDING_CHANGED')
+  })
+  it('accepts only complete stable placeholder-only structure inside the leased assistant window', async () => {
+    const capture = new WindowsObservationCapture({ recognize: vi.fn() })
+    const live = {
+      ...meta,
+      process_name: 'ChatGPT',
+      editable_source: 'uia' as const,
+      editable_text: '和 Codex 一起工作\n',
+      editable_placeholder: placeholder,
+    }
+    const read = vi.spyOn(capture, 'metadata').mockResolvedValue(live)
+    const view = { ...snapshot, process_name: 'ChatGPT' }
+    await expect(capture.readDraft(view, 1)).rejects.toThrow('EDITOR_BINDING_CHANGED')
+    await capture.withAgentWindow(async () => {
+      await expect(capture.readDraft(view, 1)).resolves.toEqual({ text: '' })
+      // A human can type the exact placeholder text: its Group is not a placeholder.
+      read.mockResolvedValue({
+        ...live,
+        editable_text: '和 Codex 一起工作',
+        editable_placeholder: { ...placeholder, child: { ...placeholder.child, class_name: '' } },
+      })
+      await expect(capture.readDraft(view, 1)).resolves.toEqual({ text: '和 Codex 一起工作' })
+      for (const proof of [
+        undefined,
+        { ...placeholder, raw_children_complete: false },
+        { ...placeholder, stable: false },
+        { ...placeholder, patterns_match: false },
+        { ...placeholder, text_matches_name: false },
+        { ...placeholder, document_child_count: 1 },
+        { ...placeholder, subtree_matches_placeholder: false },
+        { ...placeholder, child: { ...placeholder.child, has_children: false } },
+      ]) {
+        read.mockResolvedValue({ ...live, editable_placeholder: proof })
+        await expect(capture.readDraft(view, 1)).resolves.toEqual({ text: live.editable_text })
+      }
+      read.mockResolvedValue({ ...live, editable_text: ' \n', editable_placeholder: undefined })
+      await expect(capture.readDraft(view, 1)).resolves.toEqual({ text: ' \n' })
+    })
+  })
+})
 describe('target window restoration', () => {
   it('restores the observed application before input when the assistant window took focus', async () => {
     const capture = new WindowsObservationCapture({ recognize: vi.fn() })
@@ -860,7 +1161,9 @@ describe('target window restoration', () => {
     const capture = new WindowsObservationCapture({ recognize: vi.fn() })
     vi.spyOn(capture, 'metadata').mockResolvedValue({ ...meta, window_id: '99' })
     const restore = vi.spyOn(capture, 'restoreTarget').mockResolvedValue(false)
-    await expect(capture.captureFrame(undefined, true)).resolves.toBeNull()
+    await expect(capture.captureFrame(undefined, true)).rejects.toThrow(
+      'OBSERVATION_TARGET_UNAVAILABLE',
+    )
     expect(restore).toHaveBeenCalledOnce()
   })
   it('leaves passive observation on the Coloop window without restoring or capturing it', async () => {

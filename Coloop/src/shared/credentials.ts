@@ -36,6 +36,7 @@ export type PrivateLoginState = {
   origin: string
   busy: boolean
   message: string
+  outcome?: 'not_sent' | 'input_sent' | 'unknown'
 }
 export interface PrivateLoginApi {
   state(): Promise<PrivateLoginState>

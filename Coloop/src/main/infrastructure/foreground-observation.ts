@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { BrowserWindow, desktopCapturer, screen, nativeImage } from 'electron'
 import type { OcrResult } from '../../shared/contracts'
 import { cleanSuggestionOcr } from '../domain/suggestion-ocr'
+import { editorBindingFailure } from './editor-binding-diagnostics'
 
 const foregroundScript = `
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -234,6 +235,70 @@ function Read-ColoopControlState($element,$target) {
   $target.selected=$selection.Current.IsSelected
  } catch {}
 }
+function Test-ColoopPlaceholderSubtree($placeholder,$name) {
+ try {
+  $walker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+  $group=$walker.GetFirstChild($placeholder)
+  if($null -eq $group) { return $false }
+  $lineBreak=$walker.GetNextSibling($group)
+  if($null -eq $lineBreak -or $null -ne $walker.GetNextSibling($lineBreak)) { return $false }
+  $label=$walker.GetFirstChild($group)
+  if($null -eq $label -or $null -ne $walker.GetNextSibling($label) -or
+     $null -ne $walker.GetFirstChild($label) -or $null -ne $walker.GetFirstChild($lineBreak)) { return $false }
+  $g=$group.Current
+  if($g.ControlType -ne [System.Windows.Automation.ControlType]::Group -or $g.ClassName -cne '' -or
+     $g.Name -cne '' -or $g.IsContentElement -or $g.IsControlElement -or $g.IsKeyboardFocusable -or $g.HasKeyboardFocus) { return $false }
+  $gp=@($group.GetSupportedPatterns())
+  if($gp -contains [System.Windows.Automation.ValuePattern]::Pattern -or $gp -contains [System.Windows.Automation.TextPattern]::Pattern) { return $false }
+  foreach($leaf in @($label,$lineBreak)) {
+   $c=$leaf.Current
+   if($c.ControlType -ne [System.Windows.Automation.ControlType]::Text -or !$c.IsContentElement -or !$c.IsControlElement -or
+      $c.IsKeyboardFocusable -or $c.HasKeyboardFocus -or $c.IsPassword -or
+      @($leaf.GetSupportedPatterns()) -contains [System.Windows.Automation.ValuePattern]::Pattern) { return $false }
+   $range=$leaf.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange
+   if($range.GetText(200001) -cne $c.Name -or @($range.GetChildren()).Count -ne 0) { return $false }
+  }
+  return ($label.Current.ClassName -ceq '' -and $label.Current.Name -ceq $name -and
+   $lineBreak.Current.ClassName -ceq 'ProseMirror-trailingBreak' -and
+   ($lineBreak.Current.Name -ceq [string][char]10 -or $lineBreak.Current.Name -ceq ([string][char]13+[char]10)))
+ } catch { return $false }
+}
+function Read-ColoopPlaceholder($element,$text) {
+ # Chromium exposes the empty ProseMirror placeholder as Value/Text content.
+ # Never infer emptiness from a phrase or Name alone: require the complete,
+ # placeholder-only RawView structure observed in the actual desktop composer.
+ try {
+  if($null -eq $text -or $text.Length -eq 0 -or $text.Length -gt 200000 -or
+     $element.Current.ControlType -ne [System.Windows.Automation.ControlType]::Edit -or
+     !(($element.Current.ClassName -split ' ') -ccontains 'ProseMirror')) { return $null }
+  $vp=$element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+  $tp=$element.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
+  $name=$element.Current.Name
+  $matchesName=($name.Length -gt 0 -and ($text -ceq ($name+[char]10) -or $text -ceq ($name+[char]13+[char]10)))
+  if(!$matchesName -or $vp.Current.IsReadOnly -or $vp.Current.Value -cne $text -or $tp.DocumentRange.GetText(200001) -cne $text) { return $null }
+  $walker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+  $child=$walker.GetFirstChild($element)
+  if($null -eq $child) { return $null }
+  $current=$child.Current
+  $supported=@($child.GetSupportedPatterns())
+  $evidence=@{
+   kind='prosemirror'; patterns_match=$true; text_matches_name=$matchesName
+   document_child_count=@($tp.DocumentRange.GetChildren()).Count
+   raw_children_complete=($null -eq $walker.GetNextSibling($child))
+   subtree_matches_placeholder=(Test-ColoopPlaceholderSubtree $child $name)
+   child=@{type=$current.ControlType.ProgrammaticName;class_name=$current.ClassName;name_empty=($current.Name.Length -eq 0);content=$current.IsContentElement;control=$current.IsControlElement;focusable=$current.IsKeyboardFocusable;focused=$current.HasKeyboardFocus;has_children=($null -ne $walker.GetFirstChild($child));has_value=($supported -contains [System.Windows.Automation.ValuePattern]::Pattern);has_text=($supported -contains [System.Windows.Automation.TextPattern]::Pattern)}
+   stable=$false
+  }
+  $focused=[System.Windows.Automation.AutomationElement]::FocusedElement
+  $evidence.stable=($null -ne $focused -and $focused.Current.ProcessId -eq $element.Current.ProcessId -and
+   (($focused.GetRuntimeId()) -join ',') -ceq (($element.GetRuntimeId()) -join ',') -and
+   $element.Current.HasKeyboardFocus -and $element.Current.Name -ceq $name -and
+   $vp.Current.Value -ceq $text -and $tp.DocumentRange.GetText(200001) -ceq $text -and
+   $child.Current.ClassName -ceq $current.ClassName -and $null -eq $walker.GetNextSibling($child) -and
+   (Test-ColoopPlaceholderSubtree $child $name))
+  return $evidence
+ } catch { return $null }
+}
 while ($null -ne ($line = [Console]::ReadLine())) {
  try {
  $request = $line | ConvertFrom-Json
@@ -246,7 +311,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
  $threadId=[ColoopForeground]::GetWindowThreadProcessId($handle,[ref]$processId)
  $rect = New-Object ColoopForeground+RECT
  [void][ColoopForeground]::GetWindowRect($handle,[ref]$rect)
- $focusDiag=$null; $editable = $false; $editText = $null; $editRect = $null; $editRuntime = $null; $selectionStart = $null; $selectionEnd = $null; $editableSource='uia'
+ $focusDiag=$null; $editable = $false; $editText = $null; $editPlaceholder = $null; $editRect = $null; $editRuntime = $null; $selectionStart = $null; $selectionEnd = $null; $editableSource='uia'
  try {
  $f = [System.Windows.Automation.AutomationElement]::FocusedElement
  $gui=New-Object ColoopForeground+GUIINFO;$gui.cbSize=[Runtime.InteropServices.Marshal]::SizeOf($gui)
@@ -270,6 +335,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
    }
   } catch {}
   if ($null -ne $editText -and $editText.Length -gt 200000) { $editText = $null }
+  $editPlaceholder=Read-ColoopPlaceholder $f $editText
  }
  } catch {}
  try {
@@ -349,7 +415,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
    if(!@($controlTargets|Where-Object{($_.runtime_id -join ',') -eq $identity}).Count){$controlTargets+=,$target}
   }
  }
- @{ window_id=$handle.ToInt64().ToString(); process_id=$processId; process_name=(Get-Process -Id $processId -ErrorAction Stop).ProcessName; window_rect=@($rect.left,$rect.top,$rect.right,$rect.bottom); point_owner=$pointOwner.ToString(); point_process_id=$pointProcessId; point_target=$pointTarget; focus_diagnostic=$focusDiag; editor_targets=$editorTargets; control_targets=$controlTargets; editable_focus=$editable; editable_rect=$editRect; editable_runtime_id=$editRuntime; editable_source=$editableSource; editable_text=$editText; selection_start=$selectionStart; selection_end=$selectionEnd; screen=@{x=[ColoopForeground]::GetSystemMetrics(76);y=[ColoopForeground]::GetSystemMetrics(77);width=[ColoopForeground]::GetSystemMetrics(78);height=[ColoopForeground]::GetSystemMetrics(79)} } | ConvertTo-Json -Compress -Depth 5 | ForEach-Object { [Console]::WriteLine($_) }
+ @{ window_id=$handle.ToInt64().ToString(); process_id=$processId; process_name=(Get-Process -Id $processId -ErrorAction Stop).ProcessName; window_rect=@($rect.left,$rect.top,$rect.right,$rect.bottom); point_owner=$pointOwner.ToString(); point_process_id=$pointProcessId; point_target=$pointTarget; focus_diagnostic=$focusDiag; editor_targets=$editorTargets; control_targets=$controlTargets; editable_focus=$editable; editable_rect=$editRect; editable_runtime_id=$editRuntime; editable_source=$editableSource; editable_text=$editText; editable_placeholder=$editPlaceholder; selection_start=$selectionStart; selection_end=$selectionEnd; screen=@{x=[ColoopForeground]::GetSystemMetrics(76);y=[ColoopForeground]::GetSystemMetrics(77);width=[ColoopForeground]::GetSystemMetrics(78);height=[ColoopForeground]::GetSystemMetrics(79)} } | ConvertTo-Json -Compress -Depth 5 | ForEach-Object { [Console]::WriteLine($_) }
  } catch { [Console]::WriteLine('{"error":"foreground_unavailable"}') }
 }
 `
@@ -363,6 +429,28 @@ export interface ForegroundMetadata {
   editable_focus: boolean
   editable_rect?: number[]
   editable_text?: string
+  /** Same-read structural evidence only; never includes placeholder/draft text. */
+  editable_placeholder?: {
+    kind: 'prosemirror'
+    patterns_match: boolean
+    text_matches_name: boolean
+    document_child_count: number
+    raw_children_complete: boolean
+    subtree_matches_placeholder: boolean
+    stable: boolean
+    child: {
+      type: string
+      class_name: string
+      name_empty: boolean
+      content: boolean
+      control: boolean
+      focusable: boolean
+      focused: boolean
+      has_children: boolean
+      has_value: boolean
+      has_text: boolean
+    }
+  }
   editable_runtime_id?: number[]
   editable_source?: 'uia' | 'win32'
   editor_targets?: {
@@ -451,6 +539,30 @@ export function hasMeaningfulVisualChange(before: Buffer, after: Buffer) {
 const isAssistantProcess = (name?: string) => /^(chatgpt|codex)$/i.test(name ?? '')
 
 export class WindowsObservationCapture {
+  private agentWindow?: { window_id: string; process_id: number }
+  /** A bound Auto Agent Work action leases one foreground agent window. Ordinary
+   * desktop tasks still cannot type into ChatGPT/Codex. Never persist this lease. */
+  async withAgentWindow<T>(run: () => Promise<T>): Promise<T> {
+    if (this.agentWindow) throw new Error('AGENT_WINDOW_BUSY')
+    const live = await this.metadata()
+    if (!isAssistantProcess(live.process_name))
+      throw new Error('请将绑定的 ChatGPT / Codex 会话置于前台')
+    this.agentWindow = { window_id: live.window_id, process_id: live.process_id }
+    try {
+      return await run()
+    } finally {
+      this.agentWindow = undefined
+    }
+  }
+  private blockedAssistant(value: ForegroundMetadata) {
+    return (
+      isAssistantProcess(value.process_name) &&
+      !(
+        this.agentWindow?.window_id === value.window_id &&
+        this.agentWindow.process_id === value.process_id
+      )
+    )
+  }
   private child?: ChildProcessWithoutNullStreams
   private serial: Promise<unknown> = Promise.resolve()
   private pending?: { resolve(value: ForegroundMetadata): void; reject(error: Error): void }
@@ -562,10 +674,12 @@ export class WindowsObservationCapture {
         )
       })
     let meta = await this.metadata()
-    if (isAssistantProcess(meta.process_name) || ownWindow(meta.window_id)) {
-      if (!restoreBlockedTarget || !(await this.restoreTarget())) return null
+    if (this.blockedAssistant(meta) || ownWindow(meta.window_id)) {
+      if (!restoreBlockedTarget) return null
+      if (!(await this.restoreTarget())) throw new Error('OBSERVATION_TARGET_UNAVAILABLE')
       meta = await this.metadata()
-      if (isAssistantProcess(meta.process_name) || ownWindow(meta.window_id)) return null
+      if (this.blockedAssistant(meta) || ownWindow(meta.window_id))
+        throw new Error('OBSERVATION_TARGET_UNAVAILABLE')
     }
     if (meta.window_id === '0') return null
     this.lastExternalTarget = { window_id: meta.window_id, process_id: meta.process_id }
@@ -909,23 +1023,24 @@ export class WindowsObservationCapture {
         (!needsEdit ||
           (baseline.editable_runtime_id?.join() === live.editable_runtime_id?.join() &&
             baseline.editable_rect?.join() === live.editable_rect?.join())))
-    const allowed = !!(
-      !isAssistantProcess(live.process_name) &&
-      !isAssistantProcess(snapshot.process_name) &&
-      same &&
-      inside &&
-      elementValid &&
-      focusValid &&
-      observedPointMatches &&
-      observedFocusMatches &&
-      identityMatches
-    )
+    const checks = {
+      same,
+      inside,
+      elementValid: !!elementValid,
+      focusValid: !!focusValid,
+      observedPointMatches,
+      observedFocusMatches,
+      identityMatches,
+      assistantAllowed: !this.blockedAssistant(live) && !this.blockedAssistant(snapshot),
+    }
+    const allowed = Object.values(checks).every(Boolean)
     if (allowed && !guard) {
       if (this.inputBindings.size > 64) this.inputBindings.clear()
       this.inputBindings.set(bindingKey, live)
     }
     return {
       allowed,
+      checks,
       center,
       screen: [live.screen.x, live.screen.y, live.screen.width, live.screen.height],
       editable_focus: live.editable_focus,
@@ -956,7 +1071,7 @@ export class WindowsObservationCapture {
       (item) => item.id === targetId,
     )
     if (
-      isAssistantProcess(live.process_name) ||
+      this.blockedAssistant(live) ||
       live.window_id !== snapshot.window_id ||
       live.process_id !== snapshot.process_id ||
       live.window_rect.join() !== snapshot.window_rect.join() ||
@@ -977,6 +1092,57 @@ export class WindowsObservationCapture {
       selection_start: live.selection_start!,
       selection_end: live.selection_end!,
     }
+  }
+  /** Read an entire bound draft without requiring provider-specific caret offsets.
+   * Selection-based editing must continue to use readEditor instead. */
+  async readDraft(snapshot: ForegroundObservation, targetId: number) {
+    const live = await this.metadata()
+    const target = (
+      snapshot.targets as { id: number; type?: string; runtime_id?: number[] }[]
+    ).find((item) => item.id === targetId)
+    const checks = {
+      assistantAllowed: !this.blockedAssistant(live),
+      window: live.window_id === snapshot.window_id,
+      process: live.process_id === snapshot.process_id,
+      windowRect: live.window_rect.join() === snapshot.window_rect.join(),
+      focused: !!live.editable_focus,
+      targetFound: !!target,
+      targetType: !!target && ['Edit', 'Document'].includes(target.type ?? ''),
+      targetRuntimePresent: !!target?.runtime_id?.length,
+      targetRuntime:
+        !!target?.runtime_id?.length &&
+        target.runtime_id.join() === live.editable_runtime_id?.join(),
+      snapshotRuntime: snapshot.editable_runtime_id?.join() === live.editable_runtime_id?.join(),
+      editorRectPresent: live.editable_rect?.length === 4,
+      editorRect: snapshot.editable_rect?.join() === live.editable_rect?.join(),
+      textReadable: typeof live.editable_text === 'string',
+      textWithinLimit:
+        typeof live.editable_text === 'string' && live.editable_text.length <= 200000,
+    }
+    if (Object.values(checks).some((passed) => !passed)) throw editorBindingFailure(checks)
+    const proof = live.editable_placeholder
+    const child = proof?.child
+    const placeholderEmpty =
+      isAssistantProcess(live.process_name) &&
+      live.editable_source === 'uia' &&
+      proof?.kind === 'prosemirror' &&
+      proof.patterns_match === true &&
+      proof.text_matches_name === true &&
+      proof.document_child_count === 0 &&
+      proof.raw_children_complete === true &&
+      proof.subtree_matches_placeholder === true &&
+      proof.stable === true &&
+      child?.type === 'ControlType.Group' &&
+      child.class_name === 'placeholder' &&
+      child.name_empty === true &&
+      child.content === false &&
+      child.control === false &&
+      child.focusable === false &&
+      child.focused === false &&
+      child.has_children === true &&
+      child.has_value === false &&
+      child.has_text === false
+    return { text: placeholderEmpty ? '' : live.editable_text! }
   }
   async verifyText(snapshot: ForegroundObservation, text: string) {
     const live = await this.metadata(),
@@ -1025,7 +1191,13 @@ export class WindowsObservationCapture {
       observation_id: snapshot.observation_id,
     }
   }
-  async verifyCurrentText(snapshot: ForegroundObservation, expectedText: string, exact = false) {
+  async verifyCurrentText(
+    snapshot: ForegroundObservation,
+    expectedText: string,
+    exact = false,
+    geometry?: 'editor-height',
+  ) {
+    if (geometry === 'editor-height') return this.verifySettledDraft(snapshot, expectedText, exact)
     const live = await this.metadata()
     const normalize = (text: string) => text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
     const verified =
@@ -1040,6 +1212,93 @@ export class WindowsObservationCapture {
         ? normalize(live.editable_text) === normalize(expectedText)
         : normalize(live.editable_text).includes(normalize(expectedText)))
     return { verified, source: live.editable_source ?? 'uia' }
+  }
+  private async verifySettledDraft(
+    snapshot: ForegroundObservation,
+    expectedText: string,
+    exact: boolean,
+  ) {
+    const started = Date.now(),
+      deadline = started + 1000
+    const normalize = (text: string) => text.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+    let attempts = 0,
+      source = 'uia'
+    let checks: Record<string, boolean> = { metadata_available: false }
+    const result = (verified: boolean, failure?: string) => ({
+      verified,
+      source,
+      checks,
+      attempts,
+      elapsed_ms: Math.max(0, Date.now() - started),
+      ...(failure ? { failure } : {}),
+    })
+    if (!exact || expectedText.length === 0) return result(false, 'invalid_expectation')
+    for (;;) {
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) return result(false, 'text_not_settled')
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let live: ForegroundMetadata | undefined
+      attempts++
+      try {
+        // The whole verification has one deadline, including a slow UIA read.
+        // A late read can finish harmlessly; it cannot dispatch any input.
+        live = await Promise.race([
+          this.metadata(),
+          new Promise<undefined>((resolve) => {
+            timer = setTimeout(() => resolve(undefined), remaining)
+          }),
+        ])
+      } catch {
+        checks = { ...checks, metadata_available: false }
+        return result(false, 'metadata_unavailable')
+      } finally {
+        if (timer) clearTimeout(timer)
+      }
+      if (!live) {
+        checks = { ...checks, metadata_available: false }
+        return result(false, 'metadata_timeout')
+      }
+      source = live.editable_source ?? 'uia'
+      const rect = live.editable_rect,
+        original = snapshot.editable_rect,
+        window = snapshot.window_rect
+      checks = {
+        metadata_available: true,
+        assistant_access: !this.blockedAssistant(live),
+        window: live.window_id === snapshot.window_id,
+        process: live.process_id === snapshot.process_id,
+        window_rect: live.window_rect.join() === window.join(),
+        focus: live.editable_focus === true,
+        runtime:
+          !!live.editable_runtime_id?.length &&
+          live.editable_runtime_id.join() === snapshot.editable_runtime_id?.join(),
+        editor_geometry:
+          rect?.length === 4 &&
+          original?.length === 4 &&
+          rect.every(Number.isFinite) &&
+          rect[0] === original[0] &&
+          rect[2] === original[2] &&
+          rect[2] > rect[0] &&
+          rect[3] > rect[1] &&
+          rect[0] >= window[0] &&
+          rect[1] >= window[1] &&
+          rect[2] <= window[2] &&
+          rect[3] <= window[3] &&
+          (rect[1] === original[1] || rect[3] === original[3]),
+        text_readable: typeof live.editable_text === 'string',
+        text_exact:
+          typeof live.editable_text === 'string' &&
+          normalize(live.editable_text) === normalize(expectedText),
+      }
+      if (Object.entries(checks).some(([key, passed]) => !key.startsWith('text_') && !passed))
+        return result(false, 'binding_changed')
+      if (checks.text_exact) return result(true)
+      // Only a stale/unreadable value may settle. A changed identity never gets
+      // another chance, and every read compares against the original snapshot.
+      const wait = Math.min(75, deadline - Date.now())
+      if (wait <= 0) return result(false, 'text_not_settled')
+      await new Promise((resolve) => setTimeout(resolve, wait))
+    }
   }
   guard(snapshot: ForegroundObservation, action: ObservationAction) {
     return this.inspectInput(snapshot, action, true)

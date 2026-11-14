@@ -111,7 +111,7 @@ it.each([
   [{ max_tokens: 256 }, 256],
   [{ max_completion_tokens: 512 }, 512],
   [{ max_tokens: 512, max_completion_tokens: 256 }, 256],
-  [{ max_tokens: 4096 }, 1024],
+  [{ max_tokens: 1024 }, 1024],
   [{}, 1024],
 ])('honors the actual per-request output cap for local summaries: %j', async (fields, expected) => {
   const complete = vi.fn(

@@ -4,7 +4,14 @@ import type { AppStore } from '../infrastructure/store'
  * Observe the existing task; never create a task or dispatch another action. */
 export function syncRecoveredTaskHistory(
   store: Pick<AppStore, 'tasks' | 'persist'>,
-  state: { taskId?: string; active: boolean; phase: string; summary?: string; error?: string },
+  state: {
+    taskId?: string
+    active: boolean
+    phase: string
+    summary?: string
+    error?: string
+    model?: string
+  },
   stage: string,
 ) {
   const prior = store.tasks.find((task) => task.id === state.taskId)
@@ -20,11 +27,18 @@ export function syncRecoveredTaskHistory(
       : state.phase === 'cancelled'
         ? 'cancelled'
         : 'failed'
-  if (prior.status === status && state.active) return
+  if (
+    prior.status === status &&
+    state.active &&
+    prior.stage === stage &&
+    (!state.model || prior.model === state.model)
+  )
+    return
   const updated = {
     ...prior,
     status,
     stage,
+    model: state.model ?? prior.model,
     answer: state.active ? '' : (state.summary ?? ''),
     error:
       state.active || status === 'completed' || status === 'cancelled' ? undefined : state.error,

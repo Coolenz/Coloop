@@ -134,10 +134,89 @@ it('keeps isolated profile memory stable across restart and separate from other 
   const profile = join(tmpdir(), 'coloop-profile-a')
   const namespace = rkMemoryNamespace(profile)
   expect(rkMemoryNamespace()).toBe('production')
-  expect(namespace).toMatch(/^qa:profile:[a-f0-9]{64}$/)
+  expect(namespace).toMatch(/^qa:profile:[a-f0-9]{32}$/)
+  expect(namespace.length).toBeLessThanOrEqual(64)
   expect(rkMemoryNamespace(join(profile, 'nested', '..'))).toBe(namespace)
   expect(rkMemoryNamespace(join(tmpdir(), 'coloop-profile-b'))).not.toBe(namespace)
   if (process.platform === 'win32') expect(rkMemoryNamespace(profile.toUpperCase())).toBe(namespace)
+})
+
+it('resumes a stopped draft through its dedicated operation without preparing or sending input', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  await f.bridge.stop(f.task)
+  const resume = { ...f.task, command_id: 'draft:send', paste_command_id: 'draft:paste' }
+  await f.bridge.resumeDraft(resume)
+  expect(f.received).toContainEqual(expect.objectContaining({ op: 'resume_draft', value: resume }))
+  expect(f.prepareInput).not.toHaveBeenCalled()
+  expect(f.input).not.toHaveBeenCalled()
+  expect(f.clipboard).not.toHaveBeenCalled()
+  expect(f.received.some((packet) => packet.op === 'execute')).toBe(false)
+  await f.bridge.execute({
+    ...f.task,
+    command_id: 'draft:send',
+    observation: { observation_id: 'fresh-draft', window_id: '1', ocr_text: '' },
+    action: { action: 'hotkey', target_id: 1, keys: 'ENTER' },
+  })
+  expect(f.received.filter((packet) => packet.op === 'execute')).toHaveLength(1)
+})
+
+it('can inspect and explicitly resume a persisted draft using a fresh bridge', async () => {
+  const f = await fixture()
+  await f.bridge.status({ ...f.task, command_id: 'draft:paste' })
+  await f.bridge.resumeDraft({
+    ...f.task,
+    command_id: 'draft:send',
+    paste_command_id: 'draft:paste',
+  })
+  expect(f.received.some((packet) => packet.op === 'begin')).toBe(false)
+  expect(f.received.some((packet) => packet.op === 'execute')).toBe(false)
+  expect(f.prepareInput).not.toHaveBeenCalled()
+})
+
+it('rejects draft recovery while active or for a different stopped generation', async () => {
+  const f = await fixture()
+  const resume = { ...f.task, command_id: 'draft:send', paste_command_id: 'draft:paste' }
+  await f.bridge.begin(f.task)
+  await expect(f.bridge.resumeDraft(resume)).rejects.toThrow('RK_ADAPTER_BUSY')
+  await f.bridge.stop(f.task)
+  await expect(f.bridge.resumeDraft({ ...resume, generation: 'other' })).rejects.toThrow(
+    'RK_ADAPTER_STALE_TASK',
+  )
+  expect(f.received.some((packet) => packet.op === 'resume_draft')).toBe(false)
+})
+
+it('does not reactivate a draft when stop wins over a queued resume response', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  await f.bridge.stop(f.task)
+  const write = f.channels[0]._write.bind(f.channels[0])
+  let pending: any
+  f.channels[0]._write = (chunk, encoding, callback) => {
+    const packet = JSON.parse(chunk.toString())
+    if (packet.op === 'resume_draft') {
+      pending = packet
+      f.received.push(packet)
+      callback()
+    } else write(chunk, encoding, callback)
+  }
+  const resuming = f.bridge.resumeDraft({
+    ...f.task,
+    command_id: 'draft:send',
+    paste_command_id: 'draft:paste',
+  })
+  const rejected = expect(resuming).rejects.toThrow('RK_ADAPTER_STALE_TASK')
+  await vi.waitFor(() => expect(pending).toBeDefined())
+  await expect(f.bridge.begin(f.task)).rejects.toThrow('RK_ADAPTER_BUSY')
+  await expect(
+    f.bridge.resumeDraft({ ...f.task, command_id: 'draft:send', paste_command_id: 'draft:paste' }),
+  ).rejects.toThrow('RK_ADAPTER_BUSY')
+  await f.bridge.stop(f.task)
+  f.channels[0].push(JSON.stringify({ type: 'reply', id: pending.id, value: { ok: true } }) + '\n')
+  await rejected
+  await expect(f.execute()).rejects.toThrow('RK_ADAPTER_STALE_TASK')
+  expect(f.received.filter((packet) => packet.op === 'stop')).toHaveLength(3)
+  expect(f.received.some((packet) => packet.op === 'execute')).toBe(false)
 })
 
 it('uses the isolated profile namespace for both executor reads and queued memory writes', async () => {
@@ -162,6 +241,109 @@ it('rejects cloud RPC and unbound observation requests from the executor', async
   )
   expect(f.input).not.toHaveBeenCalled()
 })
+
+it.each([
+  ['input.validate', 'input.validate'],
+  ['input.guard', 'input.guard'],
+  ['clipboard.prepare', 'input.guard'],
+])(
+  'returns only allowed binding diagnostics from %s with the actual %s failure stage',
+  async (op, stage) => {
+    const f = await fixture()
+    await f.bridge.begin(f.task)
+    await f.execute()
+    f.input.mockRejectedValueOnce(
+      Object.assign(new Error('EDITOR_BINDING_CHANGED'), {
+        diagnostics: {
+          category: 'editor_binding',
+          stage: 'secret window title',
+          text: 'private draft',
+          checks: {
+            focused: true,
+            targetRuntime: false,
+            editorRect: false,
+            window: 'private title',
+            editable_text: 'private draft',
+            runtime_id: [42, 99],
+          },
+        },
+      }),
+    )
+    const reply = await f.rpc(op)
+    expect(reply).toEqual({
+      type: 'reply',
+      id: 'host-rpc',
+      error: 'EDITOR_BINDING_CHANGED',
+      diagnostics: {
+        category: 'editor_binding',
+        stage,
+        checks: { focused: true, targetRuntime: false, editorRect: false },
+      },
+    })
+    expect(JSON.stringify(reply)).not.toContain('private')
+  },
+)
+
+it('does not attach binding diagnostics to unrelated or malformed errors', async () => {
+  const f = await fixture()
+  await f.bridge.begin(f.task)
+  await f.execute()
+  for (const [code, diagnostics] of [
+    ['INPUT_GUARD_CHANGED', { category: 'editor_binding', checks: { focused: false } }],
+    ['EDITOR_BINDING_CHANGED', { category: 'private title', checks: { focused: false } }],
+    [
+      'EDITOR_BINDING_CHANGED',
+      { category: 'editor_binding', checks: { focused: 'private draft' } },
+    ],
+  ] as const) {
+    f.input.mockRejectedValueOnce(Object.assign(new Error(code), { diagnostics }))
+    expect(await f.rpc('input.guard')).toEqual({ type: 'reply', id: 'host-rpc', error: code })
+  }
+})
+
+it.each(['input.validate', 'input.guard'])(
+  'preserves denied input target checks for %s without private or cross-category fields',
+  async (stage) => {
+    const f = await fixture()
+    await f.bridge.begin(f.task)
+    await f.execute()
+    f.input.mockRejectedValueOnce(
+      Object.assign(new Error('INPUT_TARGET_CHANGED'), {
+        diagnostics: {
+          category: 'input_target',
+          stage: 'private title',
+          text: 'private draft',
+          checks: {
+            same: true,
+            inside: true,
+            observedPointMatches: false,
+            identityMatches: true,
+            assistantAllowed: true,
+            elementValid: 'private target',
+            targetRuntime: false,
+            title: 'private title',
+          },
+        },
+      }),
+    )
+    expect(await f.rpc(stage)).toEqual({
+      type: 'reply',
+      id: 'host-rpc',
+      error: 'INPUT_TARGET_CHANGED',
+      diagnostics: {
+        category: 'input_target',
+        stage,
+        checks: {
+          same: true,
+          inside: true,
+          observedPointMatches: false,
+          identityMatches: true,
+          assistantAllowed: true,
+        },
+      },
+    })
+  },
+)
 
 it('returns a not-sent receipt when preparation fails before the executor request', async () => {
   const f = await fixture()

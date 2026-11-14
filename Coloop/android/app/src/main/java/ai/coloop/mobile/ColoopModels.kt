@@ -77,3 +77,12 @@ fun recoveryLabel(state: MobileState): String? = when {
 }
 
 fun taskIsUnfinished(task: ColoopTask): Boolean = task.state !in setOf("completed", "answered")
+
+
+data class TaskApproval(val taskId: String, val questionId: String, val title: String,
+    val question: String, val toolName: String, val callId: String, val details: String = "") {
+    companion object {
+        fun parse(value: JSONObject) = TaskApproval(value.getString("taskId"), uuid(value.getString("questionId")),
+            value.getString("title"), value.getString("question"), value.getString("toolName"), value.getString("callId"), value.optString("details", ""))
+    }
+}

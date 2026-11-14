@@ -7,6 +7,9 @@ it('allows only known reads to be requested again after an interrupted dispatch'
   expect(intent('coloop_read_structured')).toEqual({ kind: 'retry_read_only' })
   expect(intent('coloop_read_editor')).toEqual({ kind: 'retry_read_only' })
   expect(intent('coloop_ask_user')).toEqual({ kind: 'retry_read_only' })
+  expect(intent('coloop_conversation_history', { offset: 10, limit: 100 })).toEqual({
+    kind: 'retry_read_only',
+  })
   expect(intent('coloop_memory_search', { query: '邮件偏好', limit: 3 })).toEqual({
     kind: 'retry_read_only',
   })

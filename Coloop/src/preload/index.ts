@@ -2,6 +2,36 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { AppSnapshot, DesktopApi } from '../shared/contracts'
 
 const api: DesktopApi = {
+  rendererReady: () => ipcRenderer.send('app:renderer-ready'),
+  openTaskArtifact: (input) => ipcRenderer.invoke('history:open-artifact', input),
+  onOpenTask: (callback) => {
+    const listener = (_event: unknown, id: string) => callback(id)
+    ipcRenderer.on('app:open-task', listener)
+    return () => ipcRenderer.removeListener('app:open-task', listener)
+  },
+  updatePreferences: (input) => ipcRenderer.invoke('settings:preferences', input),
+  browserConfig: (input) => ipcRenderer.invoke('browser:config', input),
+  startModelDebug: (input) => ipcRenderer.invoke('model-debug:start', input),
+  getModelDebug: (id) => ipcRenderer.invoke('model-debug:get', id),
+  currentModelDebug: () => ipcRenderer.invoke('model-debug:current'),
+  cancelModelDebug: (id) => ipcRenderer.invoke('model-debug:cancel', id),
+  previewTaskRoute: (prompt) => ipcRenderer.invoke('model-debug:route', prompt),
+  modelDiagnostics: (input) => ipcRenderer.invoke('model-debug:diagnostics', input),
+  createConversation: (input) => ipcRenderer.invoke('conversation:create', input),
+  updateConversation: (input) => ipcRenderer.invoke('conversation:update', input),
+  conversationDetail: (id) => ipcRenderer.invoke('conversation:get', id),
+  sendConversation: (input) => ipcRenderer.invoke('conversation:send', input),
+  pauseQueue: (paused) => ipcRenderer.invoke('queue:pause', paused),
+  cancelQueuedTask: (runId) => ipcRenderer.invoke('queue:cancel', { runId }),
+  resumeConversation: (input) => ipcRenderer.invoke('conversation:resume', input),
+  createAutoAgentWork: (input) => ipcRenderer.invoke('auto-agent:create', input),
+  updateAutoAgentWork: (input) => ipcRenderer.invoke('auto-agent:update', input),
+  submitAutoAgentFeedback: (input) => ipcRenderer.invoke('auto-agent:feedback', input),
+  installAutoAgentHooks: (input) => ipcRenderer.invoke('auto-agent:install-hooks', input),
+  uninstallAutoAgentHooks: (input) => ipcRenderer.invoke('auto-agent:uninstall-hooks', input),
+  refreshAutoAgentWork: (input) => ipcRenderer.invoke('auto-agent:refresh', input),
+  setAutoAgentEnabled: (input) => ipcRenderer.invoke('auto-agent:enabled', input),
+  testDecisionProvider: () => ipcRenderer.invoke('auto-agent:test-provider'),
   startProactiveTask: (goal) => ipcRenderer.invoke('proactive:start', goal),
   resumeProactiveTask: (taskId) => ipcRenderer.invoke('proactive:resume', taskId),
   stopProactiveTask: () => ipcRenderer.invoke('proactive:stop'),
@@ -60,6 +90,7 @@ const api: DesktopApi = {
   revokeMobileDevice: (id) => ipcRenderer.invoke('mobile:revoke', id),
   testProvider: () => ipcRenderer.invoke('provider:test'),
   exportHistory: () => ipcRenderer.invoke('history:export'),
+  taskHistory: (id) => ipcRenderer.invoke('history:task', id),
   clearHistory: () => ipcRenderer.invoke('history:clear'),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   onSnapshot: (callback) => {

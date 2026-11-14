@@ -7,6 +7,7 @@ const api: ControlIndicatorApi = {
       : ipcRenderer.invoke('control-indicator:get', revision),
   stop: () => ipcRenderer.invoke('control-indicator:stop'),
   openMain: () => ipcRenderer.invoke('control-indicator:open'),
+  dock: () => ipcRenderer.invoke('control-indicator:dock'),
   close: () => ipcRenderer.invoke('control-indicator:close'),
   closePreview: () => ipcRenderer.invoke('control-indicator:close-preview'),
   acceptSuggestion: (id, revision) =>
